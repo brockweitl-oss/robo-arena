@@ -1,104 +1,104 @@
 {
   "n": 200,
   "field": 2000,
-  "seconds": 46.333,
+  "seconds": 60.164,
   "report": {
     "gun": {
       "pulse": {
-        "vsDefault": 0.515,
-        "field": 0.5315315315315315
+        "vsDefault": 0.46,
+        "field": 0.4839124839124839
       },
       "scatter": {
-        "vsDefault": 0.385,
-        "field": 0.5372093023255814
+        "vsDefault": 0.615,
+        "field": 0.5116279069767442
       },
       "rail": {
-        "vsDefault": 0.65,
-        "field": 0.4587378640776699
+        "vsDefault": 0.74,
+        "field": 0.5327669902912622
       },
       "beam": {
-        "vsDefault": 0.495,
-        "field": 0.4221105527638191
+        "vsDefault": 0.645,
+        "field": 0.4472361809045226
       },
       "homer": {
-        "vsDefault": 0.535,
-        "field": 0.5531628532974427
+        "vsDefault": 0.645,
+        "field": 0.5235531628532974
       }
     },
     "bomb": {
       "mortar": {
-        "vsDefault": 0.515,
-        "field": 0.5819592628516004
+        "vsDefault": 0.46,
+        "field": 0.574199806013579
       },
       "cluster": {
-        "vsDefault": 0.48,
-        "field": 0.4724104549854792
+        "vsDefault": 0.425,
+        "field": 0.43272023233301066
       },
       "napalm": {
-        "vsDefault": 0.34,
-        "field": 0.4219590958019376
+        "vsDefault": 0.37,
+        "field": 0.38966630785791173
       },
       "bouncer": {
         "vsDefault": 0.53,
-        "field": 0.5163853028798411
+        "field": 0.5948361469712016
       }
     },
     "pod": {
       "seeker": {
-        "vsDefault": 0.515,
-        "field": 0.463768115942029
+        "vsDefault": 0.46,
+        "field": 0.4714975845410628
       },
       "mine": {
-        "vsDefault": 0.55,
-        "field": 0.5164609053497943
+        "vsDefault": 0.57,
+        "field": 0.5401234567901234
       },
       "turret": {
-        "vsDefault": 0.38,
-        "field": 0.44064386317907445
+        "vsDefault": 0.515,
+        "field": 0.4869215291750503
       },
       "interceptor": {
-        "vsDefault": 0.55,
-        "field": 0.5805805805805806
+        "vsDefault": 0.535,
+        "field": 0.5035035035035035
       }
     },
     "body": {
       "striker": {
-        "vsDefault": 0.515,
-        "field": 0.49950932286555444
+        "vsDefault": 0.46,
+        "field": 0.4631992149165849
       },
       "ironclad": {
-        "vsDefault": 0.53,
-        "field": 0.5495951417004049
+        "vsDefault": 0.57,
+        "field": 0.5273279352226721
       },
       "wisp": {
-        "vsDefault": 0.565,
-        "field": 0.4564777327935223
+        "vsDefault": 0.555,
+        "field": 0.49696356275303644
       },
       "regent": {
-        "vsDefault": 0.63,
-        "field": 0.4945273631840796
+        "vsDefault": 0.575,
+        "field": 0.5134328358208955
       }
     },
     "legs": {
       "stride": {
-        "vsDefault": 0.515,
-        "field": 0.5333333333333333
+        "vsDefault": 0.46,
+        "field": 0.48933333333333334
       },
       "hopper": {
-        "vsDefault": 0.43,
-        "field": 0.5422885572139303
+        "vsDefault": 0.515,
+        "field": 0.5435323383084577
       },
       "sprint": {
-        "vsDefault": 0.615,
-        "field": 0.5386444708680143
+        "vsDefault": 0.55,
+        "field": 0.544589774078478
       },
       "anchor": {
-        "vsDefault": 0.38,
-        "field": 0.3880778588807786
+        "vsDefault": 0.385,
+        "field": 0.4282238442822384
       },
       "feather": {
-        "vsDefault": 0.505,
-        "field": 0.5006385696040868
+        "vsDefault": 0.5,
+        "field": 0.4929757343550447
       }
     }
   }

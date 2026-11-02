@@ -75,6 +75,15 @@ const CSS = /* css */ `
 .hud-practice.on { display:block; }
 .hud-practice div { display:flex; justify-content:space-between; gap:18px; }
 .hud-practice b { font-family:'Russo One'; color:#37e8ff; }
+.hud-heat { position:absolute; left:50%; bottom:-10px; width:54px; height:4px; margin-left:-27px; background:#0008; border-radius:2px; overflow:hidden; }
+.hud-heat i { position:absolute; inset:0; transform-origin:left; background:linear-gradient(90deg,#ffd23a,#ff3b3b); }
+.hud-heat.hot i { animation:hudPulse .2s infinite alternate; }
+.hud-w.over .hud-dial { filter:grayscale(1) brightness(.6); }
+.hud-lock.primed path { stroke:var(--pc) !important; stroke-width:4; }
+.hud-lock .hud-prime { position:absolute; left:50%; top:-22px; transform:translateX(-50%); font:700 11px 'Chakra Petch'; letter-spacing:.2em; color:var(--pc); text-shadow:0 0 6px var(--pc); white-space:nowrap; }
+.hud-combo { position:absolute; right:28px; top:46%; font-family:'Russo One'; font-size:44px; line-height:1; text-align:right; color:#ffd23a; text-shadow:0 3px 0 #000a, 0 0 18px #ffd23a88; opacity:0; transition:opacity .2s; }
+.hud-combo small { display:block; font:700 13px 'Chakra Petch'; letter-spacing:.3em; color:#fff; }
+.hud-combo.on { opacity:1; }
 .hud-vign { position:absolute; inset:0; box-shadow:inset 0 0 160px #ff1a1a; opacity:0; transition:opacity .2s; }
 @keyframes hudPulse { from{filter:brightness(1)} to{filter:brightness(1.6)} }
 @keyframes hudSpin { to { transform:rotate(360deg) } }
@@ -131,13 +140,14 @@ export class HUD {
           <div class="hud-down"><i></i></div><div class="hud-downlbl2">DOWN</div>
         </div>`).join('<div class="hud-timer">90</div>')}
       </div>
-      <div class="hud-lock"><svg viewBox="-35 -35 70 70"><path d="M-30 -12 V-30 H-12 M12 -30 H30 V-12 M30 12 V30 H12 M-12 30 H-30 V12"/></svg></div>
+      <div class="hud-lock"><span class="hud-prime"></span><svg viewBox="-35 -35 70 70"><path d="M-30 -12 V-30 H-12 M12 -30 H30 V-12 M30 12 V30 H12 M-12 30 H-30 V12"/></svg></div>
       <div class="hud-off"></div>
       <div class="hud-fuel"><i></i></div>
       <div class="hud-weap"></div>
       <div class="hud-buffs"></div>
       ${[0, 1, 2, 3].map(() => '<div class="hud-threat"></div>').join('')}
       <div class="hud-hint"></div>
+      <div class="hud-combo"></div>
       <div class="hud-practice"></div>
       <div class="hud-ann"></div>`;
     parent.appendChild(this.el);
@@ -339,6 +349,36 @@ export class HUD {
     const onScreen = lockScreen.on && !lockScreen.behind && lockScreen.x > 30 && lockScreen.x < W - 30 && lockScreen.y > 30 && lockScreen.y < H - 30;
     this.lockEl.style.opacity = onScreen ? '1' : '0';
     this.lockEl.classList.toggle('hard', hardLock);
+    // primed mark on the enemy: colored reticle + label
+    const e = fighters[1];
+    const pc = e.primed ? ({ shock: '#7ab8ff', burn: '#ff6a1f', cryo: '#9ff0ff' } as const)[e.primed.el] : null;
+    this.lockEl.classList.toggle('primed', !!pc);
+    if (pc) this.lockEl.style.setProperty('--pc', pc);
+    (this.lockEl.firstElementChild as HTMLElement).textContent = e.primed ? `${e.primed.el.toUpperCase()} PRIMED` : '';
+    // combo counter (hits landed on the enemy in the current combo)
+    const combo = this.el.querySelector<HTMLElement>('.hud-combo')!;
+    const ch = e.comboHits;
+    combo.classList.toggle('on', ch >= 2);
+    if (ch >= 2 && combo.dataset.n !== String(ch)) {
+      combo.dataset.n = String(ch);
+      combo.innerHTML = `${ch}<small>HIT COMBO</small>`;
+    }
+    // gun heat bar under the gun dial
+    const gunW = this.weaps[0];
+    if (gunW) {
+      let hb = gunW.el.querySelector<HTMLElement>('.hud-heat');
+      if (!hb) {
+        hb = document.createElement('div');
+        hb.className = 'hud-heat';
+        hb.innerHTML = '<i></i>';
+        gunW.el.style.position = 'relative';
+        gunW.el.appendChild(hb);
+      }
+      const p0 = fighters[0];
+      (hb.firstElementChild as HTMLElement).style.transform = `scaleX(${Math.min(1, p0.heat / 100)})`;
+      hb.classList.toggle('hot', p0.heat > 75 || p0.overheated);
+      gunW.el.classList.toggle('over', p0.overheated);
+    }
     if (onScreen) this.lockEl.style.transform = `translate(${lockScreen.x}px, ${lockScreen.y}px)`;
     if (!onScreen && lockScreen.on) {
       let dx = lockScreen.x - W / 2;

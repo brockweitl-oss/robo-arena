@@ -22,6 +22,8 @@ import { track } from '../core/telemetry';
 import { InputRecorder, InputPlayer, quantizeInput, type Replay } from './replay';
 import { PadInput, connectedPads } from '../core/padInput';
 
+const ELEMENT_COLOR = { shock: 0x7ab8ff, burn: 0xff6a1f, cryo: 0x9ff0ff } as const;
+
 type Phase = 'intro' | 'ready' | 'fight' | 'ko' | 'timeup' | 'outro' | 'done';
 
 const _v = new THREE.Vector3();
@@ -154,7 +156,7 @@ export class Match {
     used: { jump: 0, airjump: 0, dash: 0, airdash: 0, fire: 0, bomb: 0, pod: 0, charge: 0 } as Record<string, number>,
     dmgTaken: {} as Record<string, number>,
     dmgDealt: {} as Record<string, number>,
-    deflects: 0, parries: 0, confirms: 0, perfect: 0, hitsTaken: 0, hitsDealt: 0, kdTaken: 0, kdDealt: 0, hazardHits: 0, dodges: 0, pauses: 0,
+    deflects: 0, parries: 0, combos: 0, confirms: 0, perfect: 0, hitsTaken: 0, hitsDealt: 0, kdTaken: 0, kdDealt: 0, hazardHits: 0, dodges: 0, pauses: 0,
     airT: 0, hoverT: 0, lockT: 0, fightT: 0,
     distSum: 0, distN: 0, dist: [0, 0, 0, 0] as number[],
     fpsMin: 999, fpsSum: 0, fpsN: 0, fpsAcc: 0, fpsFrames: 0,
@@ -839,7 +841,7 @@ export class Match {
       outcome: o.quit ? 'quit' : o.restart ? 'restart' : this.winner < 0 ? 'draw' : this.winner === 0 ? 'win' : 'lose',
       finish: this.finish, fightTime: r1(this.fightTime), playerHp: Math.round(p.hp), playerMaxHp: p.maxHp, rivalHp: Math.round(r.hp), rivalMaxHp: r.maxHp,
       used: T.used, dmgDealtBy: T.dmgDealt, dmgTakenBy: T.dmgTaken, hitsDealt: T.hitsDealt, hitsTaken: T.hitsTaken,
-      kdDealt: T.kdDealt, kdTaken: T.kdTaken, hazardHits: T.hazardHits, dodges: T.dodges, deflects: T.deflects, parries: T.parries, pauses: T.pauses,
+      kdDealt: T.kdDealt, kdTaken: T.kdTaken, hazardHits: T.hazardHits, dodges: T.dodges, deflects: T.deflects, parries: T.parries, combos: T.combos, pauses: T.pauses,
       airPct: T.fightT ? r1((T.airT / T.fightT) * 100) : 0, hoverS: r1(T.hoverT), hardLockPct: T.fightT ? r1((T.lockT / T.fightT) * 100) : 0,
       avgDist: T.distN ? r1(T.distSum / T.distN) : 0, distSec: { '<5m': r1(T.dist[0]), '5-10m': r1(T.dist[1]), '10-16m': r1(T.dist[2]), '>16m': r1(T.dist[3]) },
       fpsAvg: T.fpsN ? r1(T.fpsSum / T.fpsN) : null, fpsMin: T.fpsN ? r1(T.fpsMin) : null, device: T.device,
@@ -951,6 +953,20 @@ export class Match {
             case 'chargeLunge':
               audio.play('charge_swing', { pos: f.pos });
               fx.dashBurst(f.chestPoint(), new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)), s.paint.glow, f.grounded);
+              break;
+            case 'overheat':
+              audio.play('ui_error', { pos: f.pos, volume: 0.7, pitch: 0.7 });
+              fx.smoke.emit({ pos: s.model.rig.muzzle.getWorldPosition(new THREE.Vector3()), count: 10, speed: [0.5, 2], size: [0.2, 0.35], grow: 2.5, life: [0.6, 1.1], color: 0xb0b0b8, alpha: 0.5, drag: 2, gravity: -1.5 });
+              if (isP) this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1.3, 0))), 'OVERHEAT', 'tag');
+              break;
+            case 'stun':
+              audio.play('hit_heavy', { pos: f.pos, pitch: 0.8 });
+              fx.ring(f.chestPoint(), new THREE.Vector3(0, 1, 0), 0xffd23a, 0.4, 2.6, 0.4, 1);
+              this.slowmo(0.5, 0.18);
+              this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1.3, 0))), isP ? 'STUNNED' : 'STUNNED! PUNISH!', 'big', '#ffd23a');
+              break;
+            case 'cancel':
+              fx.dashBurst(f.chestPoint(), new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)), 0xffffff, f.grounded);
               break;
             case 'parry':
               audio.play('shield_block', { pos: f.pos, pitch: 1.5 });
@@ -1106,6 +1122,23 @@ export class Match {
         case 'hazard':
           audio.play('hazard_zap', { pos: e.pos });
           break;
+        case 'primed': {
+          const col = ELEMENT_COLOR[e.el];
+          fx.ring(e.pos, new THREE.Vector3(0, 1, 0), col, 0.3, 1.6, 0.3, 0.9);
+          if (e.victim === 1) this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 1.2, 0))), `${e.el.toUpperCase()} PRIMED`, 'tag', '#' + new THREE.Color(col).getHexString());
+          break;
+        }
+        case 'combo': {
+          const col = ELEMENT_COLOR[e.el];
+          fx.explosion(e.pos, 2.2, col, true, false);
+          fx.knockdownBurst(e.pos, col);
+          audio.play('explosion_big', { pos: e.pos, volume: 0.8, pitch: 1.2 });
+          this.slowmo(0.4, 0.22);
+          this.punch(0.006);
+          this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 1.6, 0))), `${e.el.toUpperCase()} COMBO! +${e.damage}`, 'big', '#' + new THREE.Color(col).getHexString());
+          if (e.attacker === 0) this.tel.combos++;
+          break;
+        }
         case 'ko':
           this.onKO(e.loser);
           break;

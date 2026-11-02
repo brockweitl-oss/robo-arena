@@ -13,6 +13,16 @@
 
 export type Slot = 'gun' | 'bomb' | 'pod' | 'body' | 'legs';
 export type Family = 'vanguard' | 'titan' | 'strider' | 'paladin';
+/** Combo elements: a primer marks the target, a trigger detonates the mark for a combo. */
+export type Element = 'shock' | 'burn' | 'cryo';
+
+/** Combo roles shared by weapons. */
+export interface ComboRole {
+  /** Hitting with this applies a primed mark of this element. */
+  prime?: Element;
+  /** Hitting a primed target with this detonates the mark (combo). */
+  trigger?: boolean;
+}
 
 export interface PartBase {
   id: string;
@@ -29,7 +39,9 @@ export interface PartBase {
   con: string;
 }
 
-export interface GunDef extends PartBase {
+export interface GunDef extends PartBase, ComboRole {
+  /** Heat added per shot (gun overheats at 100). */
+  heat: number;
   slot: 'gun';
   model: 'blaster' | 'rail' | 'scatter' | 'beam' | 'homer';
   /** Shots per trigger pull. */
@@ -70,7 +82,7 @@ export interface GunDef extends PartBase {
   knockback: number;
 }
 
-export interface BombDef extends PartBase {
+export interface BombDef extends PartBase, ComboRole {
   slot: 'bomb';
   model: 'mortar' | 'cluster' | 'napalm' | 'bouncer';
   count: number;
@@ -90,7 +102,7 @@ export interface BombDef extends PartBase {
   fire?: { radius: number; time: number; tick: number; damage: number; down: number };
 }
 
-export interface PodDef extends PartBase {
+export interface PodDef extends PartBase, ComboRole {
   slot: 'pod';
   model: 'seeker' | 'mine' | 'turret' | 'interceptor';
   count: number;
@@ -170,16 +182,16 @@ export type AnyPart = GunDef | BombDef | PodDef | BodyDef | LegsDef;
 
 export const GUNS: Record<string, GunDef> = {
   pulse: {
-    id: 'pulse', slot: 'gun', name: 'Pulse Blaster', model: 'blaster', family: 'vanguard', mass: 10,
+    id: 'pulse', slot: 'gun', heat: 8, name: 'Pulse Blaster', model: 'blaster', family: 'vanguard', mass: 10,
     desc: 'Reliable 3-round burst. Gentle tracking curves shots toward the target.',
     pro: 'Consistent at every range', con: 'Low burst damage',
     ratings: { Power: 2, Speed: 4, Tracking: 3, Reload: 4 },
     burst: 3, burstInterval: 0.13, pellets: 1, spreadDeg: 0, cooldown: 0.8, windup: 0,
-    damage: 30, down: 16, speed: 34, homing: 1.9, homingTime: 0.5, life: 1.5, radius: 0.22,
+    damage: 33, down: 17, speed: 34, homing: 1.9, homingTime: 0.5, life: 1.5, radius: 0.22,
     color: 0x2fd6ff, coreColor: 0xe8fdff, groundSlow: 0.45, sfx: 'gun_blaster', knockback: 2.5,
   },
   scatter: {
-    id: 'scatter', slot: 'gun', name: 'Scatter Fan', model: 'scatter', family: 'titan', mass: 12,
+    id: 'scatter', slot: 'gun', heat: 20, prime: 'burn', name: 'Scatter Fan', model: 'scatter', family: 'titan', mass: 12,
     desc: 'Fans five pellets. Brutal up close, weak at range. Hard to dodge.',
     pro: 'Huge close-range damage', con: 'Pellets fade out past ~10 m',
     ratings: { Power: 4, Speed: 3, Tracking: 1, Reload: 3 },
@@ -188,16 +200,16 @@ export const GUNS: Record<string, GunDef> = {
     color: 0xffb03a, coreColor: 0xfff3d0, groundSlow: 0.3, sfx: 'gun_scatter', knockback: 2,
   },
   rail: {
-    id: 'rail', slot: 'gun', name: 'Rail Lance', model: 'rail', family: 'paladin', mass: 14,
+    id: 'rail', slot: 'gun', heat: 34, trigger: true, name: 'Rail Lance', model: 'rail', family: 'paladin', mass: 14,
     desc: 'Charges, then fires one hypersonic slug. Huge down damage. Commit carefully.',
     pro: 'Fast slug, big knockdown pressure', con: 'Long charge roots you; easy to read',
     ratings: { Power: 5, Speed: 5, Tracking: 1, Reload: 1 },
     burst: 1, burstInterval: 0, pellets: 1, spreadDeg: 0, cooldown: 1.95, windup: 0.55,
-    damage: 100, down: 40, speed: 72, homing: 0.9, homingTime: 0.15, life: 0.6, radius: 0.28,
+    damage: 92, down: 40, speed: 72, homing: 0.9, homingTime: 0.15, life: 0.6, radius: 0.28,
     color: 0xc46bff, coreColor: 0xffffff, groundSlow: 0.1, sfx: 'gun_rail', knockback: 9,
   },
   beam: {
-    id: 'beam', slot: 'gun', name: 'Charge Beam', model: 'beam', family: 'paladin', mass: 13,
+    id: 'beam', slot: 'gun', heat: 26, trigger: true, name: 'Charge Beam', model: 'beam', family: 'paladin', mass: 13,
     desc: 'Hold to charge, release to fire a piercing beam bolt. Longer holds hit harder.',
     pro: 'You choose speed vs power each shot', con: 'Weak when tapped; charging is visible',
     ratings: { Power: 4, Speed: 4, Tracking: 2, Reload: 2 },
@@ -207,44 +219,44 @@ export const GUNS: Record<string, GunDef> = {
     color: 0x5dff9e, coreColor: 0xeafff2, groundSlow: 0.35, sfx: 'gun_rail', knockback: 6,
   },
   homer: {
-    id: 'homer', slot: 'gun', name: 'Arc Homer', model: 'homer', family: 'strider', mass: 10,
+    id: 'homer', slot: 'gun', heat: 24, prime: 'shock', name: 'Arc Homer', model: 'homer', family: 'strider', mass: 10,
     desc: 'Twin shots launch wide to the sides, then curve in on the target.',
     pro: 'Hits around cover and punishes strafing', con: 'Slow; a straight dash escapes the curve',
     ratings: { Power: 2, Speed: 2, Tracking: 5, Reload: 3 },
     burst: 1, burstInterval: 0, pellets: 2, spreadDeg: 0, launchDeg: 35, cooldown: 0.8, windup: 0,
-    damage: 40, down: 19, speed: 32, homing: 7.5, homingTime: 0.9, homingDelay: 0.1, life: 1.8, radius: 0.24,
+    damage: 33, down: 17, speed: 32, homing: 7.5, homingTime: 0.9, homingDelay: 0.1, life: 1.8, radius: 0.24,
     color: 0xff7ae6, coreColor: 0xfff0fb, groundSlow: 0.5, sfx: 'gun_blaster', knockback: 2.5,
   },
 };
 
 export const BOMBS: Record<string, BombDef> = {
   mortar: {
-    id: 'mortar', slot: 'bomb', name: 'Arc Mortar', model: 'mortar', family: 'vanguard', mass: 12,
+    id: 'mortar', slot: 'bomb', trigger: true, name: 'Arc Mortar', model: 'mortar', family: 'vanguard', mass: 12,
     desc: 'One heavy shell lobbed high. Wide blast flushes enemies out of cover.',
     pro: 'Big blast, great over cover', con: 'Long reload; shadow gives it away',
     ratings: { Power: 4, Radius: 4, Speed: 2, Reload: 2 },
-    count: 1, flightTime: 1.0, scatter: 0, damage: 115, down: 55, blastRadius: 3.4, cooldown: 2.9,
+    count: 1, flightTime: 1.0, scatter: 0, damage: 105, down: 55, blastRadius: 3.4, cooldown: 2.9,
     bounces: 0, color: 0xff5a2a, range: 30,
   },
   cluster: {
-    id: 'cluster', slot: 'bomb', name: 'Cluster Hopper', model: 'cluster', family: 'strider', mass: 11,
+    id: 'cluster', slot: 'bomb', prime: 'cryo', name: 'Cluster Hopper', model: 'cluster', family: 'strider', mass: 11,
     desc: 'Three bouncing bomblets that scatter around the target. Area denial.',
     pro: 'Covers a wide area', con: 'Each bomblet is weak',
     ratings: { Power: 2, Radius: 3, Speed: 3, Reload: 3 },
-    count: 3, flightTime: 0.75, scatter: 3.2, damage: 66, down: 30, blastRadius: 2.4, cooldown: 3.1,
+    count: 3, flightTime: 0.75, scatter: 3.2, damage: 72, down: 30, blastRadius: 2.4, cooldown: 2.7,
     bounces: 1, color: 0x9dff4a, range: 26,
   },
   napalm: {
-    id: 'napalm', slot: 'bomb', name: 'Cinder Pot', model: 'napalm', family: 'titan', mass: 13,
+    id: 'napalm', slot: 'bomb', prime: 'burn', name: 'Cinder Pot', model: 'napalm', family: 'titan', mass: 13,
     desc: 'A canister that bursts into a burning pool. Denies ground for a few seconds.',
     pro: 'Zones the enemy off the ground', con: 'Small blast; airborne targets ignore the fire',
     ratings: { Power: 2, Radius: 3, Speed: 2, Reload: 2 },
-    count: 1, flightTime: 0.95, scatter: 0, damage: 75, down: 30, blastRadius: 2.2, cooldown: 3.4,
+    count: 1, flightTime: 0.95, scatter: 0, damage: 88, down: 32, blastRadius: 2.4, cooldown: 2.9,
     bounces: 0, color: 0xff8a1a, range: 26,
     fire: { radius: 2.9, time: 3.5, tick: 0.5, damage: 24, down: 8 },
   },
   bouncer: {
-    id: 'bouncer', slot: 'bomb', name: 'Skip Grenade', model: 'bouncer', family: 'paladin', mass: 10,
+    id: 'bouncer', slot: 'bomb', trigger: true, name: 'Skip Grenade', model: 'bouncer', family: 'paladin', mass: 10,
     desc: 'A low, fast grenade that skips toward the target three times before it blows.',
     pro: 'Chases rolling targets; quick flight', con: 'Low arc gets stopped by tall cover',
     ratings: { Power: 3, Radius: 2, Speed: 4, Reload: 3 },
@@ -255,7 +267,7 @@ export const BOMBS: Record<string, BombDef> = {
 
 export const PODS: Record<string, PodDef> = {
   seeker: {
-    id: 'seeker', slot: 'pod', name: 'Seeker Pod', model: 'seeker', family: 'vanguard', mass: 8,
+    id: 'seeker', slot: 'pod', prime: 'shock', name: 'Seeker Pod', model: 'seeker', family: 'vanguard', mass: 8,
     desc: 'A slow drone that hunts the target. Forces movement. Can be shot down.',
     pro: 'Relentless pressure', con: 'Slow; easy to shoot down',
     ratings: { Power: 3, Speed: 2, Tracking: 4, Reload: 2 },
@@ -263,7 +275,7 @@ export const PODS: Record<string, PodDef> = {
     damage: 90, down: 50, blastRadius: 2.6, cooldown: 4.5, hp: 40, hoverHeight: 1.2, color: 0xff3b6b,
   },
   mine: {
-    id: 'mine', slot: 'pod', name: 'Drift Mines', model: 'mine', family: 'strider', mass: 9,
+    id: 'mine', slot: 'pod', prime: 'cryo', name: 'Drift Mines', model: 'mine', family: 'strider', mass: 9,
     desc: 'Two floating mines that creep toward the enemy and detonate when close.',
     pro: 'Traps lanes and corners', con: 'Very slow; visible fuse',
     ratings: { Power: 3, Speed: 1, Tracking: 2, Reload: 3 },
@@ -271,13 +283,13 @@ export const PODS: Record<string, PodDef> = {
     damage: 75, down: 45, blastRadius: 3.0, cooldown: 4.0, hp: 30, hoverHeight: 1.6, color: 0xffe14a,
   },
   turret: {
-    id: 'turret', slot: 'pod', name: 'Sentry Tripod', model: 'turret', family: 'titan', mass: 12,
+    id: 'turret', slot: 'pod', prime: 'shock', name: 'Sentry Tripod', model: 'turret', family: 'titan', mass: 12,
     desc: 'Plants a turret beside you that plinks the enemy for a few seconds.',
     pro: 'Free extra damage while you hold ground', con: 'Stationary; weak shots; can be destroyed',
     ratings: { Power: 2, Speed: 1, Tracking: 3, Reload: 1 },
     count: 1, speed: 0, turnRate: 0, life: 7, armTime: 0.6, triggerRadius: 0, fuse: 0,
     damage: 40, down: 20, blastRadius: 1.8, cooldown: 6, hp: 70, hoverHeight: 0.9, color: 0xffb03a,
-    turret: { interval: 0.85, damage: 26, down: 10, speed: 26, homing: 1.0 },
+    turret: { interval: 0.85, damage: 28, down: 10, speed: 26, homing: 1.0 },
   },
   interceptor: {
     id: 'interceptor', slot: 'pod', name: 'Aegis Drone', model: 'interceptor', family: 'paladin', mass: 9,
@@ -316,7 +328,7 @@ export const BODIES: Record<string, BodyDef> = {
     desc: 'Featherweight flyer. Long hover and an extra air dash, but a fragile shell.',
     pro: 'Best air mobility', con: 'Low HP; knocked down quickly',
     ratings: { Armor: 1, Speed: 4, Air: 5, Endurance: 1 },
-    hp: 900, runSpeed: 11.2, jumpVel: 15, airJumpVel: 13.5, hoverTime: 1.7, endurance: 82, airControl: 1.25,
+    hp: 940, runSpeed: 11.2, jumpVel: 15, airJumpVel: 13.5, hoverTime: 1.7, endurance: 82, airControl: 1.25,
     dash: { style: 'flight', speed: 23, time: 0.24, cooldown: 0.45, airDashBonus: 1 },
     charge: { windup: 0.26, lunge: 0.26, recover: 0.32, speed: 25, damage: 85, down: 45, cooldown: 1.3, armor: false },
     chargeName: 'Swallow Kick',
@@ -360,7 +372,7 @@ export const LEGS: Record<string, LegsDef> = {
     desc: 'Heavy stabilizers. Barely budge when hit, but every dash is short.',
     pro: 'Resists knockback; much higher endurance', con: 'Short dashes; weak jump; slow',
     ratings: { Speed: 1, Jump: 2, Air: 1 },
-    speedMul: 1.0, jumpMul: 0.96, airJumps: 1, airDashes: 1, dashMul: 0.92, dashCharges: 1, hoverMul: 0.9, fallMul: 1.05, knockMul: 0.5, endurance: 45, landingMul: 1.0,
+    speedMul: 1.0, jumpMul: 0.96, airJumps: 1, airDashes: 1, dashMul: 0.92, dashCharges: 1, hoverMul: 0.9, fallMul: 1.05, knockMul: 0.5, endurance: 52, landingMul: 1.0,
   },
   feather: {
     id: 'feather', slot: 'legs', name: 'Feather Legs', model: 'feather', family: 'strider', mass: 16,

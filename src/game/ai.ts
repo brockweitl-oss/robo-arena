@@ -187,7 +187,15 @@ export class AIPilot {
     if (this.openingDelay < 0) this.openingDelay = 0.5 + r() * 1.2;
     if (this.decideT <= 0 && canHit && t > this.openingDelay) {
       this.decideT = THREE.MathUtils.lerp(0.65, 0.32, this.skill) + r() * 0.3;
-      if (los && dist < 28 && me.gunCd <= 0 && r() < this.p.gunRate) this.holdGun = me.lo.gun.holdMax ? 0.35 + r() * 0.8 : 0.15;
+      // heat discipline: don't fire into an overheat (better pilots stop earlier)
+      const heatCap = THREE.MathUtils.lerp(95, 70, this.skill);
+      if (los && dist < 28 && me.gunCd <= 0 && !me.overheated && me.heat < heatCap && r() < this.p.gunRate) this.holdGun = me.lo.gun.holdMax ? 0.35 + r() * 0.8 : 0.15;
+      // combos: when the foe is primed, cash it in with a trigger
+      if (foe.primed && r() < 0.35 + this.skill * 0.5) {
+        if (me.lo.bomb.trigger && me.bombCd <= 0) inp.bombPressed = true;
+        else if (me.lo.gun.trigger && me.gunCd <= 0 && !me.overheated && los) this.holdGun = me.lo.gun.holdMax ? 0.6 : 0.15;
+        else if (dist < 6 && me.chargeCd <= 0) inp.chargePressed = true;
+      }
       if (me.bombCd <= 0 && dist > 4 && r() < this.p.bombRate * (los ? 0.45 : 1)) inp.bombPressed = true;
       if (me.podCd <= 0 && dist > 6 && r() < this.p.podRate * 0.5) inp.podPressed = true;
       // punish recovery / close range with the charge
