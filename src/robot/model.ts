@@ -9,8 +9,8 @@ import { decalTexture } from '../render/textures';
 import type { ResolvedLoadout } from '../data/parts';
 import type { Paint } from '../data/characters';
 
-const FRAME_SCALE = { striker: 1.0, ironclad: 1.1, wisp: 0.98, regent: 1.04 } as const;
-const HEAD_SCALE = { striker: 1.22, ironclad: 1.12, wisp: 1.28, regent: 1.15 } as const;
+const FRAME_SCALE = { striker: 1.0, ironclad: 0.97, wisp: 0.98, regent: 0.92 } as const;
+const HEAD_SCALE = { striker: 0.88, ironclad: 0.9, wisp: 0.85, regent: 0.88 } as const;
 
 export function rigSpecFor(lo: ResolvedLoadout): RigSpec {
   const fp = FRAME_PROPS[lo.body.frame];

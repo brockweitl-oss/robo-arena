@@ -12,8 +12,8 @@ export interface LegLengths {
 }
 
 export function legLengths(model: LegsDef['model'], len: number): LegLengths {
-  if (model === 'hopper') return { thigh: 0.3 * len, shin: 0.38 * len, ankleH: 0.11, meta: 0.26 * len, footLen: 0.44 };
-  return { thigh: 0.4 * len, shin: 0.41 * len, ankleH: 0.11, meta: 0, footLen: 0.42 };
+  if (model === 'hopper') return { thigh: 0.3 * len, shin: 0.38 * len, ankleH: 0.11, meta: 0.26 * len, footLen: 0.36 };
+  return { thigh: 0.4 * len, shin: 0.41 * len, ankleH: 0.11, meta: 0, footLen: 0.34 };
 }
 
 function footNozzle(rig: Rig, b: PartBuilder, parent: THREE.Object3D, p: [number, number, number], r: number) {
@@ -31,7 +31,7 @@ function stride(rig: Rig, b: PartBuilder, side: Side, bulk: number) {
   const th = rig.thigh[side];
   // thigh: inner frame + chunky armor shell
   b.add(th, 'dark', xf(cyl(0.06 * k, 0.055 * k, T * 0.9, 12), [0, -T * 0.5, 0]));
-  b.add(th, 'primary', xf(rbox(0.16 * k, T * 0.62, 0.18 * k, 0.045, 3), [sx * 0.012, -T * 0.42, 0.01]));
+  b.add(th, 'primary', xf(chamferBox(0.15 * k, T * 0.68, 0.17 * k, 0.025, 0.008), [sx * 0.012, -T * 0.42, 0.01]));
   b.add(th, 'trim', xf(chamferBox(0.03, T * 0.42, 0.1 * k, 0.012), [sx * (0.08 * k + 0.012), -T * 0.42, 0.01]));
   for (const g of vents(0.08 * k, 0.07, 3, 0.01)) b.add(th, 'dark', xf(g, [sx * 0.012, -T * 0.3, 0.1 * k]));
   // knee: joint drum + armored kneecap
@@ -49,7 +49,7 @@ function stride(rig: Rig, b: PartBuilder, side: Side, bulk: number) {
   const p = piston(new THREE.Vector3(sx * -0.08 * k, -0.03, -0.03), new THREE.Vector3(sx * -0.08 * k, -S + 0.04, -0.02), 0.015);
   b.add(kn, 'dark', p.body);
   b.add(kn, 'chrome', p.rod);
-  // ankle + oversized foot
+  // ankle + compact armored foot
   const an = rig.ankle[side];
   const A = rig.spec.ankleH;
   const F = rig.spec.footLen * (0.9 + k * 0.1);

@@ -7,10 +7,10 @@ import type { BodyDef } from '../data/parts';
 
 /**
  * Upper-body builders, one per frame. Each frame has a distinct silhouette:
- *  - striker:  heroic V-fin helmet, round pauldrons, twin back thrusters
+ *  - striker:  split tactical visor, layered pauldrons, twin back thrusters
  *  - ironclad: wide boxy hulk, sunken head with mono-rail eye, smokestacks
- *  - wisp:     slim body, big round lens eye, swept wings
- *  - regent:   crowned knight, spiked pauldrons, hanging cape panels
+ *  - wisp:     slim body, narrow sensor array, swept wings
+ *  - regent:   blade crest, shoulder blocks, armored boosters
  */
 
 export interface FrameProportions {
@@ -29,10 +29,10 @@ export interface FrameProportions {
 }
 
 export const FRAME_PROPS: Record<BodyDef['frame'], FrameProportions> = {
-  striker: { hipX: 0.15, waistY: 0.13, chestY: 0.3, neckY: 0.2, shoulderX: 0.4, shoulderY: 0.1, upperArm: 0.26, forearm: 0.3, bulk: 1, legLen: 1 },
-  ironclad: { hipX: 0.19, waistY: 0.12, chestY: 0.32, neckY: 0.2, shoulderX: 0.52, shoulderY: 0.1, upperArm: 0.24, forearm: 0.33, bulk: 1.3, legLen: 0.9 },
-  wisp: { hipX: 0.13, waistY: 0.16, chestY: 0.28, neckY: 0.19, shoulderX: 0.33, shoulderY: 0.09, upperArm: 0.27, forearm: 0.3, bulk: 0.82, legLen: 1.1 },
-  regent: { hipX: 0.15, waistY: 0.15, chestY: 0.31, neckY: 0.21, shoulderX: 0.41, shoulderY: 0.11, upperArm: 0.27, forearm: 0.31, bulk: 1.0, legLen: 1.05 },
+  striker: { hipX: 0.15, waistY: 0.13, chestY: 0.3, neckY: 0.2, shoulderX: 0.4, shoulderY: 0.1, upperArm: 0.26, forearm: 0.3, bulk: 0.92, legLen: 1.22 },
+  ironclad: { hipX: 0.19, waistY: 0.12, chestY: 0.32, neckY: 0.2, shoulderX: 0.52, shoulderY: 0.1, upperArm: 0.24, forearm: 0.33, bulk: 1.25, legLen: 1.16 },
+  wisp: { hipX: 0.13, waistY: 0.16, chestY: 0.28, neckY: 0.19, shoulderX: 0.33, shoulderY: 0.09, upperArm: 0.27, forearm: 0.3, bulk: 0.78, legLen: 1.24 },
+  regent: { hipX: 0.15, waistY: 0.15, chestY: 0.31, neckY: 0.21, shoulderX: 0.41, shoulderY: 0.11, upperArm: 0.27, forearm: 0.31, bulk: 0.96, legLen: 1.23 },
 };
 
 type B = PartBuilder;
@@ -154,7 +154,7 @@ function emblem(rig: Rig, b: B, parent: THREE.Object3D, pos: [number, number, nu
 
 function striker(rig: Rig, b: B) {
   pelvis(rig, b);
-  abdomen(rig, b, 0.26);
+  abdomen(rig, b, 0.22);
   const c = rig.chest;
   // Chest core: broad V-taper hull
   b.add(c, 'primary', plate([[-0.17, -0.17], [0.17, -0.17], [0.31, 0.0], [0.29, 0.14], [0.12, 0.2], [-0.12, 0.2], [-0.29, 0.14], [-0.31, 0.0]], 0.34, 0.025));
@@ -190,7 +190,7 @@ function striker(rig: Rig, b: B) {
 
   // --- Head ---
   const h = rig.head;
-  b.add(h, 'primary', xf(rbox(0.29, 0.25, 0.29, 0.085, 3), [0, 0.15, 0]));
+  b.add(h, 'primary', xf(chamferBox(0.27, 0.24, 0.28, 0.055, 0.009), [0, 0.15, 0]));
   // brow ridge
   b.add(h, 'primary', xf(trap(0.3, 0.26, 0.06, 0.1, 0.012), [0, 0.215, 0.11], [-0.25, 0, 0]));
   // visor band
@@ -207,31 +207,26 @@ function striker(rig: Rig, b: B) {
   // mouth guard
   b.add(h, 'dark', xf(trap(0.12, 0.2, 0.07, 0.07, 0.01), [0, 0.07, 0.11]));
   for (const g of vents(0.08, 0.04, 2, 0.008)) b.add(h, 'chrome', xf(g, [0, 0.07, 0.148]));
-  // V-fin crest
-  const fin = plate([[0, -0.01], [0.24, 0.15], [0.245, 0.175], [0.015, 0.035], [-0.015, 0.035], [-0.245, 0.175], [-0.24, 0.15]], 0.022, 0.006);
-  b.add(h, 'secondary', xf(fin, [0, 0.22, 0.15], [-0.2, 0, 0]));
-  b.add(h, 'glowHot', xf(sphere(0.022, 10, 8), [0, 0.225, 0.165]));
-  // head-top fin
-  b.add(h, 'trim', xf(plate([[0, 0], [0.0, 0.05], [-0.18, 0.02], [-0.2, 0]], 0.02, 0.006), [0, 0.27, 0.06], [0, Math.PI / 2, 0]));
-  rig.lockPoint.position.set(0, 0.4, 0);
-  for (const sx of [1, -1]) {
-    const ant = rig.addAntenna(h, [sx * 0.18, 0.18, -0.03], [-0.4, 0, -sx * 0.5]);
-    b.add(ant, 'chrome', xf(cyl(0.006, 0.01, 0.18, 6), [0, 0.09, 0]));
-    b.add(ant, 'glow', xf(sphere(0.012, 8, 6), [0, 0.18, 0]));
+  // Split faceplate and offset tactical sensor: no ornamental V-fin.
+  for (const sx of [-1, 1]) {
+    b.add(h, 'primary', xf(plate([[0.012, 0.03], [0.1, 0.07], [0.11, 0.13], [0.025, 0.11]], 0.025, 0.005), [0, 0, 0.156], [0, 0, 0], [sx, 1, 1]));
   }
+  b.add(h, 'trim', xf(chamferBox(0.055, 0.035, 0.22, 0.012), [0, 0.278, -0.015]));
+  b.add(h, 'dark', xf(chamferBox(0.035, 0.09, 0.055, 0.01), [-0.15, 0.22, -0.04]));
+  b.add(h, 'glow', xf(cyl(0.009, 0.009, 0.006, 8), [-0.15, 0.24, -0.009], [Math.PI / 2, 0, 0]));
+  rig.lockPoint.position.set(0, 0.32, 0);
 
   // --- Arms ---
   for (const side of ['L', 'R'] as Side[]) {
     const sx = side === 'L' ? 1 : -1;
     const pad = rig.pad[side];
-    // round pauldron: squashed dome + stripe + rim
-    const dome = xf(sphere(0.17, 20, 12), [sx * 0.05, 0.03, 0], [0, 0, 0], [1.05, 0.88, 1]);
-    b.add(pad, 'primary', dome);
-    b.add(pad, 'secondary', xf(torus(0.155, 0.022, 24, 8), [sx * 0.05, 0.0, 0], [Math.PI / 2, 0, 0], [1.05, 1, 1]));
-    b.add(pad, 'dark', xf(cyl(0.16, 0.17, 0.04, 20), [sx * 0.05, -0.05, 0]));
-    b.add(pad, 'trim', xf(chamferBox(0.03, 0.08, 0.2, 0.01), [sx * 0.21, 0.02, 0]));
+    // Three overlapping plates leave a visible dark undercut at each edge.
+    for (let i = 0; i < 3; i++) {
+      b.add(pad, i === 0 ? 'secondary' : 'primary', xf(chamferBox(0.24 - i * 0.025, 0.105, 0.28 - i * 0.02, 0.035, 0.007), [sx * (0.04 + i * 0.035), 0.075 - i * 0.065, 0], [0, 0, -sx * 0.16]));
+    }
+    b.add(pad, 'dark', xf(chamferBox(0.15, 0.14, 0.21, 0.025), [sx * 0.04, -0.03, 0]));
     upperArm(rig, b, side, 0.055, 'none');
-    forearm(rig, b, side, { w: 0.16, h: 0.27, d: 0.17, style: 'round' });
+    forearm(rig, b, side, { w: 0.145, h: 0.28, d: 0.16, style: 'block' });
     fist(rig, b, side);
   }
 }
@@ -240,7 +235,7 @@ function striker(rig: Rig, b: B) {
 
 function ironclad(rig: Rig, b: B) {
   pelvis(rig, b, 1.25);
-  abdomen(rig, b, 0.34);
+  abdomen(rig, b, 0.28);
   const c = rig.chest;
   // Huge boxy hull
   b.add(c, 'primary', xf(chamferBox(0.72, 0.4, 0.44, 0.09, 0.025), [0, 0.02, 0]));
@@ -328,12 +323,11 @@ function wisp(rig: Rig, b: B) {
   rig.bombMount.position.set(0.2, 0.22, -0.04);
 
   const h = rig.head;
-  // round head with a big lens eye
-  b.add(h, 'primary', xf(sphere(0.14, 22, 16), [0, 0.13, 0], [0, 0, 0], [1, 0.92, 1.05]));
-  b.add(h, 'dark', xf(cyl(0.085, 0.09, 0.06, 20), [0, 0.13, 0.12], [Math.PI / 2, 0, 0]));
-  b.add(h, 'chrome', xf(torus(0.085, 0.012, 22, 8), [0, 0.13, 0.15]));
-  b.add(h, 'visor', xf(sphere(0.07, 18, 12), [0, 0.13, 0.13], [0, 0, 0], [1, 1, 0.5]));
-  b.add(h, 'glowHot', xf(sphere(0.026, 12, 10), [0, 0.13, 0.165]));
+  // Narrow flight helmet with a recessed horizontal sensor array.
+  b.add(h, 'primary', xf(chamferBox(0.24, 0.23, 0.29, 0.055, 0.008), [0, 0.13, 0]));
+  b.add(h, 'dark', xf(chamferBox(0.225, 0.052, 0.04, 0.014), [0, 0.145, 0.145]));
+  b.add(h, 'visor', xf(chamferBox(0.19, 0.034, 0.012, 0.008), [0, 0.145, 0.17]));
+  for (const sx of [-1, 1]) b.add(h, 'glow', xf(chamferBox(0.052, 0.012, 0.008, 0.003), [sx * 0.058, 0.146, 0.18]));
   // swept crest
   b.add(h, 'secondary', xf(plate([[0, 0], [0.03, 0.02], [-0.25, 0.1], [-0.27, 0.08]], 0.02, 0.006), [0, 0.25, 0.05], [0, Math.PI / 2, 0]));
   for (const sx of [1, -1]) b.add(h, 'trim', xf(chamferBox(0.03, 0.08, 0.12, 0.012), [sx * 0.13, 0.11, 0.0]));
@@ -360,7 +354,7 @@ function wisp(rig: Rig, b: B) {
 
 function regent(rig: Rig, b: B) {
   pelvis(rig, b, 1.05);
-  abdomen(rig, b, 0.26);
+  abdomen(rig, b, 0.22);
   const c = rig.chest;
   // knightly cuirass with gold trim
   b.add(c, 'primary', plate([[-0.16, -0.18], [0.16, -0.18], [0.3, -0.02], [0.3, 0.13], [0.15, 0.21], [-0.15, 0.21], [-0.3, 0.13], [-0.3, -0.02]], 0.36, 0.025));
@@ -377,37 +371,37 @@ function regent(rig: Rig, b: B) {
   b.add(bk, 'secondary', xf(chamferBox(0.36, 0.04, 0.13, 0.015), [0, 0.13, -0.04]));
   for (const sx of [1, -1]) {
     backNozzle(rig, b, bk, [sx * 0.1, -0.13, -0.09], 0.055, -0.5);
-    // cape panels: hanging danglers for secondary motion
-    const cape = rig.addDangler(bk, [sx * 0.09, 0.12, -0.11]);
-    b.add(cape, 'primary', xf(plate([[-0.08, 0], [0.08, 0], [0.1, -0.62], [0.0, -0.7], [-0.07, -0.6]], 0.025, 0.008), [0, 0, 0], [0.12, 0, sx * 0.08]));
-    b.add(cape, 'secondary', xf(plate([[0.07, -0.02], [0.08, 0], [0.1, -0.62], [0.0, -0.7], [0.0, -0.66], [0.085, -0.6]], 0.03, 0.006), [0, 0, 0], [0.12, 0, sx * 0.08]));
+    // Armored booster nacelles replace the decorative hanging cape.
+    b.add(bk, 'primary', xf(chamferBox(0.15, 0.42, 0.18, 0.035), [sx * 0.2, -0.015, -0.09], [-0.12, 0, 0]));
+    for (const g of vents(0.09, 0.17, 5, 0.01)) b.add(bk, 'dark', xf(g, [sx * 0.2, 0.035, -0.19], [0, Math.PI, 0]));
+    backNozzle(rig, b, bk, [sx * 0.2, -0.21, -0.11], 0.065, -0.3);
   }
   rig.podMount.position.set(0, 0.2, -0.1);
   rig.bombMount.position.set(0.26, 0.25, -0.06);
 
   const h = rig.head;
   // helm with T-visor and crown
-  b.add(h, 'primary', xf(rbox(0.26, 0.26, 0.28, 0.07, 3), [0, 0.15, 0]));
+  b.add(h, 'primary', xf(chamferBox(0.25, 0.25, 0.28, 0.045, 0.008), [0, 0.15, 0]));
   b.add(h, 'visor', xf(rbox(0.22, 0.045, 0.06, 0.015), [0, 0.16, 0.12]));
   b.add(h, 'visor', xf(rbox(0.05, 0.11, 0.06, 0.015), [0, 0.11, 0.12]));
   b.add(h, 'glowHot', xf(rbox(0.18, 0.012, 0.01, 0.004), [0, 0.16, 0.152]));
   b.add(h, 'secondary', xf(chamferBox(0.28, 0.035, 0.29, 0.01), [0, 0.26, 0]));
-  // crown spikes
-  const spike = (x: number, hgt: number, w: number) => xf(plate([[-w, 0], [w, 0], [0, hgt]], 0.03, 0.008), [x, 0.27, 0.11], [-0.1, 0, 0]);
-  b.add(h, 'secondary', spike(0, 0.22, 0.04));
-  b.add(h, 'secondary', spike(0.09, 0.14, 0.03));
-  b.add(h, 'secondary', spike(-0.09, 0.14, 0.03));
-  b.add(h, 'glowHot', xf(sphere(0.018, 8, 6), [0, 0.32, 0.13]));
+  // Single swept blade crest, integrated into the armored brow.
+  b.add(h, 'secondary', xf(plate([[-0.035, 0], [0.035, 0], [0.01, 0.17], [-0.025, 0.13]], 0.1, 0.006), [0, 0.27, -0.01]));
   for (const sx of [1, -1]) b.add(h, 'trim', xf(plate([[0, 0], [0.12, 0.0], [0.18, 0.1], [0.02, 0.05]], 0.02, 0.006), [sx * 0.13, 0.13, -0.04], [0, sx > 0 ? -Math.PI / 2 : Math.PI / 2, 0]));
   rig.lockPoint.position.set(0, 0.45, 0);
 
   for (const side of ['L', 'R'] as Side[]) {
     const sx = side === 'L' ? 1 : -1;
     const pad = rig.pad[side];
-    // layered spiked pauldron
-    b.add(pad, 'primary', xf(sphere(0.16, 18, 12), [sx * 0.05, 0.02, 0], [0, 0, 0], [1.05, 0.75, 1.05]));
-    for (let i = 0; i < 3; i++) b.add(pad, i === 0 ? 'secondary' : 'primary', xf(plate([[-0.12, 0], [0.14, 0], [0.2, 0.06], [-0.1, 0.05]], 0.2 - i * 0.02, 0.008), [sx * (0.05 + i * 0.02), -0.04 - i * 0.05, 0], [0, 0, -sx * 0.2], [sx, 1, 1]));
-    b.add(pad, 'secondary', xf(plate([[0, 0], [0.05, 0], [0.16, 0.18]], 0.03, 0.006), [sx * 0.12, 0.06, 0], [0, 0, 0], [sx, 1, 1]));
+    // Rectilinear shoulder armor with inset vernier exhausts.
+    b.add(pad, 'primary', xf(chamferBox(0.29, 0.23, 0.32, 0.04, 0.009), [sx * 0.07, 0.04, 0]));
+    b.add(pad, 'secondary', xf(chamferBox(0.3, 0.055, 0.33, 0.018), [sx * 0.07, 0.14, 0]));
+    b.add(pad, 'dark', xf(chamferBox(0.18, 0.11, 0.02, 0.018), [sx * 0.07, 0.025, -0.17]));
+    for (const dx of [-0.045, 0.045]) {
+      b.add(pad, 'chrome', xf(torus(0.027, 0.007, 12, 5), [sx * 0.07 + dx, 0.025, -0.185]));
+      b.add(pad, 'glow', xf(cyl(0.015, 0.015, 0.008, 10), [sx * 0.07 + dx, 0.025, -0.184], [Math.PI / 2, 0, 0]));
+    }
     upperArm(rig, b, side, 0.05, 'sleeve', 'primary');
     forearm(rig, b, side, { w: 0.15, h: 0.27, d: 0.16, style: 'gauntlet' });
     fist(rig, b, side, 1.0);
@@ -416,4 +410,25 @@ function regent(rig: Rig, b: B) {
 
 export function buildFrame(frame: BodyDef['frame'], rig: Rig, b: PartBuilder) {
   ({ striker, ironclad, wisp, regent })[frame](rig, b);
+  const heavy = frame === 'ironclad';
+  for (const sx of [-1, 1]) {
+    const x = sx * (heavy ? 0.27 : frame === 'wisp' ? 0.16 : 0.23);
+    const z = heavy ? 0.235 : frame === 'wisp' ? 0.155 : 0.195;
+    // Separated lower-rib armor exposes the chassis between plates.
+    for (let i = 0; i < 3; i++) b.add(rig.chest, i === 2 ? 'trim' : 'primary', xf(chamferBox(heavy ? 0.15 : 0.1, 0.045, 0.045, 0.012, 0.004), [x, -0.04 - i * 0.055, z], [0, sx * 0.18, 0]));
+    const p = piston(new THREE.Vector3(sx * 0.12, -0.11, -0.1), new THREE.Vector3(sx * 0.21, 0.12, -0.12), heavy ? 0.025 : 0.014);
+    b.add(rig.waist, 'dark', p.body);
+    b.add(rig.waist, 'chrome', p.rod);
+    if (frame === 'wisp') {
+      const side = sx > 0 ? 'L' : 'R';
+      b.add(rig.elbow[side], 'dark', xf(chamferBox(0.065, 0.17, 0.065, 0.018), [sx * 0.085, -0.13, -0.04]));
+      backNozzle(rig, b, rig.elbow[side], [sx * 0.085, -0.22, -0.04], 0.028, 0);
+      for (let i = 0; i < 2; i++) b.add(rig.back, 'joint', tube([new THREE.Vector3(sx * 0.08, 0.09, -0.08), new THREE.Vector3(sx * (0.14 + i * 0.018), -0.02, -0.12), new THREE.Vector3(sx * 0.08, -0.13, -0.06)], 0.008, 10));
+    }
+  }
+  if (heavy) {
+    b.add(rig.chest, 'dark', xf(cyl(0.095, 0.095, 0.045, 12), [0, 0.015, 0.25], [Math.PI / 2, 0, 0]));
+    b.add(rig.chest, 'chrome', xf(torus(0.08, 0.012, 16, 6), [0, 0.015, 0.28]));
+    b.add(rig.chest, 'glowHot', xf(cyl(0.057, 0.057, 0.008, 12), [0, 0.015, 0.277], [Math.PI / 2, 0, 0]));
+  }
 }

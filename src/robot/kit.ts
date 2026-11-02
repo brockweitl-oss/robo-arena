@@ -185,22 +185,22 @@ export function makeMaterials(paint: Paint, seed = 1): MatSet {
       roughness: rough,
       roughnessMap: panel.rough,
       normalMap: panel.normal,
-      normalScale: new THREE.Vector2(0.32, 0.32),
-      clearcoat: 0.6,
+      normalScale: new THREE.Vector2(0.12, 0.12),
+      clearcoat: 0.25,
       clearcoatRoughness: 0.22,
       envMapIntensity: 1.1,
     });
 
   const glowColor = new THREE.Color(paint.glow);
   const mats: MatSet = {
-    primary: painted(paint.primary, 0.34),
-    secondary: painted(paint.secondary, 0.32),
+    primary: painted(paint.primary, 0.48),
+    secondary: painted(paint.secondary, 0.44),
     trim: new THREE.MeshPhysicalMaterial({
       color: paint.trim,
       metalness: 0.55,
       roughness: 0.3,
       normalMap: panelFine.normal,
-      normalScale: new THREE.Vector2(0.4, 0.4),
+      normalScale: new THREE.Vector2(0.15, 0.15),
       clearcoat: 0.4,
       envMapIntensity: 1.1,
     }),
@@ -210,7 +210,7 @@ export function makeMaterials(paint: Paint, seed = 1): MatSet {
       roughness: 0.42,
       roughnessMap: grime,
       normalMap: panelFine.normal,
-      normalScale: new THREE.Vector2(0.7, 0.7),
+      normalScale: new THREE.Vector2(0.18, 0.18),
       envMapIntensity: 1,
     }),
     joint: new THREE.MeshStandardMaterial({
@@ -221,7 +221,7 @@ export function makeMaterials(paint: Paint, seed = 1): MatSet {
       normalScale: new THREE.Vector2(0.8, 0.8),
       roughnessMap: rub.rough,
     }),
-    chrome: new THREE.MeshStandardMaterial({ color: 0xd4d8e0, metalness: 1, roughness: 0.16, envMapIntensity: 1.3 }),
+    chrome: new THREE.MeshStandardMaterial({ color: 0xa6b1c0, metalness: 0.92, roughness: 0.28, envMapIntensity: 1.3 }),
     glow: new THREE.MeshStandardMaterial({ color: 0x000000, emissive: glowColor, emissiveIntensity: 3.2, roughness: 0.4 }),
     glowHot: new THREE.MeshStandardMaterial({ color: 0x000000, emissive: glowColor.clone().lerp(new THREE.Color(1, 1, 1), 0.35), emissiveIntensity: 6, roughness: 0.4 }),
     visor: new THREE.MeshPhysicalMaterial({
