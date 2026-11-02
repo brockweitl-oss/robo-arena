@@ -119,6 +119,8 @@ export interface SkillDef extends PartBase {
   pull?: number;
   /** Slow the victim (seconds). */
   slow?: number;
+  /** Spacing reward: hits travelling between these fractions of range deal `mul` damage. */
+  sweet?: { from: number; to: number; mul: number };
   color: number;
   coreColor: number;
 }
@@ -217,7 +219,7 @@ export const GUNS: Record<string, GunDef> = {
     pro: 'Huge close-range damage', con: 'Pellets fade out past ~10 m',
     ratings: { Power: 4, Speed: 3, Tracking: 1, Reload: 3 },
     burst: 1, burstInterval: 0, pellets: 5, spreadDeg: 15, cooldown: 1.15, windup: 0.14, recovery: 0.3,
-    damage: 44, down: 12, speed: 34, homing: 0, homingTime: 0, life: 0.38, radius: 0.2,
+    damage: 47, down: 13, speed: 34, homing: 0, homingTime: 0, life: 0.38, radius: 0.2,
     color: 0xffb03a, coreColor: 0xfff3d0, groundSlow: 0.3, sfx: 'gun_scatter', knockback: 2,
   },
   rail: {
@@ -225,7 +227,7 @@ export const GUNS: Record<string, GunDef> = {
     desc: 'Brace, then fire a precise predictive slug. Punishes recovery and straight-line movement; cannot curve after firing.',
     pro: 'High-impact punish at long range', con: 'Committed wind-up and recovery; no homing',
     ratings: { Power: 5, Speed: 5, Tracking: 1, Reload: 1 },
-    burst: 1, burstInterval: 0, pellets: 1, spreadDeg: 0, cooldown: 1.75, windup: 0.5, recovery: 0.38,
+    burst: 1, burstInterval: 0, pellets: 1, spreadDeg: 0, cooldown: 1.85, windup: 0.5, recovery: 0.38,
     damage: 195, down: 60, speed: 110, homing: 0, homingTime: 0, life: 0.5, radius: 0.3,
     color: 0xc46bff, coreColor: 0xffffff, groundSlow: 0.1, sfx: 'gun_rail', knockback: 9,
   },
@@ -318,7 +320,7 @@ export const PODS: Record<string, PodDef> = {
     pro: 'Blunts zoning and pod spam', con: 'No damage of its own; fires slowly',
     ratings: { Power: 0, Speed: 3, Tracking: 4, Reload: 1 },
     count: 1, speed: 0, turnRate: 0, life: 8, armTime: 0.3, triggerRadius: 0, fuse: 0,
-    damage: 0, down: 0, blastRadius: 0, cooldown: 7, hp: 50, hoverHeight: 1.9, color: 0x7aa8ff,
+    damage: 0, down: 0, blastRadius: 0, cooldown: 7.5, hp: 50, hoverHeight: 1.9, color: 0x7aa8ff,
     intercept: { radius: 4.0, interval: 1.0, orbit: 1.5 },
   },
 };
@@ -410,7 +412,8 @@ export const SKILLS: Record<string, SkillDef> = {
     desc: 'A piercing hyper-velocity lance. Detonates an armed primer.',
     pro: 'Highest single-hit damage', con: 'Narrow: you have to aim it',
     ratings: { Power: 5, Speed: 5, Width: 1, Reload: 2 },
-    cooldown: 6, cast: 0.12, recovery: 0.3, damage: 125, down: 45, speed: 70, range: 30, radius: 0.32, knockback: 9, pierce: true, detonator: true,
+    cooldown: 6, cast: 0.25, recovery: 0.3, damage: 125, down: 45, speed: 70, range: 30, radius: 0.32, knockback: 9, pierce: true, detonator: true,
+    sweet: { from: 0.65, to: 1, mul: 1.3 },
     color: 0xffc53a, coreColor: 0xffffff,
   },
   wave: {
@@ -418,7 +421,8 @@ export const SKILLS: Record<string, SkillDef> = {
     desc: 'A wide, slow wall of ions that passes through pods.',
     pro: 'Wide and forgiving', con: 'Slow: easy to jump',
     ratings: { Power: 3, Speed: 2, Width: 5, Reload: 3 },
-    cooldown: 5, cast: 0.1, recovery: 0.25, damage: 75, down: 28, speed: 26, range: 22, radius: 1.15, knockback: 5, pierce: true,
+    cooldown: 5, cast: 0.12, recovery: 0.25, damage: 75, down: 28, speed: 26, range: 22, radius: 1.15, knockback: 5, pierce: true,
+    sweet: { from: 0, to: 0.3, mul: 1.3 },
     color: 0x7ab8ff, coreColor: 0xe8f4ff,
   },
   hook: {
@@ -426,7 +430,7 @@ export const SKILLS: Record<string, SkillDef> = {
     desc: 'Harpoons the target and reels it in, staggered, for a punish.',
     pro: 'Pulls into melee range', con: 'Low damage, long cooldown',
     ratings: { Power: 2, Speed: 4, Width: 2, Reload: 1 },
-    cooldown: 7, cast: 0.14, recovery: 0.32, damage: 55, down: 20, speed: 48, range: 20, radius: 0.45, knockback: 0, pull: 15,
+    cooldown: 7, cast: 0.2, recovery: 0.32, damage: 55, down: 20, speed: 48, range: 20, radius: 0.45, knockback: 0, pull: 15,
     color: 0xff7a3a, coreColor: 0xffe2c8,
   },
   frost: {

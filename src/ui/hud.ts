@@ -36,6 +36,11 @@ const CSS = /* css */ `
 .hud-combat-state { margin-top:6px; font-size:12px; font-weight:700; letter-spacing:.12em; color:#9ddfc9; min-height:17px; text-shadow:0 1px 3px #000; }
 .hud-combat-state[data-state="opening"] { color:#ffbd72; }
 .hud-combat-state[data-state="guard"] { color:#86d9ff; }
+.hud-ecd { display:flex; gap:5px; justify-content:flex-end; margin-top:4px; }
+.hud-ecd b { position:relative; overflow:hidden; font:700 10px 'Chakra Petch', sans-serif; letter-spacing:.08em; padding:2px 6px; border-radius:3px; color:#ffffff66; background:#0008; border:1px solid #ffffff22; }
+.hud-ecd b i { position:absolute; left:0; bottom:0; height:2px; width:calc(var(--p) * 1%); background:#ffffff55; }
+.hud-ecd b.ready { color:#fff; border-color:var(--c); box-shadow:0 0 8px var(--c); }
+.hud-ecd b.ready i { width:100%; background:var(--c); }
 .hud-primer { color:#ffd36a; font-size:12px; font-weight:700; letter-spacing:.08em; min-height:16px; text-shadow:0 1px 3px #000; }
 .hud-bomb-aim { position:absolute;left:50%;top:62%;transform:translateX(-50%);padding:7px 12px;color:#ffd36a;background:#09121de8;border:1px solid #ffd36a77;font-size:12px;letter-spacing:.08em; }
 .hud-bomb-aim:empty { display:none; }
@@ -135,7 +140,7 @@ export class HUD {
           <div class="hud-name"></div>
           <div class="hud-hpnum">1000<span>HP</span></div>
           <div class="hud-bar"><i class="chip"></i><i class="fill"></i>${[1, 2, 3].map((k) => `<span class="tick" style="left:${k * 25}%"></span>`).join('')}</div>
-          <div class="hud-down"><i></i></div><div class="hud-downlbl2">DOWN</div><div class="hud-combat-state"></div><div class="hud-primer"></div>
+          <div class="hud-down"><i></i></div><div class="hud-downlbl2">DOWN</div><div class="hud-combat-state"></div><div class="hud-primer"></div>${i ? '<div class="hud-ecd" title="Enemy cooldowns"><b data-k="skillCd">SKILL<i></i></b><b data-k="bombCd">BOMB<i></i></b><b data-k="podCd">POD<i></i></b><b data-k="chargeCd">GUARD<i></i></b></div>' : ''}
         </div>`).join('<div class="hud-timer">90</div>')}
       </div>
       <div class="hud-lock"><svg viewBox="-35 -35 70 70"><path d="M-30 -12 V-30 H-12 M12 -30 H30 V-12 M30 12 V30 H12 M-12 30 H-30 V12"/></svg></div>
@@ -305,6 +310,17 @@ export class HUD {
       const recovering=recovery>0 || f.mode==='charge' && f.chargePhase===2;
       label.dataset.state=f.guarding?'guard':recovering?'opening':'ready';
       label.textContent=f.parrying?'PARRY WINDOW':f.guarding?'FRONTAL GUARD':recovering?`${i?'PUNISH WINDOW':'RECOVERY'} ${recovery>0?recovery.toFixed(1)+'s':''}`:f.attackCommitted?'ATTACK COMMITTED':f.mode==='down'?'KNOCKED DOWN':f.mode==='getup'?'WAKE-UP PROTECTION':'';
+    });
+    // enemy cooldown readout: competitive information for punish windows
+    const e = fighters[1];
+    const maxCd: Record<string, number> = { skillCd: e.lo.skill.cooldown, bombCd: e.lo.bomb.cooldown, podCd: e.lo.pod.cooldown, chargeCd: e.lo.body.charge.cooldown };
+    const colors: Record<string, number> = { skillCd: e.lo.skill.color, bombCd: e.lo.bomb.color, podCd: e.lo.pod.color, chargeCd: 0xffffff };
+    this.el.querySelectorAll<HTMLElement>('.hud-ecd b').forEach((chip) => {
+      const k = chip.dataset.k as 'skillCd' | 'bombCd' | 'podCd' | 'chargeCd';
+      const cd = e[k];
+      chip.classList.toggle('ready', cd <= 0);
+      chip.style.setProperty('--p', ((1 - Math.min(1, cd / Math.max(0.01, maxCd[k]))) * 100).toFixed(0));
+      chip.style.setProperty('--c', '#' + new THREE.Color(colors[k]).getHexString());
     });
     const mobility=this.el.querySelector<HTMLElement>('.hud-mobility')!;
     mobility.textContent=!['ground','air'].includes(p.mode)?p.mode==='dash'||p.mode==='airdash'?'DASH ACTIVE':'ACTION COMMITTED':p.attackCommitted?'COMMITTED · DASH LOCKED':p.canDash && p.landT<=0 && (p.grounded || p.remainingAirDashes>0)?`DASH READY · ${p.dashCharges}/${p.st.dashCharges}`:`DASH RECOVERY · ${p.dashCharges}/${p.st.dashCharges}`;
