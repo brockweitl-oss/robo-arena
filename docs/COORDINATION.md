@@ -63,3 +63,7 @@ See [PLAYTEST-3.md](PLAYTEST-3.md) for player notes, telemetry, release boundari
 
 
 Frozen PT3 candidate c6a60a1 verified on http://127.0.0.1:5320/; final smoke and telemetry pass. PRs #23–26 remain draft pending performance acceptance; old PT2 remains on4317 after policy blocked replacement.
+
+## Playtest 4 — ready local candidate
+Owner closed PT3. Frozen pt4-4d05592 is live on5320 with save origin preserved;116tests, full frozen smoke, natural combo and manual-target replay verified. Claude Code design + bounded code reviews approved; PR #33 overlap/conflicting slowmo/RNG received written review. New PRs #34/#35 cover animations and mouse-aimed combo/effects integration. Main remains unchanged pending stack consolidation. See PLAYTEST-4.md.
+
