@@ -61,6 +61,7 @@ try {
   assert.equal(await page.evaluate(() => window.__game.match?.phase), 'fight', 'Replay must still be fighting before pause');
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => window.__game.match?.paused);
+  await page.waitForTimeout(350); // Allow the pause panel's entrance transition to finish.
   await page.screenshot({ path: `${out}/replay-paused.jpg` });
   await page.locator('.ra-pause .ra-btn').filter({ hasText: /^Resume$/ }).click();
   await page.waitForFunction(() => window.__game.match && !window.__game.match.paused);
