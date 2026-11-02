@@ -8,11 +8,11 @@ import { InputRecorder, InputPlayer, quantizeInput } from '../../src/game/replay
 import type { ArenaBuild } from '../../src/arena/types';
 
 const v = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
-function setup(lo: Partial<Loadout> = {}) {
+function setup(lo: Partial<Loadout> = {}, loB: Partial<Loadout> = {}) {
   const arena = { info: { id: 'test' }, root: new THREE.Group(), colliders: [{ kind: 'box', min: v(-30, -1, -30), max: v(30, 0, 30) }],
     hazards: [], spawns: [v(0, 0, -8), v(0, 0, 8)], halfX: 28, halfZ: 28, tick() {} } as unknown as ArenaBuild;
   const a = new Fighter(0, resolveLoadout({ ...DEFAULT_LOADOUT, ...lo }));
-  const b = new Fighter(1, resolveLoadout(DEFAULT_LOADOUT));
+  const b = new Fighter(1, resolveLoadout({ ...DEFAULT_LOADOUT, ...loB }));
   a.pos.set(0, 0, -8); b.pos.set(0, 0, 8); b.yaw = Math.PI;
   const w = new World(arena, a, b); w.combatEnabled = true;
   for (let i = 0; i < 5; i++) w.step([emptyInput(), emptyInput()]);
@@ -158,5 +158,42 @@ describe('skill shots (aimed abilities vs the auto-aimed gun)', () => {
     };
     expect(run('champion', 1)).toBe(true);
     expect(run('rookie', 0)).toBe(false);
+  });
+  it('Phase Blink steps up to its range toward the aim, with no projectile', () => {
+    const { w, a } = setup({ skill: 'blink' });
+    const x0 = a.pos.x;
+    step(w, 1, { skillPressed: true, skillTarget: [20, 0, -8] });
+    step(w, 12);
+    expect(skillShot(w)).toBeUndefined();
+    expect(a.pos.x - x0).toBeGreaterThan(SKILLS.blink.range - 0.5);
+    expect(a.pos.x - x0).toBeLessThan(SKILLS.blink.range + 1.5);
+    expect(a.skillCd).toBeGreaterThan(SKILLS.blink.cooldown - 1);
+  });
+
+  it('Phase Blink quick-cast steps away from the opponent and never leaves the arena', () => {
+    const { w, a } = setup({ skill: 'blink' });
+    a.pos.set(0, 0, -25);
+    step(w, 3);
+    step(w, 1, { skillPressed: true });
+    step(w, 12);
+    expect(a.pos.z).toBeLessThan(-25);
+    expect(a.pos.z).toBeGreaterThan(-28);
+  });
+
+  it('a skilled AI blinks out of a tell when its dash is spent', () => {
+    const { w, a, b } = setup({}, { skill: 'blink' });
+    const ai = new AIPilot('champion', 1, 3);
+    for (let i = 0; i < 70; i++) w.step([emptyInput(), { ...ai.think(w, b, a), skillPressed: false, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, chargePressed: false }]);
+    b.dashCharges = 0;
+    const z0 = b.pos.clone();
+    w.step([{ ...emptyInput(), skillPressed: true }, { ...ai.think(w, b, a), gunPressed: false, gunHeld: false, chargePressed: false }]);
+    let blinked = false;
+    for (let i = 0; i < 30; i++) {
+      w.step([emptyInput(), ai.think(w, b, a)]);
+      blinked ||= w.events.some((ev) => ev.type === 'blink');
+      b.dashCharges = 0;
+    }
+    expect(blinked).toBe(true);
+    expect(b.pos.distanceTo(z0)).toBeGreaterThan(4);
   });
 });

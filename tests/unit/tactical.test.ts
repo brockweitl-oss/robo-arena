@@ -72,7 +72,9 @@ describe('Playtest 3 action commitment', () => {
   it('airborne rail commitment brakes carried momentum even when the movement stick is released', () => {
     const { w, a } = fixture({ gun: 'rail' });
     a.pos.y = 8; a.grounded = false; a.setMode('air'); a.vel.set(20, 0, 0);
+    // the commitment cap eases in over MOVE.capEase (~0.1 s) instead of snapping, then holds
     step(w, 1, { gunPressed: true });
+    step(w, 6);
     expect(Math.hypot(a.vel.x, a.vel.z)).toBeLessThanOrEqual(a.runSpeed * 0.12 * 0.9 + 1e-6);
   });
   it('a dash has a real recharge and a punishable recovery window', () => {

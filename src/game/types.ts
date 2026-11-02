@@ -1,9 +1,10 @@
+import type { NetSession, PlayerHello } from '../net/online';
 import type { Loadout } from '../data/parts';
 import type { Paint } from '../data/characters';
 import type { Replay } from './replay';
 
 export interface MatchConfig {
-  mode: 'ladder' | 'free' | 'rivalplus' | 'survival' | 'practice' | 'versus' | 'replay';
+  mode: 'ladder' | 'free' | 'rivalplus' | 'survival' | 'practice' | 'versus' | 'replay' | 'online';
   playerLoadout: Loadout;
   rivalId: string;
   arenaId: string;
@@ -18,11 +19,17 @@ export interface MatchConfig {
   /** Survival: round number (1-based) and the HP the player carries in. */
   survival?: { round: number; startHp: number };
   /** Practice room dummy behaviour. */
-  practice?: { dummy: 'idle' | 'move' | 'shoot' | 'full' };
+  practice?: { dummy: 'idle' | 'move' | 'shoot' | 'full' | 'evade' | 'tells' };
   /** Local versus: player 2's build (gamepad). */
   versus?: { p2Loadout: Loadout; p2Paint: Paint; p2Name: string };
   /** Replay playback. */
   replay?: Replay;
+  /** Replay: fast-forward to this fight time on start (seeking backwards restarts the replay). */
+  replaySeek?: number;
+  /** Replay: stay paused after that seek. */
+  replayPaused?: boolean;
+  /** Online lockstep match: both builds in world order (host = 0), the room seed and which one is local. */
+  online?: { session: NetSession; me: 0 | 1; seed: number; players: [PlayerHello, PlayerHello]; ranked?: boolean };
 }
 
 export interface MatchStats {
@@ -73,6 +80,8 @@ export interface MatchResult {
   quit?: boolean;
   /** Player chose Restart from the pause menu (host restarts automatically). */
   restart?: boolean;
+  /** Online: false when the match desynced or the opponent dropped (never rated). */
+  netClean?: boolean;
   /** Recording of the match (absent for practice/replay playback). */
   replay?: Replay;
 }

@@ -267,9 +267,11 @@ export class HUD {
     el.innerHTML = '';
   }
 
-  practiceInfo(i: { last: number; combo: number; dps: number; down: number }) {
+  practiceInfo(i: { last: number; combo: number; dps: number; down: number; skill?: string; sweet?: number; feints?: number; dodged?: string; perfect?: number }) {
     const el = this.el.querySelector<HTMLElement>('.hud-practice')!;
-    el.innerHTML = `<div>LAST HIT<b>${i.last}</b></div><div>COMBO (2s)<b>${i.combo}</b></div><div>DPS (5s)<b>${i.dps.toFixed(0)}</b></div><div>DOWN<b>${i.down}%</b></div>`;
+    const html = `<div>LAST HIT<b>${i.last}</b></div><div>COMBO (2s)<b>${i.combo}</b></div><div>DPS (5s)<b>${i.dps.toFixed(0)}</b></div><div>DOWN<b>${i.down}%</b></div>` +
+      (i.skill !== undefined ? `<div>SKILL HITS<b>${i.skill}</b></div><div>SWEET SPOTS<b>${i.sweet}</b></div><div>FEINTS<b>${i.feints}</b></div><div>SKILLS DODGED<b>${i.dodged}</b></div><div>PERFECT DODGES<b>${i.perfect}</b></div>` : '');
+    if (el.innerHTML !== html) el.innerHTML = html;
   }
 
   hurtFlash(v: number) {

@@ -109,6 +109,12 @@ export class AIPilot {
       inp.jumpPressed = true; this.jumpUntil = t + (this.p.aerial ? 0.9 : 0.3); this.mobilityAt = t + 3.5;
     }
     inp.jumpHeld = t < this.jumpUntil;
+    // Phase Blink doubles as a dodge once the dash is spent (sideways, deterministic direction).
+    const blinkOk = !!me.lo.skill.blink && me.skillCd <= 0 && this.skill >= 0.5 && me.castT < 0;
+    const blinkAway = () => {
+      inp.skillPressed = true;
+      inp.skillTarget = [me.pos.x + side.x * this.strafeDir * 8, me.pos.y, me.pos.z + side.z * this.strafeDir * 8];
+    };
     // Threat response only after the projectile has been visible for the pilot's reaction time.
     for (const pr of world.projectiles) {
       if (pr.owner === me.id || this.seenProj.has(pr.id) || pr.age < this.reaction) continue;
@@ -122,6 +128,9 @@ export class AIPilot {
         inp.dashPressed = true;
         inp.moveX = side.x * this.strafeDir; inp.moveZ = side.z * this.strafeDir;
         this.mobilityAt = t + 1.2 + (1 - this.skill);
+      } else if (blinkOk && t >= this.mobilityAt) {
+        blinkAway();
+        this.mobilityAt = t + 1.2 + (1 - this.skill);
       }
     }
     if (this.seenProj.size > 200) this.seenProj.clear();
@@ -132,15 +141,16 @@ export class AIPilot {
     }
     // Skill wind-ups are a visible tell. Pilots dodge one aimed at them once their reaction time has passed;
     // a feint (dash-cancelled cast) can bait that dodge.
-    if (foe.castT >= 0) { if (this.castSeenAt < 0) { this.castSeenAt = t; this.castDodged = false; } } else this.castSeenAt = -1;
-    if (this.castSeenAt >= 0 && !this.castDodged && t - this.castSeenAt >= this.reaction && this.skill >= 0.5 && (me.canAct || me.castT >= 0) && me.canDash && t >= this.mobilityAt) {
+    if (foe.castT >= 0 && !foe.lo.skill.blink) { if (this.castSeenAt < 0) { this.castSeenAt = t; this.castDodged = false; } } else this.castSeenAt = -1;
+    if (this.castSeenAt >= 0 && !this.castDodged && t - this.castSeenAt >= this.reaction && this.skill >= 0.5 && (me.canAct || me.castT >= 0) && (me.canDash || (blinkOk && me.canAct)) && t >= this.mobilityAt) {
       const ct = foe.castTarget;
       const ax = ct ? ct[0] - foe.pos.x : me.pos.x - foe.pos.x, az = ct ? ct[2] - foe.pos.z : me.pos.z - foe.pos.z;
       const mx = me.pos.x - foe.pos.x, mz = me.pos.z - foe.pos.z;
       const al = Math.hypot(ax, az) || 1, along = (mx * ax + mz * az) / al;
       const off = Math.abs(mx * az - mz * ax) / al;
       if (along > 0 && along < foe.lo.skill.range && off < foe.lo.skill.radius + 1.2) {
-        inp.dashPressed = true; inp.moveX = side.x * this.strafeDir; inp.moveZ = side.z * this.strafeDir;
+        if (me.canDash) { inp.dashPressed = true; inp.moveX = side.x * this.strafeDir; inp.moveZ = side.z * this.strafeDir; }
+        else blinkAway();
         this.mobilityAt = t + 1.2; this.castDodged = true;
       }
     }
@@ -174,7 +184,7 @@ export class AIPilot {
       // Aim is deterministic: the delayed observation, led by a skill-scaled fraction of the travel time.
       const sk = me.lo.skill;
       const steady = seen.vel.lengthSq() < 9;
-      const skillOpening = me.skillCd <= 0 && t >= this.skillAt && los && !seen.guard && dist > 2.5 && dist < sk.range * 0.9 &&
+      const skillOpening = !sk.blink && me.skillCd <= 0 && t >= this.skillAt && los && !seen.guard && dist > 2.5 && dist < sk.range * 0.9 &&
         (sk.model === 'hook' ? dist > 6 && (vulnerable || steady || foeSpent) : sk.detonator ? comboReady || vulnerable || steady || foeSpent : vulnerable || steady || foeSpent || dist < 10);
       if (skillOpening) {
         const lead = (dist / sk.speed + sk.cast) * THREE.MathUtils.lerp(0.4, 0.9, this.skill);
