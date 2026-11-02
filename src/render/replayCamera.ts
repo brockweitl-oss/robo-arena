@@ -26,6 +26,7 @@ export class ReplayCamera {
 
   attach(parent: HTMLElement, canvas: HTMLElement) {
     this.cleanup?.();
+    if (document.pointerLockElement) document.exitPointerLock();
     const panel = document.createElement('div');
     panel.dataset.replayCamera = 'true'; panel.setAttribute('aria-label', 'Replay camera');
     Object.assign(panel.style, { position: 'absolute', left: '50%', top: '120px', transform: 'translateX(-50%)', zIndex: '9', pointerEvents: 'auto', background: '#08131ee8', border: '1px solid #7193a7', padding: '8px', color: '#e8f5ff', font: '12px system-ui', textAlign: 'center', maxWidth: '95vw', width: 'max-content' });
@@ -36,7 +37,7 @@ export class ReplayCamera {
       b.onclick = (event) => { if (event.detail > 0) b.blur(); this.setMode(i as ReplayCameraMode); }; panel.append(b); return b;
     });
     const hint = document.createElement('div'); panel.append(hint); parent.append(panel);
-    this.refresh = () => { buttons.forEach((b, i) => { b.setAttribute('aria-pressed', String(this.mode === i)); b.style.background = this.mode === i ? '#24536c' : '#14222d'; }); hint.textContent = this.mode === 3 ? 'WASD move · Q/E down/up · Shift faster · drag or captured mouse to look · Esc pause' : 'Keys 1–4 switch views · Esc pause'; };
+    this.refresh = () => { buttons.forEach((b, i) => { b.setAttribute('aria-pressed', String(this.mode === i)); b.style.background = this.mode === i ? '#24536c' : '#14222d'; }); hint.textContent = this.mode === 3 ? 'WASD move · Q/E down/up · Shift faster · drag to look · Esc pause' : 'Keys 1–4 switch views · Esc pause'; };
     this.refresh();
     const key = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || (e.target as HTMLElement)?.isContentEditable) return;
@@ -46,11 +47,14 @@ export class ReplayCamera {
     const up = (e: KeyboardEvent) => { this.keys.delete(e.code); };
     const blur = () => this.keys.clear();
     const mouse = (e: MouseEvent) => {
-      if (this.mode !== 3 || !(document.pointerLockElement === canvas || (e.buttons === 1 && e.target === canvas))) return;
+      if (this.mode !== 3 || !(e.buttons === 1 && e.target === canvas)) return;
       this.yaw -= e.movementX * .0025; this.pitch = THREE.MathUtils.clamp(this.pitch - e.movementY * .0025, -1.4, 1.4);
     };
+    // Replay owns canvas presses before Input's bubbling listener can capture the pointer.
+    const press = (e: MouseEvent) => { e.preventDefault(); e.stopImmediatePropagation(); };
+    canvas.addEventListener('mousedown', press, true);
     window.addEventListener('keydown', key, true); window.addEventListener('keyup', up, true); window.addEventListener('blur', blur); window.addEventListener('mousemove', mouse);
-    this.cleanup = () => { window.removeEventListener('keydown', key, true); window.removeEventListener('keyup', up, true); window.removeEventListener('blur', blur); window.removeEventListener('mousemove', mouse); panel.remove(); this.keys.clear(); };
+    this.cleanup = () => { canvas.removeEventListener('mousedown', press, true); window.removeEventListener('keydown', key, true); window.removeEventListener('keyup', up, true); window.removeEventListener('blur', blur); window.removeEventListener('mousemove', mouse); panel.remove(); this.keys.clear(); };
   }
 
   update(dt: number, p1: THREE.Vector3, p2: THREE.Vector3) {

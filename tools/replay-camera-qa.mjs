@@ -27,7 +27,7 @@ try {
   await page.evaluate(() => {
     localStorage.removeItem('robo-arena-replays');
     const game = window.__game;
-    void game.menus.runMatch({ mode: 'free', playerLoadout: game.save.loadout, rivalId: 'mira', arenaId: 'foundry', timeLimit: 40 });
+    void game.menus.runMatch({ mode: 'free', playerLoadout: game.save.loadout, rivalId: 'mira', arenaId: 'foundry', timeLimit: 20 });
   });
   const finalHp = async () => {
     await page.waitForFunction(() => ['timeup', 'ko'].includes(window.__game.match?.phase), null, { timeout: 120000 });
@@ -37,6 +37,7 @@ try {
   await page.waitForFunction(() => !window.__game.match, null, { timeout: 45000 });
   await page.evaluate(() => window.__game.menus.watchReplay(JSON.parse(localStorage.getItem('robo-arena-replays'))[0]));
   await page.waitForFunction(() => window.__game.match?.phase === 'fight');
+  assert.equal(await page.evaluate(() => document.pointerLockElement === null), true, 'Replay must keep the pointer available for camera controls');
   const modes = [];
   for (let i = 1; i <= 4; i++) {
     await page.keyboard.press(String(i)); await page.waitForTimeout(80);
@@ -57,14 +58,22 @@ try {
   assert.equal(await pov.evaluate(el => el === document.activeElement), false);
   await page.keyboard.press('3'); await page.waitForTimeout(150);
   await page.screenshot({ path: `${out}/replay-broadcast.jpg` });
+  assert.equal(await page.evaluate(() => window.__game.match?.phase), 'fight', 'Replay must still be fighting before pause');
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => window.__game.match?.paused);
   await page.screenshot({ path: `${out}/replay-paused.jpg` });
   await page.locator('.ra-pause .ra-btn').filter({ hasText: /^Resume$/ }).click();
   await page.waitForFunction(() => window.__game.match && !window.__game.match.paused);
-  // Resume can capture the pointer: exercise mouse look through the actual integration.
+  assert.equal(await page.evaluate(() => document.pointerLockElement === null), true, 'Replay resume must not capture the pointer');
+  // Drag-look must rotate the free camera while retaining an accessible cursor.
   await page.keyboard.press('4');
-  await page.mouse.move(800, 400, { steps: 5 });
+  const beforeLook = await page.evaluate(() => window.__game.gr.camera.quaternion.toArray());
+  await page.mouse.move(600, 380); await page.mouse.down();
+  await page.mouse.move(800, 420, { steps: 8 }); await page.mouse.up();
+  await page.waitForTimeout(150);
+  const afterLook = await page.evaluate(() => window.__game.gr.camera.quaternion.toArray());
+  assert.ok(Math.hypot(...afterLook.map((v, i) => v - beforeLook[i])) > .02, 'Free camera drag must change orientation');
+  assert.equal(await page.evaluate(() => document.pointerLockElement === null), true, 'Replay canvas drag must not capture the pointer');
   await page.keyboard.press('2'); await page.keyboard.press('3');
   const replay = await finalHp();
   assert.equal(replay, original, 'Camera input must not change replay combat result');

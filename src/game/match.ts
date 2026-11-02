@@ -323,7 +323,7 @@ export class Match {
       if (a === 'resume') {
         this.host.input.clear();
         this.host.input.enabled = this.phase === 'fight' || this.phase === 'ready';
-        if (this.host.input.enabled) this.host.input.requestLock();
+        if (this.host.input.enabled && !this.players) this.host.input.requestLock();
       } else this.end({ quit: a === 'quit', restart: a === 'restart' });
     });
   }
@@ -787,7 +787,7 @@ export class Match {
       audio.play('announce_ready');
       this.host.hud.showHint(this.host.input.lastDevice === 'pad' ? 'RT auto-gun · Hold Y + R-stick: aim skill, release: fire · LT bomb · RB pod · B dash · X charge' : 'Click to capture mouse · LMB auto-gun · Hold R + mouse: aim skill, release: fire · Hold RMB: aim bomb · E pod · Shift dash · Q charge', 5);
       this.host.input.enabled = true;
-      this.host.input.requestLock();
+      if (!this.players) this.host.input.requestLock();
     }
     if (p === 'fight') this.host.input.enabled = true;
   }
