@@ -127,7 +127,8 @@ export class Match {
   private fightTime = 0;
   private paused = false;
   private resolve!: (r: MatchResult) => void;
-  private hardLock = false;
+  /** Tab toggles free camera orbit; default is the auto-tracking camera. */
+  private freeCam = false;
   private pInput: FighterInput = emptyInput();
   private hazardWarned: boolean[] = [];
   private lowHpT = 0;
@@ -270,8 +271,9 @@ export class Match {
     host.input.enabled = false;
     host.input.onPause = () => this.togglePause();
     host.input.onLockToggle = () => {
-      this.hardLock = !this.hardLock;
-      this.cam.lock = this.hardLock;
+      this.freeCam = !this.freeCam;
+      this.cam.lock = !this.freeCam;
+      host.hud.showHint(this.freeCam ? 'Free camera: mouse / right stick to look. Tab: back to auto camera' : 'Auto camera: tracks your opponent', 2.5);
       audio.play('ui_move');
     };
     this.done = new Promise((r) => (this.resolve = r));
@@ -340,7 +342,7 @@ export class Match {
         for (const s of this.sides) s.prevPos.copy(s.fighter.pos);
         const pf = this.player.fighter;
         const rf = this.sides[1].fighter;
-        host.input.sample(this.cam.moveYaw, this.hardLock, this.pInput);
+        host.input.sample(this.cam.moveYaw, false, this.pInput);
         if (this.autoPilot && !pf.locked) Object.assign(this.pInput, this.autoPilot.think(this.world, pf, rf));
         let aiIn: FighterInput;
         if (this.players) {
@@ -426,7 +428,7 @@ export class Match {
       for (const b of this.world.bombs) if (b.owner === 1) add(b.target, b.def.color);
       for (const p of this.world.pods) if (p.owner === 1 && p.pos.distanceTo(pf.pos) < 14) add(p.pos, p.def.color);
     }
-    host.hud.update(dtReal, [pf, rf], this.timeLeft, { x: (proj.x * 0.5 + 0.5) * W, y: (-proj.y * 0.5 + 0.5) * H, on: this.phase === 'fight' && rf.alive, behind }, this.hardLock, threats);
+    host.hud.update(dtReal, [pf, rf], this.timeLeft, { x: (proj.x * 0.5 + 0.5) * W, y: (-proj.y * 0.5 + 0.5) * H, on: this.phase === 'fight' && rf.alive, behind }, !this.freeCam, threats);
     if (this.phase === 'fight') this.telFrame(dtReal, pf, rf);
     if (this.practiceMode) {
       const now = this.world.time;
@@ -595,7 +597,7 @@ export class Match {
       if (t < 0.02) {
         host.hud.announce('READY', { color: '#37e8ff' });
         audio.play('announce_ready');
-        host.hud.showHint(host.input.lastDevice === 'pad' ? 'RT gun · LT bomb · RB pod · A jump · B dash (dodge) · X charge (blocks & deflects shots)' : 'Click to capture mouse · LMB gun · RMB bomb · E pod · Shift dash (dodge) · Q charge (blocks & deflects shots)', 5);
+        host.hud.showHint(host.input.lastDevice === 'pad' ? 'RT gun · LT bomb · RB pod · A jump · B dash (dodge) · X charge (blocks & deflects shots)' : 'Click to capture mouse · LMB gun · RMB bomb · E pod · Shift dash (dodge) · Q charge (blocks & deflects shots) · Tab free camera', 5);
         host.input.enabled = true;
         host.input.requestLock();
       }
@@ -728,7 +730,7 @@ export class Match {
     T.fightT += dt;
     if (!pf.grounded) T.airT += dt;
     if (pf.hovering) T.hoverT += dt;
-    if (this.hardLock) T.lockT += dt;
+    if (!this.freeCam) T.lockT += dt;
     const d = Math.hypot(pf.pos.x - rf.pos.x, pf.pos.z - rf.pos.z);
     T.distSum += d;
     T.distN++;
