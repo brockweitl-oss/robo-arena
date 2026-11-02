@@ -6,7 +6,7 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 const errs = [];
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') { errs.push(m.text()); console.log(`[${m.type()}]`, m.text()); } });
 page.on('pageerror', (e) => { errs.push(e.message); console.log('[pageerror]', e.message); });
-await page.goto(`http://localhost:5173/${url}`);
+await page.goto(`http://127.0.0.1:5317/${url}`);
 const shot = async (n) => { await page.screenshot({ path: `${outDir}/${n}.png` }); console.log('shot', n, 'fps', await page.evaluate(() => window.__fps)); };
 await page.waitForTimeout(900); await shot('p0_intro');
 await page.waitForTimeout(1600); await shot('p1_land');

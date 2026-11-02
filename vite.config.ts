@@ -32,7 +32,9 @@ const telemetry = () => ({
 export default defineConfig({
   base: './',
   plugins: [telemetry()],
-  server: { watch: { ignored: ['**/playtest/**'] } },
+  // Own ports pinned to 127.0.0.1: 5173 is used by another app on this machine.
+  server: { host: '127.0.0.1', port: 5317, strictPort: true, watch: { ignored: ['**/playtest/**'] } },
+  preview: { host: '127.0.0.1', port: 4317, strictPort: true },
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 2000,
@@ -43,5 +45,5 @@ export default defineConfig({
       },
     },
   },
-  test: { include: ['tests/unit/**/*.test.ts'] },
+  test: { include: process.env.BALANCE ? ['tests/balance/**/*.test.ts'] : ['tests/unit/**/*.test.ts'] },
 });

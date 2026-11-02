@@ -11,7 +11,7 @@ import '@fontsource/chakra-petch/700.css';
 import './menus.css';
 
 import type { MenuHost, MenuLayer } from './host';
-import { ALL_PARTS, BODIES, LEGS, resolveLoadout, type AnyPart, type Slot } from '../data/parts';
+import { ALL_PARTS, BODIES, LEGS, resolveLoadout, type AnyPart, type Slot, deriveStats, SET_BONUS } from '../data/parts';
 import { RIVALS, PLAYER_PAINT, PLAYER_ROBOT_NAME, rivalById, type Paint, type Rival } from '../data/characters';
 import { ARENA_IDS, ARENA_INFO, type ArenaId } from '../arena/index';
 import { defaultSave, isUnlocked, type Settings } from '../core/save';
@@ -1208,18 +1208,23 @@ export class Menus implements MenuLayer {
 
     const renderSummary = () => {
       const R = resolveLoadout(s.loadout);
-      const body = R.body, legs = R.legs;
+      const body = R.body;
+      const D = deriveStats(R);
       const stat = (k: string, v: string) => h('div', 'gs-stat', h('span', '', k), h('b', '', v));
       summary.replaceChildren(
         h('div', 'gs-h', 'Loadout', h('span', '', PLAYER_ROBOT_NAME)),
         h('div', 'gs-parts', ...SLOTS.map((sl) => h('div', `gs-part ${sl === this.gSlot ? 'cur' : ''}`, svg(SLOT_ICON[sl]), h('span', 'gs-slot', SLOT_LABEL[sl]), h('b', '', R[sl].name)))),
         h('div', 'gs-stats',
-          stat('Armor', `${body.hp} HP`),
-          stat('Run', `${(body.runSpeed * legs.speedMul).toFixed(1)} m/s`),
-          stat('Dash', `${(body.dashSpeed * legs.dashMul).toFixed(0)} m/s`),
-          stat('Air jumps', `${legs.airJumps}`),
-          stat('Hover', `${(body.hoverTime * legs.hoverMul).toFixed(1)} s`),
-          stat('Charge', body.chargeName)),
+          stat('Armor', `${D.hp} HP`),
+          stat('Endurance', `${D.endurance}`),
+          stat('Mass', `${D.mass}`),
+          stat('Run', `${(D.runSpeed * 0.88).toFixed(1)} m/s`),
+          stat('Dash', `${D.dashStyle} ×${D.dashCharges}`),
+          stat('Air', `${D.airJumps} jump · ${D.airDashes} dash`),
+          stat('Hover', `${D.hoverTime.toFixed(1)} s`),
+          stat('Knockback', `${Math.round(D.knockMul * 100)}%`),
+          stat('Charge', body.chargeName),
+          stat('Set bonus', D.set ? `${SET_BONUS[D.set].name}: ${SET_BONUS[D.set].desc}` : '—')),
       );
     };
 

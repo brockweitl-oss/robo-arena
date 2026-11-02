@@ -7,7 +7,7 @@ page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') 
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
 for (const it of items) {
   const [name, url] = it.split('|');
-  await page.goto(`http://localhost:5173/${url}`);
+  await page.goto(`${process.env.BASE_URL ?? 'http://127.0.0.1:5317'}/${url}`);
   await page.waitForTimeout(+wait);
   await page.screenshot({ path: `${outDir}/${name}.png` });
   const fps = await page.evaluate(() => window.__fps).catch(() => null);

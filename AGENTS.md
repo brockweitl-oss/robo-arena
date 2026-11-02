@@ -16,14 +16,14 @@ The play-test is public: every push to `main` auto-deploys to GitHub Pages.
    git fetch origin
    git worktree add ../robo-arena-codex -b codex/<task-id> origin/main
    cd ../robo-arena-codex && npm ci
-   npx vite --port 5174    # use port 5174; Claude uses 5173
+   npx vite --port 5318    # use port 5318; Claude uses 5317 (5173 belongs to another app)
    ```
 2. Keep each branch to one task. Rebase on `origin/main` often.
 3. Before opening a PR, all of these must pass:
    - `npx tsc --noEmit`
    - `npm test`
    - `npm run build`
-   - `BASE_URL=http://localhost:5174 npm run test:e2e` (dev server running)
+   - `BASE_URL=http://127.0.0.1:5318 npm run test:e2e` (dev server running)
    - zero console errors or warnings
 4. Open a PR with `gh pr create`. **Read `docs/COORDINATION.md`**: every PR gets reviewed by the other agent (Claude reviews yours; you review Claude's `claude/*` PRs with `gh pr checkout`, run the checks, screenshot, and `gh pr review`). Keep the status board current. Put **before/after screenshots** in the PR description, plus the fps you measured. Claude reviews and merges.
 

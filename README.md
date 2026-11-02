@@ -12,7 +12,7 @@ generated in code at runtime, so there are no binary assets.
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
+npm run dev        # http://127.0.0.1:5317
 npm run build      # static site in dist/ (deploy anywhere, relative paths)
 npm run preview    # serve the build
 npm test           # unit tests (vitest): collision, fighter state machine, combat

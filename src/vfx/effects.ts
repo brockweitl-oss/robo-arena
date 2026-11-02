@@ -317,17 +317,17 @@ export class Effects {
       let v = this.projViews.get(p.id);
       if (!v) {
         const pooled = this.projPool.pop() ?? {
-          core: new THREE.Mesh(this.coreGeo, this.coreMat(p.def.color)),
-          halo: new THREE.Sprite(this.haloMat(p.def.color)),
+          core: new THREE.Mesh(this.coreGeo, this.coreMat(p.spec.color)),
+          halo: new THREE.Sprite(this.haloMat(p.spec.color)),
         };
-        pooled.core.material = this.coreMat(p.def.coreColor ?? 0xffffff);
-        pooled.halo.material = this.haloMat(p.def.color);
+        pooled.core.material = this.coreMat(p.spec.coreColor ?? 0xffffff);
+        pooled.halo.material = this.haloMat(p.spec.color);
         pooled.core.visible = pooled.halo.visible = true;
         this.group.add(pooled.core, pooled.halo);
         v = { ...pooled, last: p.pos.clone() };
         this.projViews.set(p.id, v);
       }
-      const r = p.def.radius;
+      const r = p.spec.radius;
       v.core.position.copy(p.pos);
       // stretch along velocity
       const sp = p.vel.length();
@@ -341,7 +341,7 @@ export class Effects {
       const steps = Math.min(6, Math.ceil(dist / 0.35));
       for (let i = 0; i < steps; i++) {
         _v.copy(v.last).lerp(p.pos, (i + 1) / steps);
-        this.sparks.emit({ pos: _v, count: 1, size: [r * 1.6, r * 2.0], grow: 0.15, life: [0.12, 0.2], color: p.def.color, intensity: 1.8, speed: [0, 0.4] });
+        this.sparks.emit({ pos: _v, count: 1, size: [r * 1.6, r * 2.0], grow: 0.15, life: [0.12, 0.2], color: p.spec.color, intensity: 1.8, speed: [0, 0.4] });
       }
       v.last.copy(p.pos);
     }
@@ -376,16 +376,26 @@ export class Effects {
     for (const [id, g] of this.bombViews) {
       if (seen.has(id)) continue;
       this.group.remove(g);
+      ((g.children[2] as THREE.Mesh).material as THREE.Material).dispose();
       this.bombViews.delete(id);
     }
   }
 
+  // Shared bomb geometry (unit radius, scaled per bomb) and per-color materials: no per-shot allocations.
+  private bombGeo = { shell: new THREE.SphereGeometry(1, 16, 12), band: new THREE.TorusGeometry(1, 0.18, 8, 20), lamp: new THREE.SphereGeometry(0.32, 10, 8) };
+  private bombShellMat = new THREE.MeshStandardMaterial({ color: 0x2b2d33, metalness: 0.7, roughness: 0.35 });
+  private bombBandMats = new Map<number, THREE.MeshStandardMaterial>();
+
   private makeBomb(color: number, r: number) {
     const g = new THREE.Group();
-    const shell = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), new THREE.MeshStandardMaterial({ color: 0x2b2d33, metalness: 0.7, roughness: 0.35 }));
-    const band = new THREE.Mesh(new THREE.TorusGeometry(r * 1.0, r * 0.18, 8, 20), new THREE.MeshStandardMaterial({ color, metalness: 0.3, roughness: 0.3 }));
-    const lamp = new THREE.Mesh(new THREE.SphereGeometry(r * 0.32, 10, 8), new THREE.MeshBasicMaterial({ color }));
-    lamp.position.y = r * 0.9;
+    let bandMat = this.bombBandMats.get(color);
+    if (!bandMat) this.bombBandMats.set(color, (bandMat = new THREE.MeshStandardMaterial({ color, metalness: 0.3, roughness: 0.3 })));
+    const shell = new THREE.Mesh(this.bombGeo.shell, this.bombShellMat);
+    const band = new THREE.Mesh(this.bombGeo.band, bandMat);
+    // the lamp material is animated per bomb, so it is owned by the bomb (no geometry allocation)
+    const lamp = new THREE.Mesh(this.bombGeo.lamp, new THREE.MeshBasicMaterial({ color }));
+    lamp.position.y = 0.9;
+    g.scale.setScalar(r);
     shell.castShadow = true;
     g.add(shell, band, lamp);
     return g;
@@ -420,8 +430,18 @@ export class Effects {
     for (const [id, v] of this.podViews) {
       if (seen.has(id)) continue;
       this.group.remove(v.g);
+      Effects.disposeGeometries(v.g);
+      (v.light.material as THREE.Material).dispose();
       this.podViews.delete(id);
     }
+  }
+
+  /** Dispose geometries under a group (materials are shared/cached elsewhere). */
+  static disposeGeometries(o: THREE.Object3D) {
+    o.traverse((c) => {
+      const m = c as THREE.Mesh;
+      if (m.isMesh) m.geometry.dispose();
+    });
   }
 
   /* --------------------------------------------------------------- dash afterimages */

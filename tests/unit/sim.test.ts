@@ -251,3 +251,55 @@ describe('play-test 1 fixes', () => {
     expect(a.mode).toBe('charge');
   });
 });
+
+describe('G1 review regressions (Codex, PR #17)', () => {
+  it('melee parry: defender takes no damage and the attacker is staggered', () => {
+    const { w, a, b } = makeWorld();
+    a.pos.set(0, 0, 1.2);
+    b.pos.set(0, 0, -0.2);
+    a.yaw = Math.PI; // a faces b
+    b.yaw = 0;
+    // attacker mid-lunge, defender just started its guard (parry window)
+    a.setMode('charge');
+    a.chargePhase = 1;
+    b.setMode('charge');
+    b.chargePhase = 0;
+    const hp = b.hp;
+    run(w, 1);
+    expect(b.hp).toBe(hp);
+    expect(a.mode).toBe('stagger');
+    expect(w.events.some((e) => e.type === 'clash')).toBe(false);
+  });
+
+  it('napalm on a raised deck does not burn robots below it', () => {
+    const deck: Collider = { kind: 'box', min: V(-4, 0, -4), max: V(4, 3, 4) };
+    const { w, a, b } = makeWorld([deck]);
+    b.pos.set(0, 0, 6); // ground level, outside the deck but inside the fire radius horizontally
+    (w as any).fires.push({ id: 999, owner: 0, pos: V(0, 3, 4.2), radius: 3, until: 10, nextTick: 0, def: { radius: 3, time: 10, tick: 0.5, damage: 20, down: 5 }, color: 0 });
+    const hp = b.hp;
+    run(w, 40);
+    expect(b.hp).toBe(hp);
+    void a;
+  });
+
+  it('charge beam fired in the air pays the 1.15x air cooldown', () => {
+    const lo = { ...DEFAULT_LOADOUT, gun: 'beam' };
+    const mk = (air: boolean) => {
+      const a = new Fighter(0, resolveLoadout(lo));
+      const b = new Fighter(1, resolveLoadout(DEFAULT_LOADOUT));
+      a.pos.set(0, air ? 6 : 0, 8);
+      b.pos.set(0, 0, -8);
+      const w = new World(testArena(), a, b);
+      w.combatEnabled = true;
+      if (air) { a.grounded = false; a.setMode('air'); }
+      w.step([{ ...emptyInput(), gunPressed: true, gunHeld: true }, emptyInput()]);
+      for (let i = 0; i < 20; i++) w.step([{ ...emptyInput(), gunHeld: true }, emptyInput()]);
+      // release while still airborne
+      w.step([emptyInput(), emptyInput()]);
+      return a.gunCd;
+    };
+    const ground = mk(false);
+    const air = mk(true);
+    expect(air).toBeGreaterThan(ground * 1.1);
+  });
+});
