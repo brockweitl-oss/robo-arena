@@ -9,7 +9,11 @@ import { ARENA_INFO } from '../arena/index';
  * RNG seeds and every tick's input. Inputs are packed to 3 bytes per frame per
  * player (quantized stick + button bits) and run-length encoded.
  */
+/** Reject recordings made against older simulation rules instead of silently desyncing. */
+export const RULESET_VERSION = 3;
+
 export interface Replay {
+  rulesVersion: number;
   v: 1;
   config: MatchConfig;
   worldSeed: number;
@@ -161,7 +165,7 @@ function streamOk(enc: unknown, frames: number): boolean {
 export function validateReplay(r: unknown): r is Replay {
   if (!r || typeof r !== 'object') return false;
   const x = r as Partial<Replay>;
-  if (x.v !== 1) return false;
+  if (x.v !== 1 || x.rulesVersion !== RULESET_VERSION) return false;
   const c = x.config;
   if (!c || typeof c !== 'object') return false;
   if (![...RIVALS, ...RIVALS_PLUS].some((rv) => rv.id === c.rivalId)) return false;

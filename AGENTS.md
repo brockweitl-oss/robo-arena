@@ -1,5 +1,7 @@
 # Instructions for coding agents (Codex / GPT)
 
+> Playtest 3 ownership update: the owner explicitly authorized Codex to complete gameplay, systems and visuals while Claude is out of usage. The earlier file split does not block these tasks. Use independent Codex reviews and the full local checks; do not claim Claude review. Keep Claude's checkout untouched. See `docs/PLAYTEST-3.md` for the accepted scope and remaining external dependencies.
+
 You are working on **Robo Arena**, a TypeScript + Vite + Three.js browser robot battler.
 Two agents work in this repo at the same time:
 

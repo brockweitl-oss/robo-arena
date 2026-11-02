@@ -28,8 +28,16 @@ export interface MatchConfig {
 export interface MatchStats {
   damageDealt: number;
   hits: number;
+  /** Knockdowns inflicted on the opponent. */
   knockdowns: number;
+  knockdownsTaken?: number;
   shots: number;
+  /** Actual primary-gun projectiles, including each pellet; excludes turret fire and returned shots. */
+  gunProjectiles?: number;
+  /** Primary projectiles that damaged the rival (including chip). */
+  gunHits?: number;
+  gunDamage?: number;
+  gunDeflected?: number;
   dodges: number;
   /* Optional extras read by progression/challenges/achievements (src/game/progression.ts).
      Missing fields are treated as "unknown": challenges that need them make no progress. */

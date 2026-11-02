@@ -9,7 +9,7 @@ import { resolveLoadout } from '../data/parts';
 import { PLAYER_PAINT, PLAYER_ROBOT_NAME, rivalById, type Paint } from '../data/characters';
 import { RobotModel } from '../robot/model';
 import { Animator } from '../robot/animator';
-import { Fighter, emptyInput, type FighterInput } from './fighter';
+import { Fighter, emptyInput, GUARD_DOT, type FighterInput } from './fighter';
 import { World, SIM_DT, type GameEvent } from './world';
 import { AIPilot } from './ai';
 import { ChaseCamera } from './camera';
@@ -19,7 +19,7 @@ import { audio, type LoopHandle } from '../audio/audio';
 import type { MatchConfig, MatchResult } from './types';
 import { groundHeightBelow, segmentHit } from './collision';
 import { track } from '../core/telemetry';
-import { InputRecorder, InputPlayer, quantizeInput, type Replay } from './replay';
+import { InputRecorder, InputPlayer, quantizeInput, RULESET_VERSION, type Replay } from './replay';
 import { PadInput, connectedPads } from '../core/padInput';
 
 type Phase = 'intro' | 'ready' | 'fight' | 'ko' | 'timeup' | 'outro' | 'done';
@@ -120,9 +120,6 @@ export class Match {
   private phase: Phase = 'intro';
   private phaseT = 0;
   private acc = 0;
-  private timeScale = 1;
-  private slowT = 0;
-  private slowTarget = 1;
   private timeLeft: number;
   private fightTime = 0;
   private paused = false;
@@ -180,8 +177,8 @@ export class Match {
     const pf = new Fighter(0, pLo);
     const rf = new Fighter(1, rLo);
     // seeds: from the replay being watched, or fresh (recorded for this match's replay)
-    this.worldSeed = cfg.replay ? cfg.replay.worldSeed : 1 + Math.floor(Math.random() * 1e9);
-    this.aiSeed = cfg.replay ? cfg.replay.aiSeed : 1 + Math.floor(Math.random() * 2147483000);
+    this.worldSeed = cfg.replay ? cfg.replay.worldSeed : 12345;
+    this.aiSeed = cfg.replay ? cfg.replay.aiSeed : 7;
     this.world = new World(this.arena, pf, rf, { arenaId: cfg.arenaId, pickups: !!cfg.pickups, seed: this.worldSeed });
     const practice = cfg.practice?.dummy;
     this.ai = new AIPilot(rival.ai, practice ? 0.5 : rival.skill, this.aiSeed);
@@ -203,12 +200,12 @@ export class Match {
       this.practiceMode = practice;
     }
     // replays use the assist recorded with them, never the current setting (determinism)
-    this.aimAssist = cfg.replay ? cfg.replay.aimAssist ?? 1 : host.settings.aimAssist ?? 1;
+    this.aimAssist = cfg.replay ? cfg.replay.aimAssist ?? 1 : vs ? 1 : host.settings.aimAssist ?? 1;
     pf.homingMul = this.aimAssist;
-    // AI handicaps: softer tracking and range-based aim error keep shots dodgeable (not for a human player 2)
+    // AI uses the same weapon rules as players; difficulty comes from reaction and decisions.
     if (!vs) {
-      rf.homingMul = 0.5;
-      rf.aimJitter = THREE.MathUtils.lerp(0.15, 0.09, rival.skill);
+      rf.homingMul = 1;
+      rf.aimJitter = 0;
     }
     this.timeLeft = practice ? Infinity : cfg.timeLimit ?? 120;
     if (new URLSearchParams(location.search).has('autoplay')) this.autoPilot = new AIPilot('champion', 1, 99);
@@ -321,14 +318,8 @@ export class Match {
       host.gr.render(dtReal);
       return;
     }
-    // slow-motion easing
-    if (this.slowT > 0) {
-      this.slowT -= dtReal;
-      if (this.slowT <= 0) this.slowTarget = 1;
-    }
-    this.timeScale += (this.slowTarget - this.timeScale) * Math.min(1, dtReal * (this.slowTarget < this.timeScale ? 30 : 6));
-    audio.setTimeScale(this.timeScale < 0.9 ? this.timeScale : 1);
-    const dt = dtReal * this.timeScale;
+    // Competitive combat always advances in real time.
+    const dt = dtReal;
     this.phaseT += dtReal;
     this.renderTime += dt;
     this.updatePhase(dtReal);
@@ -339,6 +330,7 @@ export class Match {
       this.acc += dt;
       let steps = 0;
       while (this.acc >= SIM_DT && steps < 5) {
+        this.beginSimulationStep();
         for (const s of this.sides) s.prevPos.copy(s.fighter.pos);
         const pf = this.player.fighter;
         const rf = this.sides[1].fighter;
@@ -515,7 +507,7 @@ export class Match {
     mat.uniforms.uAlpha.value += (on * (0.75 + s.shieldPulse) - mat.uniforms.uAlpha.value) * Math.min(1, dt * 25);
     sh.visible = mat.uniforms.uAlpha.value > 0.01;
     if (sh.visible) {
-      sh.position.set(f.pos.x + Math.sin(f.yaw) * 0.75, f.pos.y + 1.1, f.pos.z + Math.cos(f.yaw) * 0.75);
+      sh.position.set(f.pos.x + Math.sin(f.yaw) * 0.35, f.pos.y + 1.1, f.pos.z + Math.cos(f.yaw) * 0.35);
       sh.rotation.set(0, f.yaw, 0);
       sh.scale.setScalar(1 + s.shieldPulse * 0.25);
       mat.uniforms.uTime.value = this.renderTime;
@@ -526,6 +518,16 @@ export class Match {
   }
 
   /* ------------------------------------------------------------------ phases */
+
+  /** Unlock on the exact recorded tick, regardless of render-frame batching. */
+  private beginSimulationStep() {
+    if (this.phase !== 'ready' || this.readySteps < 66) return;
+    this.host.hud.announce('GO!', { color: '#ff6a1f' });
+    audio.play('announce_go');
+    for (const s of this.sides) s.fighter.locked = false;
+    this.world.combatEnabled = true;
+    this.setPhase('fight');
+  }
 
   private updatePhase(dt: number) {
     const t = this.phaseT;
@@ -593,22 +595,6 @@ export class Match {
       if (t < flight) this.cam.cine = { pos: pc.clone().add(new THREE.Vector3(6, 5, 8)), look: pc.clone(), k: 2.5 };
       else this.cam.cine = null;
       if (t > flight + 1.05) this.setPhase('ready');
-    } else if (this.phase === 'ready') {
-      if (t < 0.02) {
-        host.hud.announce('READY', { color: '#37e8ff' });
-        audio.play('announce_ready');
-        host.hud.showHint(host.input.lastDevice === 'pad' ? 'RT gun · LT bomb · RB pod · A jump · B dash (dodge) · X charge (blocks & deflects shots)' : 'Click to capture mouse · LMB gun · RMB bomb · E pod · Shift dash (dodge) · Q charge (blocks & deflects shots) · Tab free camera', 5);
-        host.input.enabled = true;
-        host.input.requestLock();
-      }
-      // fight starts after a fixed number of sim ticks (not wall-clock time) so replays line up exactly
-      if (this.readySteps >= 66) {
-        host.hud.announce('GO!', { color: '#ff6a1f' });
-        audio.play('announce_go');
-        for (const s of this.sides) s.fighter.locked = false;
-        this.world.combatEnabled = true;
-        this.setPhase('fight');
-      }
     } else if (this.phase === 'fight') {
       // hazard telegraphs
       this.arena.hazards.forEach((hz, i) => {
@@ -619,7 +605,7 @@ export class Match {
     } else if (this.phase === 'ko') {
       const loser = this.sides[this.winner === 0 ? 1 : 0];
       const lf = loser.fighter;
-      // camera on the KO'd robot during slow-mo
+      // camera on the KO'd robot during the real-time result beat
       if (t < 1.8) {
         const c = loser.model.root.position;
         if (this.shotYaw === null) {
@@ -672,9 +658,11 @@ export class Match {
 
   /** Curved hex-energy guard shield shown during the charge attack. */
   static makeShield(color: number) {
-    const geo = new THREE.SphereGeometry(1.15, 32, 16, -Math.PI * 0.35, Math.PI * 0.7, Math.PI * 0.18, Math.PI * 0.64);
-    geo.rotateY(Math.PI);
-    geo.translate(0, 0, 1.0);
+    const half = Math.acos(GUARD_DOT);
+    const geo = new THREE.SphereGeometry(1.15, 32, 16, 0, Math.PI * 2, 0, half);
+    // A circular polar cap exactly matches the shared 3D forward guard cone.
+    geo.rotateX(Math.PI / 2);
+    geo.translate(0, 0, -0.65);
     const mat = new THREE.ShaderMaterial({
       uniforms: { uColor: { value: new THREE.Color(color) }, uAlpha: { value: 0 }, uTime: { value: 0 } },
       vertexShader: `varying vec3 vN; varying vec3 vV; varying vec3 vP;
@@ -757,11 +745,14 @@ export class Match {
     this.phase = p;
     this.host.hud.el.classList.toggle('calm', p !== 'fight' && p !== 'ready');
     this.phaseT = 0;
-  }
-
-  private slowmo(scale: number, seconds: number) {
-    this.slowTarget = Math.min(this.slowTarget, scale);
-    this.slowT = Math.max(this.slowT, seconds);
+    if (p === 'ready') {
+      this.host.hud.announce('READY', { color: '#37e8ff' });
+      audio.play('announce_ready');
+      this.host.hud.showHint(this.host.input.lastDevice === 'pad' ? 'RT gun · LT bomb · RB pod · A jump · B dash (dodge) · X charge (blocks & deflects shots)' : 'Click to capture mouse · LMB gun · RMB bomb · E pod · Shift dash (dodge) · Q charge (blocks & deflects shots) · Tab free camera', 5);
+      this.host.input.enabled = true;
+      this.host.input.requestLock();
+    }
+    if (p === 'fight') this.host.input.enabled = true;
   }
 
   private onKO(loser: number) {
@@ -772,8 +763,8 @@ export class Match {
     this.world.combatEnabled = false;
     for (const s of this.sides) s.fighter.locked = true;
     this.host.input.enabled = false;
-    this.slowmo(0.22, 1.5);
-    this.host.hud.announce('K.O.', { color: '#ff3b3b', long: true });
+
+    this.host.hud.announce(loser === 2 ? 'DOUBLE K.O.' : 'K.O.', { color: '#ff3b3b', long: true });
     audio.play('ko');
     audio.play('announce_ko');
     audio.duck(0.6, 2.5);
@@ -798,8 +789,6 @@ export class Match {
   private startOutro() {
     this.setPhase('outro');
     audio.setTimeScale(1);
-    this.slowTarget = 1;
-    this.slowT = 0;
     this.host.input.releaseLock();
     const pw = this.winner === 0;
     if (this.winner >= 0) {
@@ -817,6 +806,7 @@ export class Match {
     void _drop;
     return {
       v: 1,
+      rulesVersion: RULESET_VERSION,
       config: { ...config },
       worldSeed: this.worldSeed,
       aiSeed: this.aiSeed,
@@ -839,7 +829,7 @@ export class Match {
       outcome: o.quit ? 'quit' : o.restart ? 'restart' : this.winner < 0 ? 'draw' : this.winner === 0 ? 'win' : 'lose',
       finish: this.finish, fightTime: r1(this.fightTime), playerHp: Math.round(p.hp), playerMaxHp: p.maxHp, rivalHp: Math.round(r.hp), rivalMaxHp: r.maxHp,
       used: T.used, dmgDealtBy: T.dmgDealt, dmgTakenBy: T.dmgTaken, hitsDealt: T.hitsDealt, hitsTaken: T.hitsTaken,
-      kdDealt: T.kdDealt, kdTaken: T.kdTaken, hazardHits: T.hazardHits, dodges: T.dodges, deflects: T.deflects, parries: T.parries, pauses: T.pauses,
+      kdDealt: p.stats.knockdowns, kdTaken: p.stats.knockdownsTaken, hazardHits: T.hazardHits, dodges: T.dodges, deflects: T.deflects, parries: p.stats.parries, pauses: T.pauses,
       airPct: T.fightT ? r1((T.airT / T.fightT) * 100) : 0, hoverS: r1(T.hoverT), hardLockPct: T.fightT ? r1((T.lockT / T.fightT) * 100) : 0,
       avgDist: T.distN ? r1(T.distSum / T.distN) : 0, distSec: { '<5m': r1(T.dist[0]), '5-10m': r1(T.dist[1]), '10-16m': r1(T.dist[2]), '>16m': r1(T.dist[3]) },
       fpsAvg: T.fpsN ? r1(T.fpsSum / T.fpsN) : null, fpsMin: T.fpsN ? r1(T.fpsMin) : null, device: T.device,
@@ -956,7 +946,7 @@ export class Match {
               audio.play('shield_block', { pos: f.pos, pitch: 1.5 });
               audio.play('hit_heavy', { pos: f.pos, volume: 0.6 });
               fx.parry(f.chestPoint(), new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)), s.paint.glow);
-              this.slowmo(0.3, 0.28);
+
               if (isP) this.tel.parries++;
               this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1.2, 0))), 'PARRY!', 'tag');
               this.sides[e.who].shieldPulse = 1.5;
@@ -972,7 +962,7 @@ export class Match {
               this.cam.addTrauma(0.25);
               this.punch(0.004);
               if (f.alive) {
-                this.slowmo(0.35, 0.45);
+
                 this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1.2, 0))), 'DOWN!', 'big', '#ffd23a');
               }
               break;
@@ -1045,7 +1035,7 @@ export class Match {
             this.tel.dmgTaken[e.source] = (this.tel.dmgTaken[e.source] ?? 0) + e.damage;
             this.tel.hitsTaken++;
             if (e.source === 'hazard') this.tel.hazardHits++;
-          } else {
+          } else if (e.attacker === 0) {
             this.tel.dmgDealt[e.source] = (this.tel.dmgDealt[e.source] ?? 0) + e.damage;
             this.tel.hitsDealt++;
           }
@@ -1074,7 +1064,7 @@ export class Match {
             this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 1, 0))), e.perfect ? 'PERFECT DODGE' : 'DODGE!', 'tag');
             fx.dodgeFlash(e.pos, 0x37e8ff);
             if (e.perfect) fx.ring(this.sides[0].fighter.pos.clone().add(new THREE.Vector3(0, 0.1, 0)), new THREE.Vector3(0, 1, 0), 0x37e8ff, 0.4, 2.6, 0.35, 1);
-            this.slowmo(e.perfect ? 0.4 : 0.55, e.perfect ? 0.22 : 0.1);
+
             audio.play('pod_seeker_ping', { volume: 0.6, pitch: e.perfect ? 2 : 1.6 });
           }
           break;
@@ -1084,8 +1074,9 @@ export class Match {
           audio.play('shield_block', { pos: e.pos });
           if (e.who === 0) {
             this.tel.deflects++;
-            this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 0.8, 0))), 'DEFLECT!', 'tag');
-            this.slowmo(0.5, 0.1);
+            if (e.parry) this.tel.parries++;
+            this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 0.8, 0))), e.parry ? 'PARRY!' : 'DEFLECT!', 'tag');
+
           }
           this.sides[e.who].shieldPulse = 1;
           break;
@@ -1094,7 +1085,7 @@ export class Match {
           fx.knockdownBurst(e.pos, 0xffffff);
           audio.play('hit_heavy', { pos: e.pos });
           audio.play('shield_block', { pos: e.pos });
-          this.slowmo(0.35, 0.25);
+
           break;
         case 'bombBounce':
           audio.play('bomb_bounce', { pos: e.bomb.pos });

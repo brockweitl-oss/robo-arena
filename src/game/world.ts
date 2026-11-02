@@ -9,8 +9,7 @@ export const SIM_DT = 1 / 60;
 const BOMB_G = 22;
 /** Global damage tuning knob (round length). */
 export const DAMAGE_SCALE = 0.6;
-/** Spread added to shots fired in the air (air vs ground trade-off). */
-const AIR_SPREAD = THREE.MathUtils.degToRad(5);
+/** Deterministic weapon accuracy; aerial commitment is paid through recovery and reload, never random misses. */
 
 /** Per-shot ballistic parameters (guns, turret shots, deflected shots). */
 export interface ShotSpec {
@@ -181,22 +180,15 @@ export class World {
   pickups: Pickup[] = [];
   readonly events: GameEvent[] = [];
   private nextId = 1;
+  /** -1 ongoing, 0/1 defeated player, 2 simultaneous knockout (draw). */
   koLoser = -1;
   /** When false, weapons/hits are disabled (intro). */
   combatEnabled = false;
-  private seed: number;
   private nextPickupAt: number;
   private pickupsOn: boolean;
   private pickupIndex = 0;
-  /** Deterministic RNG (0..1). */
-  rand() {
-    this.seed = (this.seed * 16807) % 2147483647;
-    return this.seed / 2147483647;
-  }
-
   constructor(readonly arena: ArenaBuild, a: Fighter, b: Fighter, opts: WorldOptions = {}) {
     this.fighters = [a, b];
-    this.seed = opts.seed ?? 12345;
     this.pickupsOn = !!opts.pickups;
     this.nextPickupAt = PICKUP.firstAt;
     const lay = TACTICS[opts.arenaId ?? arena.info.id];
@@ -246,6 +238,11 @@ export class World {
       this.stepTraps();
       this.stepPickups();
     }
+    // Resolve simultaneous hits as a draw, not a first-projectile/player-slot advantage.
+    if (this.koLoser >= 0 && !f0.alive && !f1.alive) {
+      this.koLoser = 2;
+      for (const event of this.events) if (event.type === 'ko') event.loser = 2;
+    }
     // events raised during combat (e.g. knockdowns) after the per-fighter flush above
     for (const f of this.fighters) for (let i = emitted[f.id]; i < f.events.length; i++) this.events.push({ type: 'fighter', who: f.id, ev: f.events[i], pos: f.pos.clone() });
     this.separate();
@@ -275,22 +272,14 @@ export class World {
     const target = this.fighters[1 - f.id];
     const from = f.muzzlePoint();
     const aim = target.chestPoint();
-    // mild lead for fast guns
-    aim.addScaledVector(target.vel, Math.min(0.25, from.distanceTo(aim) / spec.speed) * 0.35);
-    const dist = from.distanceTo(aim);
+    // Precision weapons predict constant motion at release. A direction change or timed dash
+    // after the visible wind-up still beats the shot. No random aim/spread in PvP or AI.
+    const precision = def.model === 'rail' || def.model === 'beam';
+    const lead = precision ? interceptTime(aim.clone().sub(from), target.vel, spec.speed) : Math.min(0.2, from.distanceTo(aim) / spec.speed) * 0.25;
+    aim.addScaledVector(target.vel, Math.min(0.45, lead));
     const dir = aim.sub(from).normalize();
     const up = new THREE.Vector3(0, 1, 0);
-    if (f.aimJitter > 0) {
-      const j = f.aimJitter * Math.min(2, dist / 10);
-      dir.applyAxisAngle(up, (this.rand() * 2 - 1) * j);
-      dir.y += (this.rand() * 2 - 1) * j * 0.4;
-      dir.normalize();
-    }
-    if (air) {
-      dir.applyAxisAngle(up, (this.rand() * 2 - 1) * AIR_SPREAD);
-      dir.y += (this.rand() * 2 - 1) * AIR_SPREAD * 0.5;
-      dir.normalize();
-    }
+    f.stats.gunProjectiles += def.pellets;
     for (let i = 0; i < def.pellets; i++) {
       const d = dir.clone();
       if (def.launchDeg) {
@@ -316,7 +305,7 @@ export class World {
       const goal = target.pos.clone().addScaledVector(target.vel, def.flightTime * 0.45);
       goal.y = groundHeightBelow(goal.x, goal.z, target.pos.y + 0.1, this.colliders);
       if (def.count > 1) {
-        const a = (i / def.count) * Math.PI * 2 + this.time * 3.1;
+        const a = (i / def.count) * Math.PI * 2 + f.yaw;
         goal.x += Math.cos(a) * def.scatter * (i === 0 ? 0.15 : 1);
         goal.z += Math.sin(a) * def.scatter * (i === 0 ? 0.15 : 1);
       }
@@ -330,7 +319,7 @@ export class World {
       const vy = (goal.y - from.y + 0.5 * BOMB_G * T * T) / T;
       const b: Bomb = {
         id: this.nextId++, owner: f.id, def, pos: from.clone(), vel: new THREE.Vector3(flat.x / T, vy, flat.z / T), bounces: def.bounces, age: 0, alive: true,
-        spin: new THREE.Vector3(this.rand() * 8, this.rand() * 8, 0),
+        spin: new THREE.Vector3(5 + i, 3 - i, 0),
         target: new THREE.Vector3(from.x + flat.x, goal.y, from.z + flat.z),
       };
       this.bombs.push(b);
@@ -394,22 +383,22 @@ export class World {
         continue;
       }
       // hit fighter (capsule) — segment closest approach
-      const hit = p.passed ? null : this.segmentVsFighter(p.prev, p.pos, target, 0.55 + s.radius);
+      const solid = segmentHit(p.prev, p.pos, this.colliders);
+      const travelEnd = solid?.point ?? p.pos;
+      let hit = p.passed ? null : this.segmentVsFighter(p.prev, p.pos, target, 0.55 + s.radius);
+      if (hit && solid && solid.point.distanceToSquared(p.prev) <= hit.distanceToSquared(p.prev)) hit = null;
       if (hit && target.dodging) {
         // perfect dodge: the shot passes through
         p.passed = true;
-        target.perfectDodge();
-        this.events.push({ type: 'dodge', who: target.id, pos: target.chestPoint(), perfect: true });
-        continue;
+        if (target.perfectDodge()) this.events.push({ type: 'dodge', who: target.id, pos: target.chestPoint(), perfect: true });
+        hit = null; // the same segment must still collide with a wall behind the dodging robot
       }
       if (hit && target.guarding && !p.deflected) {
-        const fx = Math.sin(target.yaw);
-        const fz = Math.cos(target.yaw);
-        const vl = Math.hypot(p.vel.x, p.vel.z) || 1;
-        if ((-p.vel.x * fx - p.vel.z * fz) / vl > 0.2) {
+        if (target.facesIncoming(p.vel)) {
           // deflect back at the shooter; a perfect parry deflects harder
           const parry = target.parrying;
           const shooter = this.fighters[p.owner];
+          if (s.look !== 'turret') shooter.stats.gunDeflected++;
           p.owner = target.id;
           p.deflected = true;
           p.age = 0;
@@ -424,8 +413,12 @@ export class World {
       }
       if (hit) {
         if (!target.isInvulnerable) {
-          const dir = p.vel.clone().setY(0).normalize();
-          this.applyHit(target, p.owner, { damage: s.damage, down: s.down, dir, knock: s.knockback, heavy: s.down >= 40, source: 'gun' }, hit, s.color);
+          const dir = p.vel.clone().normalize();
+          const result = this.applyHit(target, p.owner, { damage: s.damage, down: s.down, dir, knock: s.knockback, heavy: s.down >= 40, source: 'gun' }, hit, s.color);
+          if (!p.deflected && s.look !== 'turret' && result && result.damage > 0) {
+            this.fighters[p.owner].stats.gunHits++;
+            this.fighters[p.owner].stats.gunDamage += result.damage;
+          }
         } else {
           this.events.push({ type: 'impact', pos: hit, normal: p.vel.clone().normalize().negate(), color: s.color, proj: p });
         }
@@ -434,7 +427,7 @@ export class World {
       }
       // near-miss: dodge detection (target dashing close by)
       if (!p.nearMissed && !p.passed && (target.mode === 'dash' || target.mode === 'airdash')) {
-        const d = this.segmentDistance(p.prev, p.pos, target.chestPoint());
+        const d = this.segmentDistance(p.prev, travelEnd, target.chestPoint());
         if (d < 1.8) {
           p.nearMissed = true;
           target.stats.dodges++;
@@ -444,7 +437,7 @@ export class World {
       // hit enemy pods
       for (const pod of this.pods) {
         if (!pod.alive || pod.owner === p.owner) continue;
-        if (this.segmentDistance(p.prev, p.pos, pod.pos) < 0.45 + (pod.def.model === 'turret' ? 0.3 : 0)) {
+        if (this.segmentDistance(p.prev, travelEnd, pod.pos) < 0.45 + (pod.def.model === 'turret' ? 0.3 : 0) && !segmentHit(p.prev, pod.pos, this.colliders)) {
           pod.hp -= s.damage;
           this.events.push({ type: 'impact', pos: pod.pos.clone(), normal: p.vel.clone().normalize().negate(), color: s.color, proj: p });
           if (pod.hp <= 0) this.detonatePod(pod, true);
@@ -455,10 +448,10 @@ export class World {
       if (!p.alive) continue;
       // trap switches (any shot triggers them)
       for (const tr of this.traps) {
-        if (this.segmentDistance(p.prev, p.pos, tr.sw) < TRAP.switchRadius + s.radius) this.triggerTrap(tr, p.owner);
+        if (this.segmentDistance(p.prev, travelEnd, tr.sw) < TRAP.switchRadius + s.radius && !segmentHit(p.prev, tr.sw, this.colliders)) this.triggerTrap(tr, p.owner);
       }
       // world
-      const w = segmentHit(p.prev, p.pos, this.colliders);
+      const w = solid;
       if (w) {
         const crate = this.crates.find((c) => c.alive && c.collider === w.collider);
         if (crate) this.damageCrate(crate, s.damage, w.point);
@@ -696,12 +689,10 @@ export class World {
     const yClamped = THREE.MathUtils.clamp(pos.y, victim.pos.y + 0.3, victim.pos.y + 1.7);
     const d = Math.hypot(pos.x - c.x, pos.y - yClamped, pos.z - c.z);
     if (d < radius + 0.4 && victim.dodging) {
-      victim.perfectDodge();
-      this.events.push({ type: 'dodge', who: victim.id, pos: c.clone(), perfect: true });
+      if (victim.perfectDodge()) this.events.push({ type: 'dodge', who: victim.id, pos: c.clone(), perfect: true });
     } else if (d < radius + 0.4) {
       const fall = 1 - THREE.MathUtils.clamp((d - 0.6) / radius, 0, 1) * 0.55;
-      const dir = new THREE.Vector3(c.x - pos.x, 0, c.z - pos.z);
-      if (dir.lengthSq() < 1e-4) dir.set(Math.sin(victim.yaw + Math.PI), 0, Math.cos(victim.yaw + Math.PI));
+      const dir = c.clone().sub(pos);
       dir.normalize();
       this.applyHit(victim, owner, { damage: damage * fall * (ownerF ? ownerF.damageMul : 1), down: down * fall, dir, knock: 6, heavy: true, source, guardBreak: direct }, c, color);
     }
@@ -721,8 +712,9 @@ export class World {
     if (r.parried && att && h.source === 'charge') att.parriedBy();
     if (att) {
       att.stats.damageDealt += r.damage;
+      if (r.knockdown) att.stats.knockdowns++;
       if (!r.parried) att.stats.hits++;
-      if (h.source === 'charge' && !r.parried) att.hitstop = Math.max(att.hitstop, 0.07);
+
     }
     this.events.push({
       type: 'hit', victim: victim.id, attacker, pos: at.clone(), dir: h.dir.clone(), damage: r.damage,
@@ -733,6 +725,7 @@ export class World {
       this.koLoser = victim.id;
       this.events.push({ type: 'ko', loser: victim.id });
     }
+    return r;
   }
 
   private stepHazards() {
@@ -750,7 +743,7 @@ export class World {
         if (dir.lengthSq() < 1e-3) dir.set(1, 0, 0);
         dir.normalize();
         this.events.push({ type: 'hazard', index: i, pos: f.pos.clone() });
-        this.applyHit(f, -1, { damage: hz.damage, down: hz.down, dir, knock: 3, heavy: true, launch: hz.launch, source: 'hazard' }, f.chestPoint(), 0xffffff);
+        this.applyHit(f, -1, { damage: hz.damage, down: hz.down, dir, knock: hz.down > 0 ? 3 : 0, heavy: hz.down > 0, launch: hz.launch, tick: hz.down <= 0, source: 'hazard' }, f.chestPoint(), 0xffffff);
       }
     });
   }
@@ -883,3 +876,16 @@ export class World {
 }
 
 export { GRAVITY };
+
+/** Earliest constant-velocity intercept time, bounded by the weapon's flight in spawnShot. */
+export function interceptTime(relative: THREE.Vector3, velocity: THREE.Vector3, speed: number): number {
+  const a = velocity.lengthSq() - speed * speed;
+  const b = 2 * relative.dot(velocity);
+  const c = relative.lengthSq();
+  if (Math.abs(a) < 1e-8) return Math.abs(b) > 1e-8 ? Math.max(0, -c / b) : 0;
+  const disc = b * b - 4 * a * c;
+  if (disc < 0) return Math.sqrt(c) / speed;
+  const t1 = (-b - Math.sqrt(disc)) / (2 * a), t2 = (-b + Math.sqrt(disc)) / (2 * a);
+  const positive = [t1, t2].filter(t => t >= 0);
+  return positive.length ? Math.min(...positive) : Math.sqrt(c) / speed;
+}

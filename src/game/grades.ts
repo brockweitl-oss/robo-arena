@@ -20,7 +20,7 @@ export function gradeMatch(r: MatchResult): GradeReport {
     { label: 'Armor kept', points: Math.round(hpPct * 40), max: 40 },
     { label: 'Speed', points: r.outcome === 'win' ? Math.round(Math.max(0, Math.min(1, (120 - r.time) / 90)) * 20) : 0, max: 20 },
     { label: 'Defense', points: Math.min(20, defense * 3), max: 20 },
-    { label: 'Knockdowns', points: Math.min(20, (r.rival.knockdowns ?? 0) * 7), max: 20 },
+    { label: 'Knockdowns', points: Math.min(20, (r.player.knockdowns ?? 0) * 7), max: 20 },
   ];
   const score = parts.reduce((s, x) => s + x.points, 0);
   let grade: Grade = score >= 80 ? 'S' : score >= 62 ? 'A' : score >= 42 ? 'B' : 'C';

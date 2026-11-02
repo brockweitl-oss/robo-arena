@@ -20,7 +20,7 @@ const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const box = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): Collider => ({ kind: 'box', min: V(x0, y0, z0), max: V(x1, y1, z1) });
 
 /** Symmetric test arena: floor, central block, four cover pieces, two raised decks with ramps. */
-function arena(): ArenaBuild {
+function arena(lane = 0): ArenaBuild {
   const colliders: Collider[] = [
     box(-20, -1, -20, 20, 0, 20),
     box(-1.5, 0, -1.5, 1.5, 2.2, 1.5),
@@ -31,7 +31,7 @@ function arena(): ArenaBuild {
   ];
   return {
     info: { id: 'lab', name: 'lab', subtitle: '', blurb: '', music: 'menu', accent: '#fff' },
-    root: new THREE.Group(), colliders, hazards: [], spawns: [V(0, 0, 11), V(0, 0, -11)],
+    root: new THREE.Group(), colliders, hazards: [], spawns: [V(lane, 0, 11), V(-lane, 0, -11)],
     halfX: 18, halfZ: 18, background: new THREE.Color(), environment: null, fog: null, keyLight: new THREE.DirectionalLight(),
     tick() {}, update() {}, dispose() {},
   };
@@ -41,15 +41,20 @@ function arena(): ArenaBuild {
 function fight(a: Loadout, b: Loadout, seed: number, timeLimit = 120): number {
   const fa = new Fighter(0, resolveLoadout(a));
   const fb = new Fighter(1, resolveLoadout(b));
-  const ar = arena();
+  // Nine authored situations: three mirrored approach lanes × three tactical pilot styles.
+  // Seed does not change combat odds: it selects a declared scenario only.
+  const scenario = Math.floor(seed / 2) % 9;
+  const ar = arena([-7, 0, 7][scenario % 3]);
   fa.pos.copy(ar.spawns[0]);
   fb.pos.copy(ar.spawns[1]);
   const w = new World(ar, fa, fb, { arenaId: 'lab', seed });
   w.combatEnabled = true;
-  const ia = new AIPilot('duelist', 0.8, seed * 31 + 7);
-  const ib = new AIPilot('duelist', 0.8, seed * 17 + 3);
+  const personality = (['duelist', 'champion', 'rusher'] as const)[Math.floor(scenario / 3)];
+  const ia = new AIPilot(personality, 0.8);
+  const ib = new AIPilot(personality, 0.8);
   const steps = timeLimit * 60;
   for (let i = 0; i < steps && w.koLoser < 0; i++) w.step([ia.think(w, fa, fb), ib.think(w, fb, fa)]);
+  if (process.env.BALANCE_TRACE && seed < 102 && a.gun !== b.gun) console.log(a.gun, b.gun, 'HP', fa.hp, fb.hp, 'seconds', w.time.toFixed(1), 'A', JSON.stringify(fa.stats), 'B', JSON.stringify(fb.stats));
   if (w.koLoser === 1) return 1;
   if (w.koLoser === 0) return 0;
   const ra = fa.hp / fa.maxHp;
@@ -97,7 +102,7 @@ it('part balance tournament', { timeout: 60 * 60 * 1000 }, () => {
     const [slot, id] = k.split(':');
     report[slot][id].field = v.w / v.n;
   }
-  writeFileSync('tests/balance/report.json', JSON.stringify({ n: N, field: M, seconds: (Date.now() - t0) / 1000, report }, null, 2));
+  writeFileSync('tests/balance/report.json', JSON.stringify({ n: N, field: M, scenarios: '3 mirrored lanes x 3 AI profiles; deterministic repeats are not independent statistical trials', seconds: (Date.now() - t0) / 1000, report }, null, 2));
   const rows: string[] = [];
   for (const slot of slots) for (const [id, r] of Object.entries(report[slot])) {
     const flag = r.vsDefault > 0.62 || r.vsDefault < 0.38 || r.field > 0.6 || r.field < 0.4 ? '  <-- check' : '';

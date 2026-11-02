@@ -243,6 +243,7 @@ describe('play-test 1 fixes', () => {
 
   it('charge guard turns blast damage into chip damage without flinching', () => {
     const { a } = makeWorld();
+    a.yaw = Math.PI; // face the source of the +Z incoming blast
     a.setMode('charge');
     a.chargePhase = 1;
     const r = a.takeHit({ damage: 100, down: 50, dir: new THREE.Vector3(0, 0, 1), knock: 6, heavy: true, source: 'bomb' });
@@ -339,7 +340,7 @@ describe('G5 replays + grades', () => {
     const { gradeMatch } = await import('../../src/game/grades');
     const base = { config: { mode: 'free', playerLoadout: DEFAULT_LOADOUT, rivalId: 'dex', arenaId: 'foundry' } as any, finish: 'ko' as const, playerMaxHp: 1000, rivalHp: 0, rivalMaxHp: 1000 };
     const stats = (o: Partial<{ dodges: number; parries: number; knockdowns: number }>) => ({ damageDealt: 0, hits: 0, knockdowns: o.knockdowns ?? 0, shots: 0, dodges: o.dodges ?? 0, parries: o.parries ?? 0 });
-    const great = gradeMatch({ ...base, outcome: 'win', time: 35, playerHp: 950, player: stats({ dodges: 6, parries: 2 }), rival: stats({ knockdowns: 3 }) });
+    const great = gradeMatch({ ...base, outcome: 'win', time: 35, playerHp: 950, player: stats({ dodges: 6, parries: 2, knockdowns: 3 }), rival: stats({}) });
     const scrappy = gradeMatch({ ...base, outcome: 'win', time: 115, playerHp: 80, player: stats({}), rival: stats({}) });
     const loss = gradeMatch({ ...base, outcome: 'lose', time: 60, playerHp: 0, player: stats({ dodges: 20 }), rival: stats({ knockdowns: 5 }) });
     expect(great.grade).toBe('S');
@@ -353,8 +354,10 @@ describe('G5 review regressions (Codex, PR #20)', () => {
     const { validateReplay, InputRecorder } = await import('../../src/game/replay');
     const rec = new InputRecorder();
     for (let i = 0; i < 120; i++) rec.push({ ...emptyInput(), moveX: i % 2 ? 1 : 0 });
-    const good = { v: 1, config: { mode: 'free', playerLoadout: { ...DEFAULT_LOADOUT }, rivalId: 'dex', arenaId: 'foundry' }, worldSeed: 5, aiSeed: 9, streams: [rec.encode()], frames: 120, date: new Date().toISOString(), aimAssist: 1 };
+    const good = { v: 1, rulesVersion: 3, config: { mode: 'free', playerLoadout: { ...DEFAULT_LOADOUT }, rivalId: 'dex', arenaId: 'foundry' }, worldSeed: 5, aiSeed: 9, streams: [rec.encode()], frames: 120, date: new Date().toISOString(), aimAssist: 1 };
     expect(validateReplay(good)).toBe(true);
+    expect(validateReplay({ ...good, rulesVersion: 2 })).toBe(false);
+    expect(validateReplay({ ...good, rulesVersion: undefined })).toBe(false);
     expect(validateReplay({ v: 1, config: {}, streams: [] })).toBe(false);
     expect(validateReplay({ ...good, streams: ['!!notbase64'] })).toBe(false);
     expect(validateReplay({ ...good, frames: 999999 })).toBe(false);
@@ -370,8 +373,10 @@ describe('replay validation hardening (Codex, PR #20 final)', () => {
   it('rejects inherited keys and invalid versus paint', async () => {
     const { validateReplay, InputRecorder } = await import('../../src/game/replay');
     const mk = () => { const r = new InputRecorder(); for (let i = 0; i < 60; i++) r.push(emptyInput()); return r.encode(); };
-    const good = { v: 1, config: { mode: 'free', playerLoadout: { ...DEFAULT_LOADOUT }, rivalId: 'dex', arenaId: 'foundry' }, worldSeed: 5, aiSeed: 9, streams: [mk()], frames: 60, date: new Date().toISOString(), aimAssist: 1 };
+    const good = { v: 1, rulesVersion: 3, config: { mode: 'free', playerLoadout: { ...DEFAULT_LOADOUT }, rivalId: 'dex', arenaId: 'foundry' }, worldSeed: 5, aiSeed: 9, streams: [mk()], frames: 60, date: new Date().toISOString(), aimAssist: 1 };
     expect(validateReplay(good)).toBe(true);
+    expect(validateReplay({ ...good, rulesVersion: 2 })).toBe(false);
+    expect(validateReplay({ ...good, rulesVersion: undefined })).toBe(false);
     expect(validateReplay({ ...good, config: { ...good.config, arenaId: 'constructor' } })).toBe(false);
     expect(validateReplay({ ...good, config: { ...good.config, playerLoadout: { ...DEFAULT_LOADOUT, gun: 'constructor' } } })).toBe(false);
     const paint = { primary: 1, secondary: 2, trim: 3, dark: 4, glow: 5, emblem: '01' };

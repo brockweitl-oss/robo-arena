@@ -43,6 +43,8 @@ export interface GunDef extends PartBase {
   cooldown: number;
   /** Wind-up before the first shot (rail charge). */
   windup: number;
+  /** Action commitment after firing, independent of reload. */
+  recovery: number;
   damage: number;
   down: number;
   speed: number;
@@ -171,11 +173,11 @@ export type AnyPart = GunDef | BombDef | PodDef | BodyDef | LegsDef;
 export const GUNS: Record<string, GunDef> = {
   pulse: {
     id: 'pulse', slot: 'gun', name: 'Pulse Blaster', model: 'blaster', family: 'vanguard', mass: 10,
-    desc: 'Reliable 3-round burst. Gentle tracking curves shots toward the target.',
-    pro: 'Consistent at every range', con: 'Low burst damage',
+    desc: 'Three-round pressure burst. Mild tracking at mid-range; sustained chip rather than a finisher.',
+    pro: 'Reliable mid-range pressure', con: 'Low impact; loses tracking at range',
     ratings: { Power: 2, Speed: 4, Tracking: 3, Reload: 4 },
-    burst: 3, burstInterval: 0.13, pellets: 1, spreadDeg: 0, cooldown: 0.8, windup: 0,
-    damage: 30, down: 16, speed: 34, homing: 1.9, homingTime: 0.5, life: 1.5, radius: 0.22,
+    burst: 3, burstInterval: 0.13, pellets: 1, spreadDeg: 0, cooldown: 0.75, windup: 0, recovery: 0.12,
+    damage: 22, down: 8, speed: 38, homing: 0.85, homingTime: 0.3, life: 0.9, radius: 0.2,
     color: 0x2fd6ff, coreColor: 0xe8fdff, groundSlow: 0.45, sfx: 'gun_blaster', knockback: 2.5,
   },
   scatter: {
@@ -183,17 +185,17 @@ export const GUNS: Record<string, GunDef> = {
     desc: 'Fans five pellets. Brutal up close, weak at range. Hard to dodge.',
     pro: 'Huge close-range damage', con: 'Pellets fade out past ~10 m',
     ratings: { Power: 4, Speed: 3, Tracking: 1, Reload: 3 },
-    burst: 2, burstInterval: 0.22, pellets: 5, spreadDeg: 15, cooldown: 1.0, windup: 0,
-    damage: 29, down: 11, speed: 30, homing: 1.2, homingTime: 0.35, life: 0.62, radius: 0.2,
+    burst: 1, burstInterval: 0, pellets: 5, spreadDeg: 15, cooldown: 1.15, windup: 0.14, recovery: 0.3,
+    damage: 44, down: 12, speed: 34, homing: 0, homingTime: 0, life: 0.38, radius: 0.2,
     color: 0xffb03a, coreColor: 0xfff3d0, groundSlow: 0.3, sfx: 'gun_scatter', knockback: 2,
   },
   rail: {
     id: 'rail', slot: 'gun', name: 'Rail Lance', model: 'rail', family: 'paladin', mass: 14,
-    desc: 'Charges, then fires one hypersonic slug. Huge down damage. Commit carefully.',
-    pro: 'Fast slug, big knockdown pressure', con: 'Long charge roots you; easy to read',
+    desc: 'Brace, then fire a precise predictive slug. Punishes recovery and straight-line movement; cannot curve after firing.',
+    pro: 'High-impact punish at long range', con: 'Committed wind-up and recovery; no homing',
     ratings: { Power: 5, Speed: 5, Tracking: 1, Reload: 1 },
-    burst: 1, burstInterval: 0, pellets: 1, spreadDeg: 0, cooldown: 1.95, windup: 0.55,
-    damage: 100, down: 40, speed: 72, homing: 0.9, homingTime: 0.15, life: 0.6, radius: 0.28,
+    burst: 1, burstInterval: 0, pellets: 1, spreadDeg: 0, cooldown: 1.75, windup: 0.5, recovery: 0.38,
+    damage: 195, down: 60, speed: 110, homing: 0, homingTime: 0, life: 0.5, radius: 0.3,
     color: 0xc46bff, coreColor: 0xffffff, groundSlow: 0.1, sfx: 'gun_rail', knockback: 9,
   },
   beam: {
@@ -201,9 +203,9 @@ export const GUNS: Record<string, GunDef> = {
     desc: 'Hold to charge, release to fire a piercing beam bolt. Longer holds hit harder.',
     pro: 'You choose speed vs power each shot', con: 'Weak when tapped; charging is visible',
     ratings: { Power: 4, Speed: 4, Tracking: 2, Reload: 2 },
-    burst: 1, burstInterval: 0, pellets: 1, spreadDeg: 0, cooldown: 0.75, windup: 0,
-    holdMin: 0.2, holdMax: 0.9, holdMinFrac: 0.55, pierce: true,
-    damage: 165, down: 52, speed: 64, homing: 0.6, homingTime: 0.25, life: 0.8, radius: 0.32,
+    burst: 1, burstInterval: 0, pellets: 1, spreadDeg: 0, cooldown: 0.9, windup: 0, recovery: 0.32,
+    holdMin: 0.2, holdMax: 0.9, holdMinFrac: 0.4, pierce: true,
+    damage: 175, down: 60, speed: 80, homing: 0, homingTime: 0, life: 0.8, radius: 0.32,
     color: 0x5dff9e, coreColor: 0xeafff2, groundSlow: 0.35, sfx: 'gun_rail', knockback: 6,
   },
   homer: {
@@ -211,8 +213,8 @@ export const GUNS: Record<string, GunDef> = {
     desc: 'Twin shots launch wide to the sides, then curve in on the target.',
     pro: 'Hits around cover and punishes strafing', con: 'Slow; a straight dash escapes the curve',
     ratings: { Power: 2, Speed: 2, Tracking: 5, Reload: 3 },
-    burst: 1, burstInterval: 0, pellets: 2, spreadDeg: 0, launchDeg: 35, cooldown: 0.8, windup: 0,
-    damage: 40, down: 19, speed: 32, homing: 7.5, homingTime: 0.9, homingDelay: 0.1, life: 1.8, radius: 0.24,
+    burst: 1, burstInterval: 0, pellets: 2, spreadDeg: 0, launchDeg: 35, cooldown: 1.35, windup: 0.16, recovery: 0.18,
+    damage: 38, down: 14, speed: 25, homing: 5.5, homingTime: 1.0, homingDelay: 0.1, life: 1.8, radius: 0.24,
     color: 0xff7ae6, coreColor: 0xfff0fb, groundSlow: 0.5, sfx: 'gun_blaster', knockback: 2.5,
   },
 };
@@ -264,11 +266,11 @@ export const PODS: Record<string, PodDef> = {
   },
   mine: {
     id: 'mine', slot: 'pod', name: 'Drift Mines', model: 'mine', family: 'strider', mass: 9,
-    desc: 'Two floating mines that creep toward the enemy and detonate when close.',
+    desc: 'Two slow lane traps with a visible fuse. Establish space, then force the rival through them.',
     pro: 'Traps lanes and corners', con: 'Very slow; visible fuse',
     ratings: { Power: 3, Speed: 1, Tracking: 2, Reload: 3 },
-    count: 2, speed: 2.6, turnRate: 1.2, life: 10, armTime: 0.8, triggerRadius: 2.6, fuse: 0.45,
-    damage: 75, down: 45, blastRadius: 3.0, cooldown: 4.0, hp: 30, hoverHeight: 1.6, color: 0xffe14a,
+    count: 2, speed: 1.4, turnRate: 0.8, life: 10, armTime: 0.8, triggerRadius: 2.2, fuse: 0.6,
+    damage: 85, down: 45, blastRadius: 2.8, cooldown: 5.2, hp: 30, hoverHeight: 1.6, color: 0xffe14a,
   },
   turret: {
     id: 'turret', slot: 'pod', name: 'Sentry Tripod', model: 'turret', family: 'titan', mass: 12,
@@ -297,8 +299,8 @@ export const BODIES: Record<string, BodyDef> = {
     pro: 'No weak spots', con: 'No standout strengths',
     ratings: { Armor: 3, Speed: 3, Air: 3, Endurance: 3 },
     hp: 1000, runSpeed: 10.5, jumpVel: 14, airJumpVel: 12.5, hoverTime: 1.1, endurance: 100, airControl: 1,
-    dash: { style: 'burst', speed: 24, time: 0.26, cooldown: 0.42, airDashBonus: 0 },
-    charge: { windup: 0.3, lunge: 0.3, recover: 0.38, speed: 22, damage: 110, down: 55, cooldown: 1.6, armor: false },
+    dash: { style: 'burst', speed: 24, time: 0.26, cooldown: 1.1, airDashBonus: 0 },
+    charge: { windup: 0.3, lunge: 0.3, recover: 0.5, speed: 22, damage: 110, down: 55, cooldown: 1.6, armor: false },
     chargeName: 'Comet Punch',
   },
   ironclad: {
@@ -306,9 +308,9 @@ export const BODIES: Record<string, BodyDef> = {
     desc: 'Heavy plating and a high down threshold. Short, stomping step-dash. Ram shrugs off fire.',
     pro: 'Huge HP and endurance; armored ram', con: 'Slow, short dash, poor in the air',
     ratings: { Armor: 5, Speed: 1, Air: 1, Endurance: 5 },
-    hp: 1170, runSpeed: 9.4, jumpVel: 13, airJumpVel: 11.2, hoverTime: 0.8, endurance: 125, airControl: 0.8,
-    dash: { style: 'step', speed: 22, time: 0.2, cooldown: 0.48, airDashBonus: 0 },
-    charge: { windup: 0.38, lunge: 0.36, recover: 0.45, speed: 20, damage: 130, down: 65, cooldown: 2.0, armor: true },
+    hp: 1120, runSpeed: 8.8, jumpVel: 13, airJumpVel: 11.2, hoverTime: 0.8, endurance: 115, airControl: 0.8,
+    dash: { style: 'step', speed: 22, time: 0.2, cooldown: 1.25, airDashBonus: 0 },
+    charge: { windup: 0.38, lunge: 0.36, recover: 0.62, speed: 20, damage: 130, down: 65, cooldown: 2.0, armor: true },
     chargeName: 'Bulldozer Ram',
   },
   wisp: {
@@ -316,9 +318,9 @@ export const BODIES: Record<string, BodyDef> = {
     desc: 'Featherweight flyer. Long hover and an extra air dash, but a fragile shell.',
     pro: 'Best air mobility', con: 'Low HP; knocked down quickly',
     ratings: { Armor: 1, Speed: 4, Air: 5, Endurance: 1 },
-    hp: 900, runSpeed: 11.2, jumpVel: 15, airJumpVel: 13.5, hoverTime: 1.7, endurance: 82, airControl: 1.25,
-    dash: { style: 'flight', speed: 23, time: 0.24, cooldown: 0.45, airDashBonus: 1 },
-    charge: { windup: 0.26, lunge: 0.26, recover: 0.32, speed: 25, damage: 85, down: 45, cooldown: 1.3, armor: false },
+    hp: 960, runSpeed: 11.2, jumpVel: 15, airJumpVel: 13.5, hoverTime: 1.7, endurance: 90, airControl: 1.25,
+    dash: { style: 'flight', speed: 23, time: 0.24, cooldown: 1.1, airDashBonus: 1 },
+    charge: { windup: 0.26, lunge: 0.26, recover: 0.44, speed: 25, damage: 85, down: 45, cooldown: 1.3, armor: false },
     chargeName: 'Swallow Kick',
   },
   regent: {
@@ -327,8 +329,8 @@ export const BODIES: Record<string, BodyDef> = {
     pro: 'Longest dash and charge reach', con: 'Long dash cooldown; heavy air control',
     ratings: { Armor: 3, Speed: 3, Air: 2, Endurance: 3 },
     hp: 980, runSpeed: 10.6, jumpVel: 14, airJumpVel: 12.5, hoverTime: 1.1, endurance: 95, airControl: 0.85,
-    dash: { style: 'glide', speed: 25, time: 0.33, cooldown: 0.64, airDashBonus: 0 },
-    charge: { windup: 0.3, lunge: 0.34, recover: 0.38, speed: 24, damage: 105, down: 58, cooldown: 1.7, armor: false },
+    dash: { style: 'glide', speed: 25, time: 0.33, cooldown: 1.45, airDashBonus: 0 },
+    charge: { windup: 0.3, lunge: 0.34, recover: 0.55, speed: 24, damage: 105, down: 58, cooldown: 1.7, armor: false },
     chargeName: 'Crescent Rush',
   },
 };
@@ -472,7 +474,7 @@ export function deriveStats(lo: ResolvedLoadout): DerivedStats {
     airControl: b.airControl,
     knockMul: massKnock * L.knockMul,
     endurance: b.endurance + L.endurance + (set === 'titan' ? 5 : 0),
-    landingLag: 0.1 * (mass / BASE_MASS) * L.landingMul,
+    landingLag: 0.18 * (mass / BASE_MASS) * L.landingMul,
     chargeCooldown: b.charge.cooldown * (set === 'paladin' ? 0.85 : 1),
     gunWindupMul: set === 'paladin' ? 0.9 : 1,
     guardChipMul: set === 'titan' ? 0.6 : 1,

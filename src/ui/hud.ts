@@ -33,6 +33,10 @@ const CSS = /* css */ `
 .hud-downlbl { font-size:11px; letter-spacing:.2em; opacity:.6; margin-top:3px; font-weight:700; }
 .hud-timer { font-family:'Russo One'; font-size:clamp(34px,3.4vw,56px); line-height:1; padding:6px 22px 8px; background:linear-gradient(180deg,#0e1118dd,#0e111888); clip-path:polygon(10px 0,calc(100% - 10px) 0,100% 50%,calc(100% - 10px) 100%,10px 100%,0 50%); font-variant-numeric:tabular-nums; text-shadow:0 0 18px #37e8ff66; }
 .hud-timer.warn { color:#ff5a3a; text-shadow:0 0 18px #ff3a2a; animation:hudPulse .5s infinite alternate; }
+.hud-combat-state { margin-top:6px; font-size:12px; font-weight:700; letter-spacing:.12em; color:#9ddfc9; min-height:17px; text-shadow:0 1px 3px #000; }
+.hud-combat-state[data-state="opening"] { color:#ffbd72; }
+.hud-combat-state[data-state="guard"] { color:#86d9ff; }
+.hud-mobility { position:absolute;left:50%;bottom:145px;transform:translateX(-50%);font-size:12px;font-weight:700;letter-spacing:.12em;background:#09121ddd;padding:6px 12px;border-bottom:2px solid #68c6ca; }
 .hud-weap { position:absolute; bottom:26px; left:50%; transform:translateX(-50%); display:flex; gap:14px; align-items:flex-end; }
 .hud-w { width:64px; text-align:center; }
 .hud-dial { position:relative; width:58px; height:58px; margin:0 auto; border-radius:50%; background:conic-gradient(var(--c) calc(var(--p)*1%), #ffffff14 0); box-shadow:0 0 0 2px #0009, 0 4px 14px #0008; transition:filter .15s; }
@@ -128,14 +132,14 @@ export class HUD {
           <div class="hud-name"></div>
           <div class="hud-hpnum">1000<span>HP</span></div>
           <div class="hud-bar"><i class="chip"></i><i class="fill"></i>${[1, 2, 3].map((k) => `<span class="tick" style="left:${k * 25}%"></span>`).join('')}</div>
-          <div class="hud-down"><i></i></div><div class="hud-downlbl2">DOWN</div>
+          <div class="hud-down"><i></i></div><div class="hud-downlbl2">DOWN</div><div class="hud-combat-state"></div>
         </div>`).join('<div class="hud-timer">90</div>')}
       </div>
       <div class="hud-lock"><svg viewBox="-35 -35 70 70"><path d="M-30 -12 V-30 H-12 M12 -30 H30 V-12 M30 12 V30 H12 M-12 30 H-30 V12"/></svg></div>
       <div class="hud-off"></div>
       <div class="hud-fuel"><i></i></div>
       <div class="hud-weap"></div>
-      <div class="hud-buffs"></div>
+      <div class="hud-buffs"></div><div class="hud-mobility"></div>
       ${[0, 1, 2, 3].map(() => '<div class="hud-threat"></div>').join('')}
       <div class="hud-hint"></div>
       <div class="hud-practice"></div>
@@ -177,7 +181,7 @@ export class HUD {
       ['GUN', '#' + new THREE.Color(p.lo.gun.color).getHexString(), 'gunCd', p.lo.gun.cooldown, pad ? 'RT' : 'LMB', p.lo.gun.name],
       ['BOMB', '#' + new THREE.Color(p.lo.bomb.color).getHexString(), 'bombCd', p.lo.bomb.cooldown, pad ? 'LT' : 'RMB', p.lo.bomb.name],
       ['POD', '#' + new THREE.Color(p.lo.pod.color).getHexString(), 'podCd', p.lo.pod.cooldown, pad ? 'RB' : 'E', p.lo.pod.name],
-      ['DASH', '#ffffff', 'chargeCd', p.lo.body.charge.cooldown, pad ? 'X' : 'Q', p.lo.body.chargeName],
+      ['GUARD', '#ffffff', 'chargeCd', p.lo.body.charge.cooldown, pad ? 'X' : 'Q', p.lo.body.chargeName],
     ];
     this.pips = null;
     wrap.innerHTML = defs
@@ -283,6 +287,16 @@ export class HUD {
     this.timer.textContent = Number.isFinite(timeLeft) ? String(tl) : '∞';
     this.timer.classList.toggle('warn', tl <= 10);
     const p = fighters[0];
+    fighters.forEach((f,i) => {
+      const label=this.sides[i].root.querySelector<HTMLElement>('.hud-combat-state')!;
+      const recovery=Math.max(f.recoveryTime,f.landT);
+      const recovering=recovery>0 || f.mode==='charge' && f.chargePhase===2;
+      label.dataset.state=f.guarding?'guard':recovering?'opening':'ready';
+      label.textContent=f.parrying?'PARRY WINDOW':f.guarding?'FRONTAL GUARD':recovering?`${i?'PUNISH WINDOW':'RECOVERY'} ${recovery>0?recovery.toFixed(1)+'s':''}`:f.attackCommitted?'ATTACK COMMITTED':f.mode==='down'?'KNOCKED DOWN':f.mode==='getup'?'WAKE-UP PROTECTION':'';
+    });
+    const mobility=this.el.querySelector<HTMLElement>('.hud-mobility')!;
+    mobility.textContent=!['ground','air'].includes(p.mode)?p.mode==='dash'||p.mode==='airdash'?'DASH ACTIVE':'ACTION COMMITTED':p.attackCommitted?'COMMITTED · DASH LOCKED':p.canDash?`DASH READY · ${p.dashCharges}/${p.st.dashCharges}`:`DASH RECOVERY · ${p.dashCharges}/${p.st.dashCharges}`;
+
     for (const w of this.weaps) {
       const cd = p[w.key];
       const pct = w.max > 0 ? (1 - cd / w.max) * 100 : 100;

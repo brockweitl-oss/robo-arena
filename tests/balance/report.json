@@ -1,104 +1,105 @@
 {
-  "n": 200,
-  "field": 2000,
-  "seconds": 46.333,
+  "n": 180,
+  "field": 1800,
+  "scenarios": "3 mirrored lanes x 3 AI profiles; deterministic repeats are not independent statistical trials",
+  "seconds": 80.358,
   "report": {
     "gun": {
       "pulse": {
-        "vsDefault": 0.515,
-        "field": 0.5315315315315315
+        "vsDefault": 0.5,
+        "field": 0.5630311614730878
       },
       "scatter": {
-        "vsDefault": 0.385,
-        "field": 0.5372093023255814
+        "vsDefault": 0.16666666666666666,
+        "field": 0.4619354838709677
       },
       "rail": {
-        "vsDefault": 0.65,
-        "field": 0.4587378640776699
+        "vsDefault": 0.5,
+        "field": 0.4831081081081081
       },
       "beam": {
-        "vsDefault": 0.495,
-        "field": 0.4221105527638191
+        "vsDefault": 0.3333333333333333,
+        "field": 0.5362731152204836
       },
       "homer": {
-        "vsDefault": 0.535,
-        "field": 0.5531628532974427
+        "vsDefault": 0.3333333333333333,
+        "field": 0.45857988165680474
       }
     },
     "bomb": {
       "mortar": {
-        "vsDefault": 0.515,
-        "field": 0.5819592628516004
+        "vsDefault": 0.5,
+        "field": 0.5386266094420601
       },
       "cluster": {
-        "vsDefault": 0.48,
-        "field": 0.4724104549854792
+        "vsDefault": 0.7222222222222222,
+        "field": 0.5171673819742489
       },
       "napalm": {
-        "vsDefault": 0.34,
-        "field": 0.4219590958019376
+        "vsDefault": 0.4444444444444444,
+        "field": 0.4465370595382746
       },
       "bouncer": {
-        "vsDefault": 0.53,
-        "field": 0.5163853028798411
+        "vsDefault": 0.6388888888888888,
+        "field": 0.49123767798466594
       }
     },
     "pod": {
       "seeker": {
-        "vsDefault": 0.515,
-        "field": 0.463768115942029
+        "vsDefault": 0.5,
+        "field": 0.4946004319654428
       },
       "mine": {
-        "vsDefault": 0.55,
-        "field": 0.5164609053497943
+        "vsDefault": 0.4444444444444444,
+        "field": 0.48642533936651583
       },
       "turret": {
-        "vsDefault": 0.38,
-        "field": 0.44064386317907445
+        "vsDefault": 0.05555555555555555,
+        "field": 0.4626696832579186
       },
       "interceptor": {
-        "vsDefault": 0.55,
-        "field": 0.5805805805805806
+        "vsDefault": 0.8888888888888888,
+        "field": 0.5551876379690949
       }
     },
     "body": {
       "striker": {
-        "vsDefault": 0.515,
-        "field": 0.49950932286555444
+        "vsDefault": 0.5,
+        "field": 0.5420765027322404
       },
       "ironclad": {
-        "vsDefault": 0.53,
-        "field": 0.5495951417004049
+        "vsDefault": 0.4444444444444444,
+        "field": 0.545045045045045
       },
       "wisp": {
-        "vsDefault": 0.565,
-        "field": 0.4564777327935223
+        "vsDefault": 0.4444444444444444,
+        "field": 0.45022371364653246
       },
       "regent": {
-        "vsDefault": 0.63,
-        "field": 0.4945273631840796
+        "vsDefault": 0.6666666666666666,
+        "field": 0.46234772978959027
       }
     },
     "legs": {
       "stride": {
-        "vsDefault": 0.515,
-        "field": 0.5333333333333333
+        "vsDefault": 0.5,
+        "field": 0.4861111111111111
       },
       "hopper": {
-        "vsDefault": 0.43,
-        "field": 0.5422885572139303
+        "vsDefault": 0.5555555555555556,
+        "field": 0.5136986301369864
       },
       "sprint": {
-        "vsDefault": 0.615,
-        "field": 0.5386444708680143
+        "vsDefault": 0.3333333333333333,
+        "field": 0.5462351387054161
       },
       "anchor": {
-        "vsDefault": 0.38,
-        "field": 0.3880778588807786
+        "vsDefault": 0.3888888888888889,
+        "field": 0.46521145975443384
       },
       "feather": {
-        "vsDefault": 0.505,
-        "field": 0.5006385696040868
+        "vsDefault": 0.6666666666666666,
+        "field": 0.48563218390804597
       }
     }
   }
