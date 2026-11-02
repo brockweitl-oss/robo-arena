@@ -1,7 +1,7 @@
+import { DepthNormalsPass } from './depthNormals';
 import * as THREE from 'three';
 import {
   EffectComposer,
-  NormalPass,
   SSAOEffect,
   RenderPass,
   EffectPass,
@@ -45,7 +45,7 @@ export class GameRenderer {
   profile: QualityProfile = QUALITY.medium;
 
   private renderPass: RenderPass;
-  private normals: NormalPass;
+  private normals: DepthNormalsPass;
   private aoPass: EffectPass;
   private bloom: BloomEffect;
   private chroma: ChromaticAberrationEffect;
@@ -78,7 +78,7 @@ export class GameRenderer {
     this.composer = new EffectComposer(this.renderer, { frameBufferType: THREE.HalfFloatType, multisampling: 0 });
     this.renderPass = new RenderPass(this.scene, this.camera);
     this.composer.addPass(this.renderPass);
-    this.normals = new NormalPass(this.scene, this.camera, { resolutionScale: 0.5 });
+    this.normals = new DepthNormalsPass(this.camera);
     this.composer.addPass(this.normals);
     const ao = new SSAOEffect(this.camera, this.normals.texture, {
       samples: 8, rings: 3, resolutionScale: 0.5, radius: 0.075, intensity: 1.15,
@@ -152,7 +152,6 @@ export class GameRenderer {
   setScene(scene: THREE.Scene) {
     this.scene = scene;
     this.renderPass.mainScene = scene;
-    this.normals.mainScene = scene;
     (this.renderPass as any).scene = scene;
   }
 
