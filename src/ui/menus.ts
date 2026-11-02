@@ -16,6 +16,7 @@ import { RIVALS, RIVALS_PLUS, PLAYER_PAINT, PLAYER_ROBOT_NAME, rivalById, type P
 import { gradeMatch } from '../game/grades';
 import { saveReplay, loadReplays, downloadReplay, parseReplay, type Replay } from '../game/replay';
 import { connectedPads } from '../core/padInput';
+import { NetSession, netName, tierOf, fetchMyRating, fetchLeaderboard, type PlayerHello, type StartMsg, type RatedMsg } from '../net/online';
 import { ARENA_IDS, ARENA_INFO, type ArenaId } from '../arena/index';
 import { defaultSave, isUnlocked, type Settings } from '../core/save';
 import { pilotLevel } from '../game/progression';
@@ -1313,6 +1314,7 @@ export class Menus implements MenuLayer {
       card('Rival+ Ladder', 'Every rival returns with a sharper AI and a 2.0 build. Wins unlock the new parts.', champ ? `${Math.min(s.plusLadder, RIVALS_PLUS.length)} / ${RIVALS_PLUS.length}` : 'Beat the champion to unlock', champ ? () => this.showPlusIntro(plusNext) : null),
       card('Survival', 'Fight until you fall. You heal 25% between rounds, and the opponents get tougher.', `Best: ${s.survivalBest} rounds`, () => this.runMatch(this.survivalCfg(1, 99999))),
       card('Practice Room', 'A training dummy that never breaks. Live damage, combo and DPS readouts.', 'No clock', () => this.showPractice()),
+      card('Online', 'Quick match, ranked Elo ladder, or a private room code for a friend.', 'Ranked · Rooms', () => this.showOnline()),
       card('Local Versus', 'Two players on one screen. Player 2 needs a gamepad.', pads ? `${pads} pad${pads > 1 ? 's' : ''} connected` : 'Connect a gamepad', () => this.showLocalVersus()),
       card('Replays', 'Rewatch your last fights, or download and import replay files.', `${loadReplays().length} saved`, () => this.showReplays()),
     ];
@@ -1392,6 +1394,172 @@ export class Menus implements MenuLayer {
     el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
     this.setScreen(el, { back: () => this.showModes(), initial: start });
     refresh();
+  }
+
+  /* ---------------- online: quick match, ranked, private rooms */
+
+  private onlineHello(ranked = false): PlayerHello {
+    const ids = ARENA_IDS as readonly string[];
+    return {
+      name: netName(), loadout: { ...this.host.save.loadout }, paint: this.host.save.paint,
+      arena: ids[Math.floor(Math.random() * ids.length)], ranked,
+    };
+  }
+
+  private showOnline(status = '') {
+    const s = this.host.save;
+    this.backdrop('garage', { loadout: s.loadout });
+    this.music('menu');
+    const el = h('div', 'scr-free scr-modes');
+    const hd = this.header('Online', 'Fight Real Pilots');
+    const name = h('input', 'net-input') as HTMLInputElement;
+    name.value = netName();
+    name.maxLength = 16;
+    name.setAttribute('aria-label', 'Pilot name');
+    name.addEventListener('change', () => { name.value = netName(name.value); });
+    const rating = h('div', 'md-desc', 'Ranked rating: …');
+    fetchMyRating().then((r) => {
+      rating.textContent = r ? `Ranked: ${r.rating} · ${tierOf(r.rating)} · ${r.games} games, ${r.wins} wins` : 'Ranked: offline';
+    });
+    const stat = h('div', 'md-desc net-status', status);
+    let cancel: AbortController | null = null;
+    const searching = (label: string, ranked: boolean) => () => {
+      if (cancel) { cancel.abort(); cancel = null; stat.textContent = 'Search cancelled.'; return; }
+      this.host.sfx('ui_select');
+      cancel = new AbortController();
+      stat.textContent = `${label}: searching… (press again to cancel)`;
+      NetSession.quick(this.onlineHello(ranked), cancel.signal, ranked)
+        .then((ses) => { cancel = null; this.showOnlineLobby(ses, { ranked, auto: true }); })
+        .catch((e: Error) => { cancel = null; if (e.message !== 'cancelled') stat.textContent = 'Could not reach the online server. Try again in a moment.'; });
+    };
+    const code = h('input', 'net-input net-code') as HTMLInputElement;
+    code.placeholder = 'CODE';
+    code.maxLength = 5;
+    code.setAttribute('aria-label', 'Room code');
+    code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+    const join = () => {
+      if (code.value.length !== 5) { this.host.sfx('ui_error'); stat.textContent = 'Room codes are 5 letters.'; return; }
+      this.host.sfx('ui_select');
+      stat.textContent = 'Joining…';
+      NetSession.join(code.value, this.onlineHello())
+        .then((ses) => this.showOnlineLobby(ses, {}))
+        .catch((e: Error) => { stat.textContent = e.message === 'full' ? 'That room is full.' : 'Could not join that room.'; });
+    };
+    code.addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
+    const quick = btn('Quick Match', searching('Quick match', false), 'primary big');
+    const opts = [
+      quick,
+      btn('Ranked Match', searching('Ranked', true), 'big'),
+      btn('Create Private Room', () => {
+        this.host.sfx('ui_select');
+        stat.textContent = 'Creating room…';
+        NetSession.create(this.onlineHello()).then((ses) => this.showOnlineLobby(ses, {})).catch(() => { stat.textContent = 'Could not reach the online server.'; });
+      }, 'big'),
+      h('div', 'net-row', code, btn('Join Room', join, 'big')),
+      btn('Leaderboard', () => { this.host.sfx('ui_select'); this.showLeaderboard(); }, 'big'),
+      btn('Garage', () => { this.host.sfx('ui_select'); this.showGarage(() => this.showOnline()); }, 'big', SLOT_ICON.body),
+    ];
+    const note = h('div', 'md-desc', 'Both players run the same deterministic simulation; only button presses travel over the network. Lower ping = less input delay. Ranked uses Elo: Bronze, Silver, Gold, Platinum, Diamond.');
+    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', h('label', 'net-row', h('span', 'md-desc', 'Pilot name'), name), rating, ...opts, stat, note),
+      h('div', 'ra-actions', btn('Back', () => { cancel?.abort(); this.host.sfx('ui_back'); this.showModes(); }, 'big')));
+    el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
+    this.setScreen(el, { back: () => { cancel?.abort(); this.showModes(); }, initial: quick });
+  }
+
+  private async showLeaderboard() {
+    this.backdrop('title');
+    const el = h('div', 'scr-free scr-modes');
+    const hd = this.header('Leaderboard', 'Top Ranked Pilots');
+    const list = h('div', 'md-col net-board', h('div', 'md-desc', 'Loading…'));
+    const back = btn('Back', () => { this.host.sfx('ui_back'); this.showOnline(); }, 'big');
+    el.append(h('div', 'vig vig-left'), hd, h('div', 'ra-panel fb-panel', list, h('div', 'ra-actions', back)), hints([['back', 'Back']]));
+    this.setScreen(el, { back: () => this.showOnline(), initial: back });
+    const top = await fetchLeaderboard();
+    list.replaceChildren(...(top.length ? top.map((p, i) => h('div', 'net-board-row',
+      h('span', 'nb-rank', `#${i + 1}`), h('span', 'nb-name', p.name), h('span', 'nb-tier', tierOf(p.rating)),
+      h('span', 'nb-rating', String(p.rating)), h('span', 'nb-rec', `${p.wins}-${p.games - p.wins}`))) : [h('div', 'md-desc', 'No ranked matches yet. Be the first.')]));
+  }
+
+  /**
+   * A room with an opponent. Casual rooms are a running set (first to 2), with build changes
+   * allowed between rounds for counter-picks. Ranked queues play one rated round.
+   */
+  private showOnlineLobby(ses: NetSession, o: { ranked?: boolean; auto?: boolean; score?: [number, number]; last?: string }) {
+    const s = this.host.save;
+    const score = o.score ?? [0, 0];
+    this.backdrop('versus', { loadout: s.loadout, rivalId: RIVALS[0].id });
+    const el = h('div', 'scr-free scr-modes');
+    const hd = this.header(o.ranked ? 'Ranked' : ses.code ? `Room ${ses.code}` : 'Online', ses.peer ? `vs ${ses.peer.name}` : 'Waiting for an opponent');
+    const peer = h('div', 'md-title', ses.peer ? this.peerLine(ses.peer) : 'Waiting for an opponent…');
+    const sub = h('div', 'md-desc', ses.code && !o.auto ? `Share this room code: ${ses.code}` : '');
+    const set = h('div', 'md-desc net-set', o.ranked ? '' : `Set (first to 2): You ${score[0]} – ${score[1]} Them`);
+    const last = h('div', 'md-desc', o.last ?? '');
+    const stat = h('div', 'md-desc net-status', '');
+    let left = false;
+    const leave = () => { ses.onStart = ses.onPeer = ses.onLeft = undefined; ses.close(); this.showOnline(left ? 'Opponent left the room.' : ''); };
+    const ready = btn(o.ranked ? 'Fight!' : score[0] || score[1] ? 'Next Round' : 'Ready', () => {
+      if (!ses.peer || left) { this.host.sfx('ui_error'); return; }
+      this.host.sfx('ui_select');
+      ses.ready();
+      stat.textContent = 'Ready. Waiting for the opponent…';
+    }, 'primary big');
+    const build = btn('Change Build', () => {
+      this.host.sfx('ui_select');
+      this.showGarage(() => { ses.hello({ ...this.onlineHello(o.ranked), arena: ses.last?.arena }); this.showOnlineLobby(ses, o); });
+    }, 'big', SLOT_ICON.body);
+    ses.onPeer = (p) => { peer.textContent = this.peerLine(p); hd.querySelector('.ra-title')?.replaceChildren(`vs ${p.name}`); if (o.auto) { ses.ready(); stat.textContent = 'Opponent found. Starting…'; } };
+    ses.onLeft = () => { left = true; stat.textContent = 'Opponent left the room.'; };
+    ses.onError = (r) => { stat.textContent = r === 'version' ? 'Your opponent is on a different game version. Refresh the page.' : `Error: ${r}`; };
+    ses.onStart = (st) => this.playOnline(ses, st, o.ranked ?? false, score);
+    if (o.auto && ses.peer) { ses.ready(); stat.textContent = 'Starting…'; }
+    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', peer, sub, set, last, ready, ...(o.ranked ? [] : [build]), stat),
+      h('div', 'ra-actions', btn('Leave', () => { this.host.sfx('ui_back'); leave(); }, 'big')));
+    el.append(h('div', 'vig vig-left'), hd, panel, hints([['confirm', 'Select'], ['back', 'Leave']]));
+    this.setScreen(el, { back: leave, initial: ready });
+  }
+
+  private peerLine(p: PlayerHello) {
+    const L = resolveLoadout(p.loadout);
+    const r = p.rating ? ` · ${p.rating} ${tierOf(p.rating)}` : '';
+    return `${p.name}${r} — ${L.body.name}, ${L.gun.name}, ${L.skill.name}`;
+  }
+
+  private async playOnline(ses: NetSession, st: StartMsg, ranked: boolean, score: [number, number]) {
+    ses.onStart = ses.onPeer = undefined;
+    const me = ses.slot;
+    const arena = (ARENA_IDS as readonly string[]).includes(st.arena) ? st.arena : ARENA_IDS[0];
+    let rated: RatedMsg | null = null;
+    ses.onRated = (r) => { rated = r; };
+    this.hideAll();
+    this.musicNow = null;
+    const res = await this.host.startMatch({
+      mode: 'online', playerLoadout: st.players[me].loadout, rivalId: RIVALS[0].id, arenaId: arena, timeLimit: 120,
+      online: { session: ses, me, seed: st.seed, players: st.players, ranked },
+    });
+    this.musicNow = null;
+    if (res.outcome === 'win') this.host.save.totals.wins++;
+    else if (res.outcome === 'lose') this.host.save.totals.losses++;
+    const worldWinner = res.outcome === 'draw' ? -1 : res.outcome === 'win' ? me : 1 - me;
+    if (ranked && !res.quit) ses.report(res.netClean ? worldWinner : -2);
+    const next: [number, number] = [score[0] + (res.outcome === 'win' ? 1 : 0), score[1] + (res.outcome === 'lose' ? 1 : 0)];
+    const setDone = !ranked && (next[0] >= 2 || next[1] >= 2);
+    let line = res.quit ? 'You forfeited.' : res.outcome === 'win' ? 'You won the round!' : res.outcome === 'lose' ? 'You lost the round.' : 'Draw.';
+    if (setDone) line = next[0] >= 2 ? `You win the set ${next[0]}–${next[1]}!` : `They win the set ${next[1]}–${next[0]}.`;
+    if (res.quit || ses.closed) {
+      ses.close();
+      this.showOnline(res.quit ? 'You left the match.' : 'Opponent left the match.');
+      return;
+    }
+    const lobby = { ranked, score: setDone ? [0, 0] as [number, number] : next, last: line };
+    this.showOnlineLobby(ses, lobby);
+    if (ranked) {
+      // the server settles once both reports land
+      const t0 = performance.now();
+      while (!rated && performance.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 100));
+      const r = rated as RatedMsg | null;
+      const d = r?.counted && r.deltas ? r.deltas[me] : null;
+      this.showOnlineLobby(ses, { ...lobby, last: `${line} ${d === null ? '(not rated)' : `Rating ${r!.ratings![me]} (${d >= 0 ? '+' : ''}${d}) · ${tierOf(r!.ratings![me])}`}` });
+    }
   }
 
   private showReplays() {

@@ -22,6 +22,7 @@ import { groundHeightBelow, segmentHit } from './collision';
 import { track } from '../core/telemetry';
 import { InputRecorder, InputPlayer, quantizeInput, quantizeBombTarget, RULESET_VERSION, type Replay } from './replay';
 import { PadInput, connectedPads } from '../core/padInput';
+import { stateHash, type NetSession } from '../net/online';
 import { plannedBomb } from './bombAim';
 import { BombAimView } from '../vfx/bombAimView';
 import { AimIndicator } from '../vfx/aimIndicator';
@@ -159,6 +160,19 @@ export class Match {
   private recorders: InputRecorder[] | null = null;
   private players: InputPlayer[] | null = null;
   private p2: PadInput | null = null;
+  /** World id of the local player (online guests are robot 1). */
+  private me: 0 | 1 = 0;
+  /** Online lockstep state. */
+  private net: NetSession | null = null;
+  private netTick = 0;
+  private netSent = 0;
+  private netDelay = 3;
+  private netStall = 0;
+  private netSums = new Map<number, number>();
+  private netDesync = false;
+  private netLeft = false;
+  private netChecks = 0;
+  private netLocal = new Map<number, FighterInput>();
   private p2In: FighterInput = emptyInput();
   private practiceMode: 'idle' | 'move' | 'shoot' | 'full' | null = null;
   private practiceLog: { t: number; dmg: number }[] = [];
@@ -187,23 +201,27 @@ export class Match {
     host.gr.setQuality(q);
 
     const rival = rivalById(cfg.rivalId);
-    const pLo = resolveLoadout(cfg.playerLoadout);
-    const vs = cfg.versus;
+    const on = cfg.online;
+    if (on) { this.me = on.me; this.net = on.session; this.netDelay = on.session.delay; }
+    const foe = on ? on.players[1 - on.me] : null;
+    const vs = cfg.versus ?? (foe ? { p2Loadout: foe.loadout, p2Paint: foe.paint, p2Name: foe.name } : undefined);
+    const pLo = resolveLoadout(on ? on.players[on.me].loadout : cfg.playerLoadout);
     const rLo = resolveLoadout(vs ? vs.p2Loadout : rival.loadout);
-    const pf = new Fighter(0, pLo);
-    const rf = new Fighter(1, rLo);
-    // seeds: from the replay being watched, or fresh (recorded for this match's replay)
-    this.worldSeed = cfg.replay ? cfg.replay.worldSeed : 12345;
+    // world ids: the online host is robot 0 on both machines; sides[0] is always the local player
+    const pf = new Fighter(this.me, pLo);
+    const rf = new Fighter(1 - this.me, rLo);
+    // seeds: from the replay being watched, the online room, or fresh (recorded for this match's replay)
+    this.worldSeed = cfg.replay ? cfg.replay.worldSeed : on ? on.seed : 12345;
     this.aiSeed = cfg.replay ? cfg.replay.aiSeed : 7;
-    this.world = new World(this.arena, pf, rf, { arenaId: cfg.arenaId, pickups: !!cfg.pickups, seed: this.worldSeed });
+    this.world = new World(this.arena, ...((this.me === 0 ? [pf, rf] : [rf, pf]) as [Fighter, Fighter]), { arenaId: cfg.arenaId, pickups: !!cfg.pickups, seed: this.worldSeed });
     const practice = cfg.practice?.dummy;
     this.ai = new AIPilot(rival.ai, practice ? 0.5 : rival.skill, this.aiSeed);
     if (cfg.replay) {
       this.players = cfg.replay.streams.map((s) => new InputPlayer(s));
-    } else if (cfg.mode !== 'practice') {
+    } else if (cfg.mode !== 'practice' && !on) {
       this.recorders = vs ? [new InputRecorder(), new InputRecorder()] : [new InputRecorder()];
     }
-    if (vs) {
+    if (vs && !on) {
       // player 2 on a gamepad; with two pads, player 1 uses the first and player 2 the second
       const pads = connectedPads();
       this.p2 = new PadInput(pads.length >= 2 ? pads[1] : pads[0] ?? 0);
@@ -219,6 +237,7 @@ export class Match {
     this.aimAssist = cfg.replay ? cfg.replay.aimAssist ?? 1 : vs ? 1 : host.settings.aimAssist ?? 1;
     pf.homingMul = this.aimAssist;
     // AI uses the same weapon rules as players; difficulty comes from reaction and decisions.
+    if (on) pf.homingMul = 1;
     if (!vs) {
       rf.homingMul = 1;
       rf.aimJitter = 0;
@@ -253,19 +272,20 @@ export class Match {
       s.add(side.capsule.group);
       this.fx.registerRobot(model, paint.glow);
       anim.onStep = () => {
-        audio.play('footstep', { pos: f.pos, volume: f.id === 0 ? 0.8 : 0.6 });
+        audio.play('footstep', { pos: f.pos, volume: f.id === this.me ? 0.8 : 0.6 });
         this.fx.footDust(f.pos, 0.8);
       };
       return side;
     };
-    const [sp0, sp1] = this.arena.spawns;
-    this.sides = [mkSide(pf, pLo, host.playerPaint ?? PLAYER_PAINT, sp0, sp1), mkSide(rf, rLo, vs ? vs.p2Paint : rival.paint, sp1, sp0)];
+    const [a0, a1] = this.arena.spawns;
+    const [sp0, sp1] = this.me === 0 ? [a0, a1] : [a1, a0];
+    this.sides = [mkSide(pf, pLo, on ? on.players[on.me].paint : host.playerPaint ?? PLAYER_PAINT, sp0, sp1), mkSide(rf, rLo, vs ? vs.p2Paint : rival.paint, sp1, sp0)];
     this.cam.snapBehind(sp0, sp1);
     this.hazardWarned = this.arena.hazards.map(() => false);
     this.tactics = new TacticsView(this.world, this.fx, s);
 
     const names: [string, string, string, string] = vs
-      ? [PLAYER_ROBOT_NAME, 'P1', vs.p2Name, 'P2']
+      ? on ? [on.players[on.me].name, 'YOU', vs.p2Name, on.ranked ? `RATED ${on.players[1 - on.me].rating ?? 1000}` : 'ONLINE'] : [PLAYER_ROBOT_NAME, 'P1', vs.p2Name, 'P2']
       : practice ? [PLAYER_ROBOT_NAME, 'YOU', 'Training Dummy', 'PRACTICE'] : [rival.robotName, rival.pilot, '', ''];
     if (!vs && !practice) {
       names[2] = names[0];
@@ -310,6 +330,11 @@ export class Match {
     return this.sides[0];
   }
 
+  /** The presentation side for a world fighter id (sides[0] is always the local player). */
+  private sideOf(id: number) {
+    return this.sides[0].fighter.id === id ? this.sides[0] : this.sides[1];
+  }
+
   private togglePause() {
     if (this.paused || this.phase === 'done' || this.phase === 'outro') return;
     this.paused = true;
@@ -320,7 +345,8 @@ export class Match {
     this.host.pause().then((a) => {
       if (this.disposed) return;
       this.paused = false;
-      if (a === 'resume') {
+      // online: restarting would desync the shared sim
+      if (a === 'resume' || (a === 'restart' && this.cfg.online)) {
         this.host.input.clear();
         this.host.input.enabled = this.phase === 'fight' || this.phase === 'ready';
         if (this.host.input.enabled && !this.players) this.host.input.requestLock();
@@ -336,7 +362,7 @@ export class Match {
     host.input.pollPad();
     this.p2?.poll();
     const look = host.input.consumeLook(dtReal, host.settings.sensitivity);
-    if (this.paused) {
+    if (this.paused && !this.net) {
       host.gr.render(dtReal);
       return;
     }
@@ -353,7 +379,12 @@ export class Match {
     if (simming) {
       this.acc += dt;
       let steps = 0;
+      let netRemote: FighterInput | null = null;
       while (this.acc >= SIM_DT && steps < 5) {
+        if (this.net) {
+          netRemote = this.netGather();
+          if (!netRemote) break;
+        }
         this.beginSimulationStep();
         for (const s of this.sides) s.prevPos.copy(s.fighter.pos);
         const pf = this.player.fighter;
@@ -361,7 +392,15 @@ export class Match {
         host.input.sample(this.cam.moveYaw, false, this.pInput);
         if (this.autoPilot && !pf.locked) Object.assign(this.pInput, this.autoPilot.think(this.world, pf, rf));
         let aiIn: FighterInput;
-        if (this.players) {
+        if (netRemote) {
+          // online: the local input was scheduled netDelay ticks ago; the remote one just arrived
+          Object.assign(this.pInput, emptyInput(), this.netLocal.get(this.netTick)!);
+          delete this.pInput.bombTarget; delete this.pInput.skillTarget; delete this.pInput.skillPressed;
+          Object.assign(this.pInput, this.netLocal.get(this.netTick)!);
+          aiIn = netRemote;
+          this.netLocal.delete(this.netTick);
+          this.net!.remote.delete(this.netTick);
+        } else if (this.players) {
           // replay playback: recorded inputs; AI re-thinks deterministically from the recorded seed
           Object.assign(this.pInput, this.players[0].next());
           aiIn = this.players[1] ? this.players[1].next() : rf.locked ? emptyInput() : this.ai.think(this.world, rf, pf);
@@ -383,7 +422,8 @@ export class Match {
             this.recorders[1].push(aiIn);
           }
         }
-        this.world.step([this.pInput, aiIn]);
+        this.world.step(this.me === 0 ? [this.pInput, aiIn] : [aiIn, this.pInput]);
+        if (this.net) this.netAfterStep();
         if (this.phase === 'ready') this.readySteps++;
         if (this.practiceMode) {
           for (const f of [pf, rf]) if (f.hp < f.maxHp * 0.5) f.hp = f.maxHp;
@@ -399,6 +439,11 @@ export class Match {
         steps++;
       }
       if (steps === 5) this.acc = 0;
+      if (this.net) {
+        // never bank more than a couple of ticks while waiting on the opponent
+        this.acc = Math.min(this.acc, SIM_DT * 2);
+        this.netWatch(dtReal);
+      }
     }
     const alpha = simming ? this.acc / SIM_DT : 1;
 
@@ -453,8 +498,8 @@ export class Match {
         const sy = (-v.y * 0.5 + 0.5) * H;
         if (bh || sx < 0 || sx > W || sy < 0 || sy > H) threats.push({ x: sx, y: sy, behind: bh, color: '#' + new THREE.Color(color).getHexString() });
       };
-      for (const b of this.world.bombs) if (b.owner === 1) add(b.target, b.def.color);
-      for (const p of this.world.pods) if (p.owner === 1 && p.pos.distanceTo(pf.pos) < 14) add(p.pos, p.def.color);
+      for (const b of this.world.bombs) if (b.owner !== this.me) add(b.target, b.def.color);
+      for (const p of this.world.pods) if (p.owner !== this.me && p.pos.distanceTo(pf.pos) < 14) add(p.pos, p.def.color);
     }
     host.hud.update(dtReal, [pf, rf], this.timeLeft, { x: (proj.x * 0.5 + 0.5) * W, y: (-proj.y * 0.5 + 0.5) * H, on: this.phase === 'fight' && rf.alive, behind }, !this.freeCam, threats);
     if (this.phase === 'fight') this.telFrame(dtReal, pf, rf);
@@ -572,8 +617,8 @@ export class Match {
     if (this.phase === 'intro') {
       const flight = 1.45;
       for (const s of this.sides) {
-        const isP = s.fighter.id === 0;
-        if (isP && t < flight) {
+        const isP = s.fighter.id === this.me;
+        if (isP && t < flight && !this.net) {
           // player can angle the landing a little
           const ax = host.input.moveAxes();
           const fx = Math.sin(this.cam.moveYaw);
@@ -640,7 +685,7 @@ export class Match {
         this.hazardWarned[i] = w;
       });
     } else if (this.phase === 'ko') {
-      const loser = this.sides[this.winner === 0 ? 1 : 0];
+      const loser = this.sideOf(this.winner === 0 ? 1 : 0);
       const lf = loser.fighter;
       // camera on the KO'd robot during the real-time result beat
       if (t < 1.8) {
@@ -663,7 +708,7 @@ export class Match {
     } else if (this.phase === 'timeup') {
       if (t > 2.0) this.startOutro();
     } else if (this.phase === 'outro') {
-      const w = this.sides[this.winner >= 0 ? this.winner : 0];
+      const w = this.sideOf(this.winner >= 0 ? this.winner : this.me);
       const c = w.model.root.position;
       if (this.shotYaw === null) this.shotYaw = this.clearShot(c, w.fighter.yaw + 0.5, 3.4, 1.5);
       const yaw = this.shotYaw + Math.sin(t * 0.4) * 0.12;
@@ -792,6 +837,73 @@ export class Match {
     if (p === 'fight') this.host.input.enabled = true;
   }
 
+  /** Schedule local inputs up to tick + delay; returns the remote input for this tick if it has arrived. */
+  private netGather(): FighterInput | null {
+    const net = this.net!;
+    const n = this.netTick;
+    while (this.netSent <= n + this.netDelay) {
+      // the first `delay` ticks are empty on both machines
+      let li = this.netSent < this.netDelay ? emptyInput() : this.host.input.sample(this.cam.moveYaw, false, emptyInput());
+      if (this.autoPilot && this.netSent >= this.netDelay && !this.player.fighter.locked) li = { ...li, ...this.autoPilot.think(this.world, this.player.fighter, this.sides[1].fighter) };
+      li = quantizeInput(li);
+      this.netLocal.set(this.netSent, li);
+      net.sendInput(this.netSent, li);
+      this.netSent++;
+    }
+    const ri = net.remote.get(n);
+    if (!ri) return null;
+    this.netStall = 0;
+    return ri;
+  }
+
+  private netAfterStep() {
+    const n = this.netTick++;
+    if (n % 120 !== 0 || this.netDesync) return;
+    const fs = [0, 1].map((i) => this.sideOf(i).fighter);
+    const h = stateHash(fs.flatMap((f) => [f.hp, f.pos.x, f.pos.y, f.pos.z, f.vel.x, f.vel.z, f.yaw]));
+    this.netSums.set(n, h);
+    this.net!.sendSum(n, h);
+    for (const [k, v] of this.netSums) {
+      const r = this.net!.remoteSums.get(k);
+      if (r === undefined) continue;
+      this.netSums.delete(k);
+      this.netChecks++;
+      if (r !== v) {
+        this.netDesync = true;
+        track('net_desync', { tick: k, arena: this.cfg.arenaId });
+        this.host.hud.showHint('Connection desync detected. This match will not count.', 4);
+      }
+    }
+  }
+
+  /** Waiting on the opponent: a long stall or a closed socket ends the match as a forfeit. */
+  private netWatch(dt: number) {
+    const net = this.net!;
+    if (this.phase === 'done' || this.phase === 'outro') return;
+    if (!net.remote.has(this.netTick)) this.netStall += dt;
+    if (this.netStall > 1 && this.netStall - dt <= 1) this.host.hud.showHint('Waiting for opponent…', 2);
+    if (!this.netLeft && (net.closed || this.netStall > 10)) {
+      this.netLeft = true;
+      this.host.hud.showHint('Opponent disconnected', 3);
+      if (this.phase === 'fight' || this.phase === 'ready') this.onForfeit(1 - this.me);
+    }
+  }
+
+  /** Opponent left: the local player wins (the machines stop agreeing here, so the sim stops). */
+  private onForfeit(loser: number) {
+    this.winner = 1 - loser;
+    this.finish = 'ko';
+    this.world.combatEnabled = false;
+    for (const s of this.sides) s.fighter.locked = true;
+    this.host.input.enabled = false;
+    this.host.hud.announce('FORFEIT WIN', { color: '#ffd23a', long: true });
+    this.net = null;
+    this.startOutro();
+  }
+
+  /** Online: whether the result can count (no desync, no disconnect). */
+  get netClean() { return !this.netDesync && !this.netLeft; }
+
   private onKO(loser: number) {
     if (this.phase !== 'fight' || this.practiceMode) return;
     this.winner = 1 - loser;
@@ -812,7 +924,7 @@ export class Match {
   private onTimeUp() {
     if (this.phase !== 'fight') return;
     this.timeLeft = 0;
-    const [a, b] = this.sides.map((s) => s.fighter.hp / s.fighter.maxHp);
+    const [a, b] = [0, 1].map((i) => this.sideOf(i).fighter.hp / this.sideOf(i).fighter.maxHp);
     this.winner = Math.abs(a - b) < 0.001 ? -1 : a > b ? 0 : 1;
     this.finish = 'time';
     this.setPhase('timeup');
@@ -827,15 +939,15 @@ export class Match {
     this.setPhase('outro');
     audio.setTimeScale(1);
     this.host.input.releaseLock();
-    const pw = this.winner === 0;
+    const pw = this.winner === this.me;
     if (this.winner >= 0) {
-      const w = this.sides[this.winner];
+      const w = this.sideOf(this.winner);
       w.fighter.setMode('victory');
-      const l = this.sides[1 - this.winner];
+      const l = this.sideOf(1 - this.winner);
       if (l.fighter.mode !== 'down') l.fighter.setMode('defeat');
     }
     this.host.hud.announce(this.winner < 0 ? 'DRAW' : pw ? 'VICTORY' : 'DEFEAT', { color: this.winner < 0 ? '#ffd23a' : pw ? '#37e8ff' : '#ff3b3b', long: true });
-    audio.play(this.winner === 0 || this.winner < 0 ? 'victory' : 'defeat');
+    audio.play(this.winner === this.me || this.winner < 0 ? 'victory' : 'defeat');
   }
 
   private buildReplay(php: number, rhp: number): Replay {
@@ -851,7 +963,7 @@ export class Match {
       frames: this.recorders![0].frames,
       date: new Date().toISOString(),
       aimAssist: this.aimAssist,
-      summary: { outcome: this.winner < 0 ? 'draw' : this.winner === 0 ? 'win' : 'lose', finish: this.finish, time: +this.fightTime.toFixed(1), playerHp: Math.round(php), rivalHp: Math.round(rhp) },
+      summary: { outcome: this.winner < 0 ? 'draw' : this.winner === this.me ? 'win' : 'lose', finish: this.finish, time: +this.fightTime.toFixed(1), playerHp: Math.round(php), rivalHp: Math.round(rhp) },
     };
   }
 
@@ -863,7 +975,7 @@ export class Match {
     const r1 = (v: number) => +v.toFixed(1);
     track('match_end', {
       rival: this.cfg.rivalId, arena: this.cfg.arenaId, mode: this.cfg.mode, ladderIndex: this.cfg.ladderIndex,
-      outcome: o.quit ? 'quit' : o.restart ? 'restart' : this.winner < 0 ? 'draw' : this.winner === 0 ? 'win' : 'lose',
+      outcome: o.quit ? 'quit' : o.restart ? 'restart' : this.winner < 0 ? 'draw' : this.winner === this.me ? 'win' : 'lose',
       finish: this.finish, fightTime: r1(this.fightTime), playerHp: Math.round(p.hp), playerMaxHp: p.maxHp, rivalHp: Math.round(r.hp), rivalMaxHp: r.maxHp,
       used: T.used, dmgDealtBy: T.dmgDealt, dmgTakenBy: T.dmgTaken, hitsDealt: T.hitsDealt, hitsTaken: T.hitsTaken,
       kdDealt: p.stats.knockdowns, kdTaken: p.stats.knockdownsTaken, hazardHits: T.hazardHits, dodges: T.dodges, deflects: T.deflects, parries: p.stats.parries, skills: p.stats.skillCasts, skillHits: p.stats.skillHits, skillDamage: p.stats.skillDamage, feints: p.stats.feints, sweetSpots: p.stats.sweetSpots, pauses: T.pauses,
@@ -874,7 +986,7 @@ export class Match {
     });
     this.resolve({
       config: this.cfg,
-      outcome: this.winner < 0 ? 'draw' : this.winner === 0 ? 'win' : 'lose',
+      outcome: this.winner < 0 ? 'draw' : this.winner === this.me ? 'win' : 'lose',
       finish: this.finish,
       time: this.fightTime,
       playerHp: p.hp,
@@ -885,6 +997,7 @@ export class Match {
       rival: { ...r.stats },
       quit: o.quit,
       restart: o.restart,
+      netClean: this.cfg.online ? this.netClean : undefined,
       replay: this.recorders && !o.quit && !o.restart ? this.buildReplay(p.hp, r.hp) : undefined,
     });
   }
@@ -985,7 +1098,7 @@ export class Match {
         case 'fighter': {
           const s = this.sides[e.who];
           const f = s.fighter;
-          const isP = e.who === 0;
+          const isP = e.who === this.me;
           const ev = e.ev;
           if (isP && this.phase === 'fight') {
             const k = ev.type === 'dash' ? (ev.air ? 'airdash' : 'dash') : ev.type === 'chargeStart' ? 'charge' : ev.type;
@@ -1169,7 +1282,7 @@ export class Match {
           break;
         case 'trapArm':
           audio.play('hazard_warn', { pos: e.trap.pos });
-          if (e.by === 0) this.host.hud.popup(this.worldToScreen(e.trap.sw.clone()), 'TRAP ARMED', 'tag');
+          if (e.by === this.me) this.host.hud.popup(this.worldToScreen(e.trap.sw.clone()), 'TRAP ARMED', 'tag');
           break;
         case 'trapFire':
           audio.play('hazard_zap', { pos: e.trap.pos });
@@ -1182,7 +1295,7 @@ export class Match {
         case 'pickupTake':
           this.tactics.pickupTaken(e.pickup);
           audio.play('getup', { pos: e.pickup.pos });
-          this.host.hud.popup(this.worldToScreen(e.pickup.pos.clone().add(new THREE.Vector3(0, 1.2, 0))), `${e.who === 0 ? '' : 'RIVAL '}${e.pickup.kind.toUpperCase()}!`, 'tag');
+          this.host.hud.popup(this.worldToScreen(e.pickup.pos.clone().add(new THREE.Vector3(0, 1.2, 0))), `${e.who === this.me ? '' : 'RIVAL '}${e.pickup.kind.toUpperCase()}!`, 'tag');
           break;
         case 'impact':
           fx.impact(e.pos, e.normal, e.color, e.proj.spec.look === 'rail' || e.proj.spec.look === 'beam' ? 1.6 : 0.8);
@@ -1200,15 +1313,15 @@ export class Match {
           if (e.source === 'skill' && e.damage > 0 && !e.blocked && !e.parried && this.sides[e.attacker]) {
             fx.skillImpact(e.skillLook ?? '', e.attacker, e.victim, e.pos, !!e.skillReflected || e.ko || e.knockdown);
           }
-          if (e.victim === 0) {
+          if (e.victim === this.me) {
             this.tel.dmgTaken[e.source] = (this.tel.dmgTaken[e.source] ?? 0) + e.damage;
             this.tel.hitsTaken++;
             if (e.source === 'hazard') this.tel.hazardHits++;
-          } else if (e.attacker === 0) {
+          } else if (e.attacker === this.me) {
             this.tel.dmgDealt[e.source] = (this.tel.dmgDealt[e.source] ?? 0) + e.damage;
             this.tel.hitsDealt++;
           }
-          const isPV = e.victim === 0;
+          const isPV = e.victim === this.me;
           fx.hitSpark(e.pos, e.dir, e.color, e.heavy);
           if (e.source === 'skill' && !e.blocked && !e.parried) fx.skillHit(e.pos, e.dir, e.color);
           audio.play(e.heavy ? 'hit_heavy' : 'hit_light', { pos: e.pos });
@@ -1219,8 +1332,8 @@ export class Match {
             audio.play('shield_block', { pos: e.pos });
             this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 1.1, 0))), 'BLOCK', 'tag');
           }
-          if (e.attacker === 0 && this.practiceMode) this.practiceLog.push({ t: this.world.time, dmg: e.damage });
-          if (e.attacker === 0 && !e.parried) {
+          if (e.attacker === this.me && this.practiceMode) this.practiceLog.push({ t: this.world.time, dmg: e.damage });
+          if (e.attacker === this.me && !e.parried) {
             this.host.hud.confirm(e.heavy);
             audio.play('ui_move', { volume: e.heavy ? 0.9 : 0.6, pitch: e.heavy ? 1.6 : 2.2 });
           }
@@ -1228,7 +1341,7 @@ export class Match {
           break;
         }
         case 'dodge':
-          if (e.who === 0) {
+          if (e.who === this.me) {
             this.tel.dodges++;
             if (e.perfect) this.tel.perfect++;
             this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 1, 0))), e.perfect ? 'PERFECT DODGE' : 'DODGE!', 'tag');
@@ -1242,7 +1355,7 @@ export class Match {
           fx.hitSpark(e.pos, new THREE.Vector3(0, 1, 0), e.color, false);
           fx.ring(e.pos, this.sides[e.who].model.root.getWorldDirection(new THREE.Vector3()), 0xffffff, 0.3, 1.8, 0.25, 1);
           audio.play('shield_block', { pos: e.pos });
-          if (e.who === 0) {
+          if (e.who === this.me) {
             this.tel.deflects++;
             if (e.parry) this.tel.parries++;
             this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 0.8, 0))), e.parry ? 'PARRY!' : 'DEFLECT!', 'tag');

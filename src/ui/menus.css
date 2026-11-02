@@ -851,3 +851,24 @@
 .gar-right-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; flex: none; }
 .gar-right-tabs .ra-btn { font-size: calc(var(--u) * .73); padding: 9px; text-align: center; }
 .gar-right-tabs .selected { --bd: #68d7eb; --bg: #183342; color: #e7fbff; }
+
+/* ---------------- online */
+.net-row { display: flex; align-items: center; gap: calc(var(--u) * 0.8); }
+.net-input {
+  flex: 1; min-width: 0; padding: calc(var(--u) * 0.6) calc(var(--u) * 0.9);
+  background: rgba(10, 14, 22, 0.9); color: var(--ink); border: 1px solid rgba(170, 195, 235, 0.35);
+  font: 600 calc(var(--u) * 1) 'Chakra Petch', sans-serif; letter-spacing: 0.06em; outline: none;
+}
+.net-input:focus { border-color: #ff8a3a; box-shadow: 0 0 0 1px #ff8a3a55; }
+.net-code { flex: 0 0 calc(var(--u) * 7); text-align: center; text-transform: uppercase; letter-spacing: 0.3em; }
+.net-status { min-height: 1.4em; color: #ffd27a; opacity: 0.95; }
+.net-set { font-weight: 700; letter-spacing: 0.08em; opacity: 0.95; }
+.net-board { gap: calc(var(--u) * 0.25); min-width: min(90vw, calc(var(--u) * 32)); }
+.net-board-row {
+  display: grid; grid-template-columns: 3em 1fr 6em 4em 4.5em; gap: 0.6em; align-items: center;
+  padding: calc(var(--u) * 0.35) calc(var(--u) * 0.6); background: rgba(14, 18, 28, 0.7);
+  font-size: calc(var(--u) * 0.9);
+}
+.net-board-row:nth-child(1) { color: #ffd23a; }
+.net-board-row .nb-rating { font-weight: 700; text-align: right; }
+.net-board-row .nb-rec, .net-board-row .nb-tier { opacity: 0.7; }

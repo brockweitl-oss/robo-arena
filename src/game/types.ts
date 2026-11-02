@@ -1,9 +1,10 @@
+import type { NetSession, PlayerHello } from '../net/online';
 import type { Loadout } from '../data/parts';
 import type { Paint } from '../data/characters';
 import type { Replay } from './replay';
 
 export interface MatchConfig {
-  mode: 'ladder' | 'free' | 'rivalplus' | 'survival' | 'practice' | 'versus' | 'replay';
+  mode: 'ladder' | 'free' | 'rivalplus' | 'survival' | 'practice' | 'versus' | 'replay' | 'online';
   playerLoadout: Loadout;
   rivalId: string;
   arenaId: string;
@@ -23,6 +24,8 @@ export interface MatchConfig {
   versus?: { p2Loadout: Loadout; p2Paint: Paint; p2Name: string };
   /** Replay playback. */
   replay?: Replay;
+  /** Online lockstep match: both builds in world order (host = 0), the room seed and which one is local. */
+  online?: { session: NetSession; me: 0 | 1; seed: number; players: [PlayerHello, PlayerHello]; ranked?: boolean };
 }
 
 export interface MatchStats {
@@ -73,6 +76,8 @@ export interface MatchResult {
   quit?: boolean;
   /** Player chose Restart from the pause menu (host restarts automatically). */
   restart?: boolean;
+  /** Online: false when the match desynced or the opponent dropped (never rated). */
+  netClean?: boolean;
   /** Recording of the match (absent for practice/replay playback). */
   replay?: Replay;
 }
