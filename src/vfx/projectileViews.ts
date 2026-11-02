@@ -150,8 +150,8 @@ const STYLES: Record<Projectile['spec']['look'], Style> = {
   turret: { width: 0.12, tail: 0.1, len: 1.4, falloff: 1.8, linger: 0.08, head: 'pellet', headLen: 0.3, halo: 0.35, sparks: 0 },
   lance: { width: 0.5, tail: 0.5, len: 11, falloff: 0.6, linger: 0.5, head: 'spear', headLen: 2.6, halo: 0.8, sparks: 3 },
   wave: { width: 0.9, tail: 0.6, len: 3, falloff: 1.2, linger: 0.2, head: 'wall', headLen: 1, halo: 0.9, sparks: 2 },
-  hook: { width: 0.16, tail: 0.3, len: 2, falloff: 1.5, linger: 0.1, head: 'harpoon', headLen: 0.9, halo: 0.4, sparks: 1 },
-  frost: { width: 0.36, tail: 0.25, len: 4.5, falloff: 1.1, linger: 0.3, head: 'shard', headLen: 1.1, halo: 0.55, sparks: 2 },
+  hook: { width: 0.16, tail: 0.3, len: 2, falloff: 1.5, linger: 0.1, head: 'harpoon', headLen: 1.6, halo: 0.4, sparks: 1 },
+  frost: { width: 0.36, tail: 0.25, len: 4.5, falloff: 1.1, linger: 0.3, head: 'shard', headLen: 1.8, halo: 0.55, sparks: 2 },
 };
 
 interface View {
@@ -250,8 +250,18 @@ export class ProjectileViews {
       case 'bolt': g.add(new THREE.Mesh(G.bolt, this.glow(core, 7))); break;
       case 'pellet': g.add(new THREE.Mesh(G.pellet, this.glow(core, 7))); break;
       case 'spear': g.add(new THREE.Mesh(G.spear, this.glow(core, 9)), new THREE.Mesh(G.spearTail, this.glow(color, 5))); break;
-      case 'shard': g.add(new THREE.Mesh(G.shard, this.ice()), new THREE.Mesh(G.pellet, this.glow(core, 4))); break;
-      case 'harpoon': g.add(new THREE.Mesh(G.harpoon, this.metal()), new THREE.Mesh(G.barbs, this.metal()), new THREE.Mesh(G.shaft, this.metal()), new THREE.Mesh(G.pellet, this.glow(color, 6))); break;
+      case 'shard': {
+        const shell = new THREE.Mesh(G.shard, this.glow(color, 1.6));
+        shell.scale.setScalar(1.3);
+        g.add(new THREE.Mesh(G.shard, this.ice()), shell);
+        break;
+      }
+      case 'harpoon': {
+        const glow = new THREE.Mesh(G.harpoon, this.glow(color, 2.2));
+        glow.scale.setScalar(1.25);
+        g.add(new THREE.Mesh(G.harpoon, this.metal()), new THREE.Mesh(G.barbs, this.metal()), new THREE.Mesh(G.shaft, this.metal()), glow);
+        break;
+      }
       case 'wall': g.add(new THREE.Mesh(G.wall, this.wallMat)); break;
     }
     g.traverse((o) => { o.frustumCulled = false; });
@@ -327,7 +337,8 @@ export class ProjectileViews {
         v.spin += dt * 14;
         v.head.rotateZ(v.spin);
         v.head.scale.setScalar(v.style.headLen);
-      } else v.head.scale.set(1, 1, v.style.headLen).multiplyScalar(v.headKind === 'pellet' ? Math.max(0.6, r * 3) : 1);
+      } else if (v.headKind === 'harpoon') v.head.scale.setScalar(v.style.headLen);
+      else v.head.scale.set(1, 1, v.style.headLen).multiplyScalar(v.headKind === 'pellet' ? Math.max(0.6, r * 3) : 1);
       v.halo.position.copy(_p);
       v.halo.scale.setScalar(v.style.halo * (0.9 + Math.sin(this.t * 40 + p.id) * 0.1));
       if (v.cable) {
