@@ -25,7 +25,7 @@ The play-test is public: every push to `main` auto-deploys to GitHub Pages.
    - `npm run build`
    - `BASE_URL=http://localhost:5174 npm run test:e2e` (dev server running)
    - zero console errors or warnings
-4. Open a PR with `gh pr create`. Put **before/after screenshots** in the PR description, plus the fps you measured. Claude reviews and merges.
+4. Open a PR with `gh pr create`. **Read `docs/COORDINATION.md`**: every PR gets reviewed by the other agent (Claude reviews yours; you review Claude's `claude/*` PRs with `gh pr checkout`, run the checks, screenshot, and `gh pr review`). Keep the status board current. Put **before/after screenshots** in the PR description, plus the fps you measured. Claude reviews and merges.
 
 ## File ownership
 
