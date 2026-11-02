@@ -1,0 +1,57 @@
+{
+  "results": [
+    {
+      "version": "before",
+      "skill": "lance",
+      "radius": 0.32,
+      "quality": "medium"
+    },
+    {
+      "version": "before",
+      "skill": "wave",
+      "radius": 1.15,
+      "quality": "medium"
+    },
+    {
+      "version": "before",
+      "skill": "hook",
+      "radius": 0.45,
+      "quality": "medium"
+    },
+    {
+      "version": "before",
+      "skill": "frost",
+      "radius": 0.5,
+      "quality": "medium"
+    },
+    {
+      "version": "after",
+      "skill": "lance",
+      "radius": 0.32,
+      "quality": "medium"
+    },
+    {
+      "version": "after",
+      "skill": "wave",
+      "radius": 1.15,
+      "quality": "medium"
+    },
+    {
+      "version": "after",
+      "skill": "hook",
+      "radius": 0.45,
+      "quality": "medium"
+    },
+    {
+      "version": "after",
+      "skill": "frost",
+      "radius": 0.5,
+      "quality": "medium"
+    }
+  ],
+  "perf": {
+    "fps": 60,
+    "quality": "medium"
+  },
+  "errors": []
+}
