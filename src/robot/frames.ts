@@ -94,7 +94,7 @@ function arm(rig:Rig,b:B,side:Side,frame:Frame) {
     gauntlet.computeVertexNormals();
   }
   b.add(e,'primary',gauntlet);
-  b.add(e,'primary',xf(ridgeShell([[-.065*k,.08],[.065*k,.08],[.078*k,-.015],[.042*k,-.14],[-.042*k,-.14]],.022,.012),[0,-f*.35,-.091*k],[0,Math.PI,0]));
+  b.add(e,'primary',xf(ridgeShell([[-.065*k,.08],[.065*k,.08],[.078*k,-.015],[.042*k,-.14],[-.042*k,-.14]],.022,.012),[0,-f*.35,-Math.max(.091*k,.104)],[0,Math.PI,0]));
   if(side==='L') b.add(e,'secondary',xf(ridgeShell([[-.025*k,.08],[.025*k,.09],[.04*k,-.04],[0,-.13],[-.02*k,-.06]],.018,.01),[sx*.06*k,-f*.42,.03*k],[0,sx*.9,0]));
   if(heavy) for(const dx of [-1,1]) {
     const p=piston(new THREE.Vector3(dx*.085,.01,-.04),new THREE.Vector3(dx*.07,-f*.85,-.04),.018);

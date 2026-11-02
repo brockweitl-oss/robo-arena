@@ -66,15 +66,23 @@ function stride(rig: Rig, b: PartBuilder, side: Side, bulk: number) {
   b.add(kn,'secondary',xf(plate([[-.028*k,S*.10],[.028*k,S*.10],[.022*k,-S*.13],[-.022*k,-S*.13]],.006,.002),[0,-S*.41,-.141*k],[0,Math.PI,0]));
   for (const sign of [-1,1]) b.add(kn,'trim',xf(plate([[-.003,S*.075],[.003,S*.075],[.003,-S*.075],[-.003,-S*.075]],.003,.001),[sign*.025*k,-S*.40,-.146*k],[0,Math.PI,0]));
   const A=rig.spec.ankleH,F=rig.spec.footLen*(.9+k*.1);
+  // Leave a flat rear engine recess sized from the actual foot length, including
+  // short Feather feet. The nozzle's position and exhaust axis do not move.
+  const heelClear = (g: THREE.BufferGeometry) => {
+    const p=g.getAttribute('position'), back=-F*.28+.06;
+    for(let i=0;i<p.count;i++) p.setZ(i,Math.max(back,p.getZ(i)));
+    g.computeVertexNormals();
+    return g;
+  };
   b.add(an,'joint',xf(cyl(.058*k,.058*k,.13*k,14),[0,0,0],[0,0,Math.PI/2]));
   // Enclosed boot with raised instep and substantial toe; never a skeletal toe paddle.
   b.add(an,'dark',xf(plate([[-.075*k,-F*.38],[.075*k,-F*.38],[.088*k,-F*.13],[.077*k,F*.42],[.049*k,F*.51],[-.049*k,F*.51],[-.077*k,F*.42],[-.088*k,-F*.13]],.028,.007),[0,-A+.014,F*.04],[-Math.PI/2,0,0]));
-  b.add(an,'primary',xf(armorLoft([
+  b.add(an,'primary',heelClear(xf(armorLoft([
     [-F*.17,.058*k,.033],[-F*.10,.079*k,.050],
     [0,.083*k,.058],[F*.25,.080*k,.040],[F*.43,.060*k,.025],
     [F*.47,.045*k,.018],
-  ],20),[0,-A+.065,F*.04],[Math.PI/2,0,0]));
-  b.add(an,'secondary',xf(armorLoft([[-.065,.064*k,.059*k],[-.012,.074*k,.072*k],[.040,.062*k,.059*k]],16),[0,0,.012]));
+  ],20),[0,-A+.065,F*.04],[Math.PI/2,0,0])));
+  b.add(an,'secondary',heelClear(xf(armorLoft([[-.065,.064*k,.059*k],[-.012,.074*k,.072*k],[.040,.062*k,.059*k]],16),[0,0,.012])));
   b.add(an,'primary',xf(ridgeShell([[-.048*k,.048],[.048*k,.048],[.062*k,-.028],[.042*k,-.061],[-.042*k,-.061],[-.062*k,-.028]],.016,.009),[0,-.009,.075*k],[.32,0,0]));
   // Existing mount/angle preserved exactly for procedural thruster animation.
   footNozzle(rig,b,an,[0,-A+.065,-F*.28],.034);
