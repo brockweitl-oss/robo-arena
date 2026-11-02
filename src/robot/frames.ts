@@ -161,11 +161,14 @@ function striker(rig: Rig, b: B) {
   abdomen(rig, b, 0.22);
   const c = rig.chest;
   // Chest core: broad V-taper hull
-  b.add(c, 'primary', plate([[-0.115, -0.17], [0.115, -0.17], [0.31, 0.0], [0.29, 0.14], [0.12, 0.2], [-0.12, 0.2], [-0.29, 0.14], [-0.31, 0.0]], 0.34, 0.025));
-  // front orange collar plates (V)
-  const collar = plate([[0.02, 0.2], [0.24, 0.13], [0.27, 0.02], [0.14, -0.04], [0.05, 0.09]], 0.05, 0.012);
-  b.add(c, 'secondary', xf(collar.clone(), [0, 0, 0.165], [-0.06, 0, 0]));
-  b.add(c, 'secondary', mirrorX(xf(collar, [0, 0, 0.165], [-0.06, 0, 0])));
+  b.add(c, 'dark', armorShell([[-0.105,-0.17],[0.105,-0.17],[0.275,0.02],[0.24,0.15],[0.1,0.19],[-0.1,0.19],[-0.24,0.15],[-0.275,0.02]],0.25,0.035));
+  // Independently swept pectoral shells overlap the recessed central chassis.
+  for (const sx of [-1, 1]) {
+    const pec = armorShell([[-0.105,0.07],[-0.04,0.125],[0.095,0.075],[0.12,-0.02],[0.035,-0.09],[-0.09,-0.065]],0.085,0.045);
+    b.add(c,'primary',xf(pec,[sx*0.145,0.055,0.105],[-0.12,sx*0.24,-sx*0.12],[sx,1,1]));
+    b.add(c,'secondary',xf(armorShell([[-0.09,0.045],[-0.03,0.075],[0.09,0.035],[0.075,-0.005],[-0.07,-0.015]],0.025,0.02),[sx*0.145,0.105,0.17],[-0.2,sx*0.24,-sx*0.12],[sx,1,1]));
+    b.add(c,'trim',xf(armorShell([[-0.07,0.02],[0.09,0.02],[0.045,-0.06],[-0.045,-0.09]],0.025,0.02),[sx*0.13,-0.075,0.15],[0.15,sx*0.2,0],[sx,1,1]));
+  }
   // center reactor
   b.add(c, 'dark', xf(cyl(0.065, 0.075, 0.04, 6), [0, 0.02, 0.18], [Math.PI / 2, 0, 0]));
   b.add(c, 'glowHot', xf(cyl(0.035, 0.035, 0.02, 6), [0, 0.02, 0.2], [Math.PI / 2, 0, 0]));
@@ -194,19 +197,19 @@ function striker(rig: Rig, b: B) {
 
   // --- Head ---
   const h = rig.head;
-  b.add(h, 'primary', xf(chamferBox(0.27, 0.24, 0.28, 0.055, 0.009), [0, 0.15, 0]));
+  b.add(h, 'primary', xf(chamferBox(0.22, 0.24, 0.28, 0.05, 0.009), [0, 0.15, 0]));
   // brow ridge
-  b.add(h, 'primary', xf(trap(0.3, 0.26, 0.06, 0.1, 0.012), [0, 0.215, 0.11], [-0.25, 0, 0]));
+  b.add(h, 'primary', xf(trap(0.25, 0.21, 0.05, 0.1, 0.012), [0, 0.215, 0.11], [-0.25, 0, 0]));
   // visor band
-  b.add(h, 'visor', xf(chamferBox(0.25, 0.038, 0.06, 0.012, 0.004), [0, 0.15, 0.115]));
+  b.add(h, 'visor', xf(chamferBox(0.205, 0.03, 0.06, 0.012, 0.004), [0, 0.15, 0.115]));
   for (const sx of [1, -1]) {
     // slanted eyes
-    b.add(h, 'glowHot', xf(plate([[0, 0], [0.075, 0.012], [0.07, 0.03], [0.005, 0.022]], 0.01, 0.002), [sx * 0.012, 0.135, 0.156], [0, 0, 0], [sx, 1, 1]));
+    b.add(h, 'glowHot', xf(plate([[0, 0], [0.062, 0.012], [0.058, 0.025], [0.005, 0.022]], 0.01, 0.002), [sx * 0.012, 0.135, 0.156], [0, 0, 0], [sx, 1, 1]));
     // cheek guards
-    b.add(h, 'trim', xf(chamferBox(0.04, 0.1, 0.16, 0.015), [sx * 0.148, 0.1, 0.04]));
+    b.add(h, 'trim', xf(chamferBox(0.04, 0.1, 0.16, 0.015), [sx * 0.123, 0.1, 0.04]));
     // ear sensor pods
-    b.add(h, 'dark', xf(cyl(0.05, 0.055, 0.05, 14), [sx * 0.16, 0.16, -0.02], [0, 0, Math.PI / 2]));
-    b.add(h, 'secondary', xf(cyl(0.032, 0.032, 0.056, 12), [sx * 0.165, 0.16, -0.02], [0, 0, Math.PI / 2]));
+    b.add(h, 'dark', xf(cyl(0.05, 0.055, 0.05, 14), [sx * 0.135, 0.16, -0.02], [0, 0, Math.PI / 2]));
+    b.add(h, 'secondary', xf(cyl(0.032, 0.032, 0.056, 12), [sx * 0.14, 0.16, -0.02], [0, 0, Math.PI / 2]));
   }
   // mouth guard
   b.add(h, 'dark', xf(trap(0.12, 0.2, 0.07, 0.07, 0.01), [0, 0.07, 0.11]));
@@ -215,7 +218,7 @@ function striker(rig: Rig, b: B) {
   b.add(h, 'secondary', xf(plate([[-0.11, 0], [0.09, 0], [-0.04, 0.065], [-0.14, 0.08]], 0.025, 0.004), [0, 0.27, 0], [0, Math.PI / 2, 0]));
   // Split faceplate and offset tactical sensor.
   for (const sx of [-1, 1]) {
-    b.add(h, 'primary', xf(plate([[0.012, 0.03], [0.1, 0.07], [0.11, 0.13], [0.025, 0.11]], 0.025, 0.005), [0, 0, 0.156], [0, 0, 0], [sx, 1, 1]));
+    b.add(h, 'primary', xf(plate([[0.012, 0.03], [0.082, 0.07], [0.09, 0.13], [0.025, 0.11]], 0.025, 0.005), [0, 0, 0.156], [0, 0, 0], [sx, 1, 1]));
   }
   b.add(h, 'trim', xf(chamferBox(0.055, 0.035, 0.22, 0.012), [0, 0.278, -0.015]));
   b.add(h, 'dark', xf(chamferBox(0.035, 0.09, 0.055, 0.01), [-0.15, 0.22, -0.04]));
@@ -228,9 +231,9 @@ function striker(rig: Rig, b: B) {
     const pad = rig.pad[side];
     // Three overlapping plates leave a visible dark undercut at each edge.
     for (let i = 0; i < 3; i++) {
-      b.add(pad, i === 0 ? 'secondary' : 'primary', xf(chamferBox(0.24 - i * 0.025, 0.105, 0.28 - i * 0.02, 0.035, 0.007), [sx * (0.04 + i * 0.035), 0.075 - i * 0.065, 0], [0, 0, -sx * 0.16]));
+      b.add(pad, i === 0 ? 'secondary' : 'primary', xf(armorShell([[-0.1,0.025],[-0.055,0.095],[0.085,0.075],[0.14,-0.025],[0.1,-0.075],[-0.09,-0.045]],0.18-i*0.025,0.04),[sx*(0.015+i*0.025),0.055-i*0.065,0],[0.14+i*0.1,0,-sx*0.22],[sx*(1-i*0.08),1,1]));
     }
-    b.add(pad, 'dark', xf(chamferBox(0.15, 0.14, 0.21, 0.025), [sx * 0.04, -0.03, 0]));
+    b.add(pad, 'dark', xf(chamferBox(0.13, 0.09, 0.11, 0.025), [sx * 0.04, -0.03, -0.035]));
     upperArm(rig, b, side, 0.055, 'none');
     forearm(rig, b, side, { w: 0.145, h: 0.28, d: 0.16, style: 'block' });
     fist(rig, b, side);
@@ -305,7 +308,7 @@ function wisp(rig: Rig, b: B) {
   abdomen(rig, b, 0.2);
   const c = rig.chest;
   // slim teardrop chest
-  b.add(c, 'primary', plate([[-0.11, -0.16], [0.11, -0.16], [0.22, 0.03], [0.2, 0.15], [0.07, 0.19], [-0.07, 0.19], [-0.2, 0.15], [-0.22, 0.03]], 0.28, 0.03, 2));
+  b.add(c, 'primary', armorShell([[-0.075,-0.16],[0.075,-0.16],[0.18,0.03],[0.17,0.15],[0.06,0.19],[-0.06,0.19],[-0.17,0.15],[-0.18,0.03]],0.22,0.035));
   b.add(c, 'secondary', xf(plate([[0, 0.17], [0.12, 0.12], [0.06, -0.12], [0, -0.15], [-0.06, -0.12], [-0.12, 0.12]], 0.04, 0.01), [0, 0, 0.135]));
   b.add(c, 'glowHot', xf(plate([[0, 0.08], [0.03, 0.0], [0, -0.08], [-0.03, 0]], 0.012, 0.003), [0, 0.02, 0.16]));
   emblem(rig, b, c, [0.13, 0.08, 0.145], 0, 0.07);
@@ -318,11 +321,13 @@ function wisp(rig: Rig, b: B) {
   for (const sx of [1, -1]) {
     const wingRoot = rig.addDangler(bk, [sx * 0.1, 0.05, -0.06]);
     wingRoot.userData.stiff = 0.6;
-    const wing = plate([[0, 0], [0.42, 0.34], [0.5, 0.36], [0.44, 0.22], [0.36, 0.06], [0.16, -0.08], [0.04, -0.06]], 0.024, 0.008);
-    b.add(wingRoot, 'primary', xf(wing, [0, 0, 0], [0.3, sx > 0 ? -0.5 : 0.5, 0], [sx, 1, 1]));
-    const trimW = plate([[0.36, 0.3], [0.5, 0.36], [0.44, 0.22], [0.38, 0.2]], 0.03, 0.006);
-    b.add(wingRoot, 'secondary', xf(trimW, [0, 0, 0], [0.3, sx > 0 ? -0.5 : 0.5, 0], [sx, 1, 1]));
-    b.add(wingRoot, 'glow', xf(tube([new THREE.Vector3(0.04, 0, 0), new THREE.Vector3(0.2, 0.12, 0), new THREE.Vector3(0.4, 0.3, 0)], 0.006, 12), [0, 0, 0.015], [0.3, sx > 0 ? -0.5 : 0.5, 0], [sx, 1, 1]));
+    // Three separated airfoils sweep out from a visible mechanical spar.
+    b.add(wingRoot,'dark',xf(chamferBox(0.4,0.025,0.035,0.01),[sx*0.19,0.12,0],[0,0,sx*0.65]));
+    for (let i=0;i<3;i++) {
+      const points: [number,number][]=[[0,0],[0.28-i*0.025,0.2],[0.34-i*0.025,0.2],[0.21-i*0.02,0.045],[0.025,-0.045]];
+      b.add(wingRoot,i===0?'secondary':'primary',xf(armorShell(points,0.025,0.012),[sx*(0.08+i*0.07),0.12-i*0.07,-i*0.035],[0.3,-sx*0.5,0],[sx,1,1]));
+      b.add(wingRoot,'glow',xf(plate([[0.05,0.01],[0.25-i*0.02,0.15],[0.27-i*0.02,0.15],[0.065,0.005]],0.004,0.001),[sx*(0.08+i*0.07),0.12-i*0.07,-i*0.035+0.02],[0.3,-sx*0.5,0],[sx,1,1]));
+    }
     backNozzle(rig, b, bk, [sx * 0.07, -0.12, -0.06], 0.05, -0.55);
   }
   rig.podMount.position.set(0, 0.16, -0.08);
@@ -404,7 +409,8 @@ function regent(rig: Rig, b: B) {
     const pad = rig.pad[side];
     b.add(pad, 'primary', xf(armorShell([[-0.06, 0], [0.09, -0.015], [0.14, 0.17], [0.06, 0.13]], 0.06, 0.015), [sx * 0.13, 0.08, -0.08], [0.2, 0, 0], [sx, 1, 1]));
     // Rectilinear shoulder armor with inset vernier exhausts.
-    b.add(pad, 'primary', xf(chamferBox(0.29, 0.23, 0.32, 0.04, 0.009), [sx * 0.07, 0.04, 0]));
+    b.add(pad, 'dark', xf(chamferBox(0.27, 0.21, 0.29, 0.04, 0.009), [sx * 0.07, 0.04, 0]));
+    for (let i=0;i<2;i++) b.add(pad,'primary',xf(armorShell([[-0.12,0.045],[-0.075,0.09],[0.12,0.07],[0.155,-0.02],[0.095,-0.065],[-0.11,-0.045]],0.035,0.025),[sx*0.07,0.065-i*0.105,0.17-i*0.018],[-0.12,sx*0.15,-sx*0.1],[sx,1,1]));
     b.add(pad, 'secondary', xf(chamferBox(0.3, 0.055, 0.33, 0.018), [sx * 0.07, 0.14, 0]));
     b.add(pad, 'dark', xf(chamferBox(0.18, 0.11, 0.02, 0.018), [sx * 0.07, 0.025, -0.17]));
     for (const dx of [-0.045, 0.045]) {
