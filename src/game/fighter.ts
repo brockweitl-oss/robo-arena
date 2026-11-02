@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { deriveStats, type DerivedStats, type ResolvedLoadout } from '../data/parts';
+import { deriveStats, BASE_MASS, type DerivedStats, type ResolvedLoadout } from '../data/parts';
 import type { AnimMode, AnimSource } from '../robot/animator';
 import { moveAndCollide } from './collision';
 import type { Collider } from '../arena/types';
@@ -50,13 +50,63 @@ export const COMEBACK_CD = 0.85;
 /** Hard landing threshold (m/s downward). */
 const HARD_LANDING = 13;
 
+/**
+ * Ground-movement feel (play-test 3: "a little stiff, needs weight and momentum").
+ * accel/brake/plant are in run speeds per second (so times are the same at any top speed), the
+ * rest in m/s² or rad/s. All are divided by the build's movement weight (`moveWeight`), so light
+ * builds start/stop/turn snappier and heavy builds slower. Reference build (weight 1) in comments.
+ */
+export const MOVE = {
+  /** Ground acceleration. Effective rate = accel × (launch → top) as speed builds, so the first
+   *  steps bite and the last metre per second eases in: 0.866 / accel ≈ 0.25 s to top speed. */
+  accel: 3.5,
+  launch: 1.6,
+  top: 0.8,
+  /** Stick released: coast to a stop. 1 / brake ≈ 0.19 s, ≈0.8 m slide from top speed. */
+  brake: 5.2,
+  /** Stick > ~100° from current velocity: plant the feet and brake hard (≈0.11 s to zero, then
+   *  re-accelerate the other way): weighty, but never a slide toward danger. */
+  plant: 8.9,
+  plantDot: Math.cos(100 * Math.PI / 180),
+  /** Extra grip on partial turns (rate × (1 + turnGrip × (1 − cos angle))): arcs instead of drifting. */
+  turnGrip: 0.6,
+  /** Speed above the current cap (dash carry, knockback slide) bleeds off at this rate. */
+  bleed: 60,
+  /** A plant that starts above this fraction of run speed emits a 'skid' event (dust). */
+  skidSpeed: 0.6,
+  /** Facing turn rates (rad/s): running, standing, aiming/facing the target, airborne. */
+  turnRun: 12,
+  turnIdle: 15,
+  turnAim: 20,
+  turnAir: 10,
+  /** Movement weight from build mass: 1 + (mass − BASE_MASS) × perMass, clamped (≈ ±25% feel). */
+  weightPerMass: 0.008,
+  weightMin: 0.8,
+  weightMax: 1.25,
+  /** Attack slow-downs ease to their cap over this long instead of snapping (same final cap). */
+  capEase: 0.1,
+  /** Dash exit keeps its velocity, clamped to this × run speed, then bleeds into normal control. */
+  dashExitCarry: 1.15,
+  /** Jump in the back half of a ground dash (or during its recovery) is a dash-jump: it keeps
+   *  horizontal speed up to this × run speed. Air carry then decays as usual (no cross-map flings). */
+  dashJumpFrom: 0.5,
+  dashJumpCarry: 1.3,
+} as const;
+
+/** Movement weight factor for a build mass (1 = reference build). */
+export function moveWeight(mass: number) {
+  return Math.min(MOVE.weightMax, Math.max(MOVE.weightMin, 1 + (mass - BASE_MASS) * MOVE.weightPerMass));
+}
+
 export type FighterEvent =
   | { type: 'jump' } | { type: 'airjump' } | { type: 'dash'; air: boolean } | { type: 'land'; speed: number; hard: boolean }
   | { type: 'fire'; index: number } | { type: 'railCharge' } | { type: 'bomb' } | { type: 'pod' }
   | { type: 'chargeStart'; wakeup: boolean } | { type: 'chargeLunge' } | { type: 'knockdown' } | { type: 'getup' }
   | { type: 'parry' } | { type: 'guardBreak' } | { type: 'hover'; on: boolean }
   | { type: 'primerClear'; owner: number; reason: PrimerClearReason }
-  | { type: 'skillCast' } | { type: 'skill' } | { type: 'feint' };
+  | { type: 'skillCast' } | { type: 'skill' } | { type: 'feint' }
+  /** Hard reversal at speed: feet planted (presentation: skid dust). */
+  | { type: 'skid'; speed: number };
 
 export interface HitInfo {
   damage: number;
@@ -121,6 +171,15 @@ export class Fighter implements AnimSource {
   readonly dashDir = new THREE.Vector3(0, 0, 1);
   /** Derived movement/defense stats for this loadout. */
   readonly st: DerivedStats;
+  /** Movement weight from build mass (see MOVE): scales ground accel, braking and turning. */
+  readonly weight: number;
+  /** Eased attack slow-down cap (1 = free movement). */
+  private moveCap = 1;
+  /** Feet planted in a hard reversal (edge-detects the 'skid' event). */
+  private planting = false;
+  /** Remaining recovery that came only from a dash exit (allows a dash-jump, never actions). */
+  private dashExitT = 0;
+  private dashExitAir = false;
 
   hp: number;
   maxHp: number;
@@ -192,6 +251,7 @@ export class Fighter implements AnimSource {
 
   constructor(readonly id: number, readonly lo: ResolvedLoadout) {
     this.st = deriveStats(lo);
+    this.weight = moveWeight(this.st.mass);
     this.maxHp = this.hp = this.st.hp;
     this.dashCharges = this.st.dashCharges;
     this.resetAir();
@@ -225,6 +285,10 @@ export class Fighter implements AnimSource {
     return this.recoveryTime > 0 || this.holdT >= 0 || this.burstLeft > 0 || this.castT >= 0;
   }
   get remainingAirDashes() { return this.airDashes; }
+  /** Facing turn rate (rad/s) while aiming/facing the target (also mirrored by the skill aim lane). */
+  get aimTurnRate() {
+    return this.grounded ? MOVE.turnAim / Math.sqrt(this.weight) : MOVE.turnAir;
+  }
 
   get canDash() {
     // a skill wind-up can be feinted with a dash; other commitments cannot
@@ -270,6 +334,7 @@ export class Fighter implements AnimSource {
   setMode(m: AnimMode) {
     if (m === 'down' || m === 'getup') this.clearPrimer(this.alive ? 'down' : 'death');
     this.mode = m;
+    this.planting = false;
     this.modeTime = 0;
   }
 
@@ -329,6 +394,7 @@ export class Fighter implements AnimSource {
     this.hazardCd = Math.max(0, this.hazardCd - dt);
     this.dashGap = Math.max(0, this.dashGap - dt);
     this.recoveryTime = Math.max(0, this.recoveryTime - dt);
+    this.dashExitT = Math.max(0, this.dashExitT - dt);
     this.landT = Math.max(0, this.landT - dt);
     for (const k of ['overdrive', 'speed'] as const) this.buffs[k] = Math.max(0, this.buffs[k] - dt);
     this.slowT = Math.max(0, this.slowT - dt);
@@ -418,15 +484,19 @@ export class Fighter implements AnimSource {
           break;
         }
         // --- jump / air jump ---
-        if (this.bufJump > 0 && !recovering && !this.attackCommitted) {
+        // Dash recovery only gates actions: jumping out of it is a dash-jump that keeps the dash's speed.
+        const dashOnly = this.recoveryTime > 0 && this.recoveryTime <= this.dashExitT + 1e-9 && !(this.landT > 0 && grounded);
+        const jumpLocked = dashOnly ? this.holdT >= 0 || this.burstLeft > 0 || this.castT >= 0 : recovering || this.attackCommitted;
+        if (this.bufJump > 0 && !jumpLocked) {
           if (grounded || this.coyote > 0) {
             this.bufJump = 0;
+            if (dashOnly) this.capHorizontal(this.runSpeed * MOVE.dashJumpCarry);
             this.vel.y = this.st.jumpVel;
             this.grounded = false;
             this.coyote = 0;
             this.setMode('air');
             this.events.push({ type: 'jump' });
-          } else if (this.airJumps > 0) {
+          } else if (this.airJumps > 0 && !dashOnly) {
             this.bufJump = 0;
             this.airJumps--;
             this.vel.y = this.st.airJumpVel;
@@ -508,29 +578,45 @@ export class Fighter implements AnimSource {
         }
 
         // --- movement ---
-        let speedMul = 1;
-        if (this.fireSlowT > 0) speedMul = gun.groundSlow;
-        if (this.burstLeft > 0 && gun.windup > 0) speedMul = Math.min(speedMul, 0.12);
-        if (this.holdT >= 0) speedMul = Math.min(speedMul, 0.35);
-        if (this.bombLockT > 0 && grounded) speedMul = Math.min(speedMul, 0.2);
-        if (this.castT >= 0) speedMul = Math.min(speedMul, 0.15);
-        if (recovering) speedMul = Math.min(speedMul, this.landT > 0 ? 0.3 : 0.55);
+        // Attack commitments cap speed; the cap eases in over MOVE.capEase but lands on the same value.
+        let attackCap = 1;
+        if (this.fireSlowT > 0) attackCap = gun.groundSlow;
+        if (this.burstLeft > 0 && gun.windup > 0) attackCap = Math.min(attackCap, 0.12);
+        if (this.holdT >= 0) attackCap = Math.min(attackCap, 0.35);
+        if (this.bombLockT > 0 && grounded) attackCap = Math.min(attackCap, 0.2);
+        if (this.castT >= 0) attackCap = Math.min(attackCap, 0.15);
+        // action recovery (shots, bombs, pods, skills) still slows you; a plain dash recovery does not
+        if (this.recoveryTime > this.dashExitT + 1e-9) attackCap = Math.min(attackCap, 0.55);
+        const easeStep = dt / MOVE.capEase;
+        this.moveCap = attackCap < this.moveCap ? Math.max(attackCap, this.moveCap - easeStep) : Math.min(attackCap, this.moveCap + easeStep);
+        let speedMul = this.moveCap;
+        // hard landing: a soft target, so the landing slides into the crouch instead of sticking
+        if (this.landT > 0 && grounded) speedMul = Math.min(speedMul, 0.3);
         const max = this.runSpeed * speedMul;
         if (grounded) {
-          const accel = moveLen > 0.05 ? 95 : 75;
-          this.approachXZ(mv.x * max * moveLen, mv.z * max * moveLen, accel * dt);
+          this.groundMove(mv, moveLen, max, dt);
+          // a committed attack's cap is a hard limit once eased in
+          if (this.moveCap < 1) this.capHorizontal(this.runSpeed * this.moveCap);
         } else {
-          const airMax = this.runSpeed * (this.hovering ? 0.8 : 0.9) * speedMul;
+          this.planting = false;
+          // An air dash still settles into a slower drift for its recovery, but bleeds there instead of snapping.
+          const settle = this.dashExitAir && this.dashExitT > 0 && this.recoveryTime > 0;
+          const airMul = settle ? Math.min(speedMul, 0.55) : speedMul;
+          const airMax = this.runSpeed * (this.hovering ? 0.8 : 0.9) * airMul;
           const cur = Math.hypot(this.vel.x, this.vel.z);
           if (moveLen > 0.05) {
-            const lim = speedMul < 1 ? airMax : Math.max(airMax, cur * 0.985);
+            const lim = airMul < 1 ? airMax : Math.max(airMax, cur * 0.985);
             this.approachXZ(mv.x * lim * moveLen, mv.z * lim * moveLen, (this.hovering ? 34 : 26) * this.st.airControl * dt);
           } else this.applyFriction(dt, 3);
           // Releasing the stick must not preserve fast aerial carry through a committed shot.
           const carried = Math.hypot(this.vel.x, this.vel.z);
-          if (speedMul < 1 && carried > airMax) { this.vel.x *= airMax / carried; this.vel.z *= airMax / carried; }
+          if (airMul < 1 && carried > airMax) {
+            const keep = speedMul < 1 ? airMax : Math.max(airMax, carried - MOVE.bleed * dt);
+            this.vel.x *= keep / carried;
+            this.vel.z *= keep / carried;
+          }
         }
-        // --- facing ---
+        // --- facing --- (weighty while running; aiming stays responsive so shots face the target promptly)
         let wantYaw = this.yaw;
         const attacking = this.burstLeft > 0 || this.aimHold > 0 || this.bombLockT > 0;
         const ct = this.castT >= 0 ? this.castTarget : null;
@@ -538,7 +624,9 @@ export class Fighter implements AnimSource {
         else if (inp.faceTarget || (attacking && grounded)) wantYaw = yawToTarget;
         else if (moveLen > 0.1) wantYaw = Math.atan2(mv.x, mv.z);
         else if (attacking) wantYaw = yawToTarget;
-        this.turnToward(wantYaw, (grounded ? 22 : 10) * dt);
+        const aiming = ct || inp.faceTarget || attacking;
+        const turn = !grounded || aiming ? this.aimTurnRate : (moveLen > 0.1 ? MOVE.turnRun : MOVE.turnIdle) / this.weight;
+        this.turnToward(wantYaw, turn * dt);
         break;
       }
       case 'dash':
@@ -555,12 +643,22 @@ export class Fighter implements AnimSource {
         this.vel.x = this.dashDir.x * s;
         this.vel.z = this.dashDir.z * s;
         if (this.mode === 'airdash') this.vel.y = style === 'flight' ? Math.max(this.vel.y, 0.8) : Math.max(this.vel.y, -0.5);
-        if (this.modeTime >= dur) {
-          const carry = style === 'step' ? 0.2 : style === 'glide' ? 0.6 : 0.5;
-          this.vel.x *= carry;
-          this.vel.z *= carry;
+        // dash-jump: a jump in the back half of a ground dash leaves with the dash's speed (capped)
+        const dashJump = this.mode === 'dash' && controls && this.bufJump > 0 && t >= MOVE.dashJumpFrom && (this.grounded || this.coyote > 0);
+        if (dashJump || this.modeTime >= dur) {
+          // Carry the dash's velocity out; normal control (or air drift) bleeds it from here.
+          this.capHorizontal(this.runSpeed * (dashJump ? MOVE.dashJumpCarry : MOVE.dashExitCarry));
           this.recoveryTime = DASH_RECOVERY;
-          this.setMode(this.grounded ? 'ground' : 'air');
+          this.dashExitT = DASH_RECOVERY;
+          this.dashExitAir = this.mode === 'airdash';
+          if (dashJump) {
+            this.bufJump = 0;
+            this.vel.y = this.st.jumpVel;
+            this.grounded = false;
+            this.coyote = 0;
+            this.setMode('air');
+            this.events.push({ type: 'jump' });
+          } else this.setMode(this.grounded ? 'ground' : 'air');
         }
         break;
       }
@@ -860,6 +958,43 @@ export class Fighter implements AnimSource {
     this.pos.y += 0.05;
     this.down = 0;
     this.events.push({ type: 'knockdown' });
+  }
+
+  /**
+   * Weighted ground locomotion (see MOVE): eased acceleration, a coasting stop, a hard
+   * "plant" on reversals, and overspeed bleed, all scaled by the build's movement weight.
+   */
+  private groundMove(mv: THREE.Vector3, moveLen: number, max: number, dt: number) {
+    const w = this.weight;
+    const cur = Math.hypot(this.vel.x, this.vel.z);
+    const run = Math.max(1e-3, this.runSpeed);
+    let rate: number;
+    let plant = false;
+    if (moveLen > 0.05) {
+      const dot = cur > 0.5 ? (this.vel.x * mv.x + this.vel.z * mv.z) / cur : 1;
+      if (dot < MOVE.plantDot) {
+        plant = true;
+        rate = MOVE.plant * run;
+      } else if (cur > max + 1e-3) {
+        // above the current cap (dash carry, slowed): bleed, steering with turn grip
+        rate = Math.max(MOVE.bleed, MOVE.accel * run * MOVE.top * (1 + MOVE.turnGrip * (1 - dot)));
+      } else {
+        const frac = Math.min(1, cur / run);
+        rate = MOVE.accel * run * (MOVE.launch + (MOVE.top - MOVE.launch) * frac) * (1 + MOVE.turnGrip * (1 - dot));
+      }
+    } else rate = cur > max + 1e-3 && max > 0 ? MOVE.bleed : MOVE.brake * run;
+    if (plant && !this.planting && cur > MOVE.skidSpeed * run) this.events.push({ type: 'skid', speed: cur });
+    this.planting = plant;
+    this.approachXZ(mv.x * max * moveLen, mv.z * max * moveLen, (rate / w) * dt);
+  }
+
+  /** Clamp horizontal speed without changing direction. */
+  private capHorizontal(limit: number) {
+    const sp = Math.hypot(this.vel.x, this.vel.z);
+    if (sp > limit && sp > 1e-9) {
+      this.vel.x *= limit / sp;
+      this.vel.z *= limit / sp;
+    }
   }
 
   private approachXZ(tx: number, tz: number, maxDelta: number) {

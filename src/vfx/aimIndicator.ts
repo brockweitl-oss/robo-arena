@@ -10,7 +10,7 @@ export function skillLane(me: Fighter, foe: Fighter, goal: THREE.Vector3 | null,
   // Fighter faces its cast target, then resumes aimHold facing on the release
   // tick before World reads the muzzle. Mirror that fixed-step presentation.
   const turn = Math.atan2(Math.sin(targetYaw - yaw), Math.cos(targetYaw - yaw));
-  yaw += THREE.MathUtils.clamp(turn, -(me.grounded ? 22 : 10) / 60, (me.grounded ? 22 : 10) / 60);
+  yaw += THREE.MathUtils.clamp(turn, -me.aimTurnRate / 60, me.aimTurnRate / 60);
   const s = Math.sin(yaw), c = Math.cos(yaw);
   const from = new THREE.Vector3(me.pos.x - c * .42 + s * .55, me.pos.y + 1.3, me.pos.z + s * .42 + c * .55), chest = foe.chestPoint();
   const dir = goal ? new THREE.Vector3(goal.x - from.x, chest.y - from.y, goal.z - from.z) : chest.sub(from);
