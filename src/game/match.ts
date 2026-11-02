@@ -100,6 +100,8 @@ export interface MatchHost {
   input: Input;
   hud: HUD;
   settings: Settings;
+  /** The player's saved paint job (equipped cosmetics applied). */
+  playerPaint?: Paint;
   /** Show the pause menu; resolves with the chosen action. */
   pause(): Promise<'resume' | 'restart' | 'quit'>;
 }
@@ -198,7 +200,7 @@ export class Match {
       rf.maxHp = rf.hp = 9999;
       this.practiceMode = practice;
     }
-    pf.homingMul = (host.settings as unknown as { aimAssist?: number }).aimAssist ?? 1;
+    pf.homingMul = host.settings.aimAssist ?? 1;
     // AI handicaps: softer tracking and range-based aim error keep shots dodgeable (not for a human player 2)
     if (!vs) {
       rf.homingMul = 0.5;
@@ -238,7 +240,7 @@ export class Match {
       return side;
     };
     const [sp0, sp1] = this.arena.spawns;
-    this.sides = [mkSide(pf, pLo, PLAYER_PAINT, sp0, sp1), mkSide(rf, rLo, vs ? vs.p2Paint : rival.paint, sp1, sp0)];
+    this.sides = [mkSide(pf, pLo, host.playerPaint ?? PLAYER_PAINT, sp0, sp1), mkSide(rf, rLo, vs ? vs.p2Paint : rival.paint, sp1, sp0)];
     this.cam.snapBehind(sp0, sp1);
     this.hazardWarned = this.arena.hazards.map(() => false);
     this.tactics = new TacticsView(this.world, this.fx, s);

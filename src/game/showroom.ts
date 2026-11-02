@@ -82,7 +82,7 @@ export class Showroom {
   }
 
   private makeBot(lo: Loadout, paint: Paint): Bot {
-    const key = JSON.stringify(lo) + paint.primary;
+    const key = JSON.stringify(lo) + JSON.stringify(paint);
     const model = new RobotModel(resolveLoadout(lo), paint);
     const anim = new Animator(model);
     this.scene.add(model.root);
@@ -99,7 +99,7 @@ export class Showroom {
     // rebuild only what changed
     const next: Bot[] = [];
     wanted.forEach((w, i) => {
-      const key = JSON.stringify(w.lo) + w.paint.primary;
+      const key = JSON.stringify(w.lo) + JSON.stringify(w.paint);
       const cur = this.bots[i];
       if (cur && cur.key === key) next.push(cur);
       else {
