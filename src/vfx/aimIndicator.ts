@@ -34,25 +34,27 @@ export function skillLane(me: Fighter, foe: Fighter, goal: THREE.Vector3 | null,
 export class AimIndicator {
   readonly group = new THREE.Group();
   private geo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0, 0, 0.5);
-  private texture: THREE.DataTexture;
-  private mine: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
-  private foe: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  private mine: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  private foe: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
 
   constructor(scene: THREE.Scene) {
-    const pixels = new Uint8Array(64 * 128 * 4);
-    for (let y = 0; y < 128; y++) for (let x = 0; x < 64; x++) {
-      const i = (y * 64 + x) * 4;
-      const edge = x < 2 || x > 61 || y > 124;
-      const dash = Math.abs(x - 31.5) < 1.5 && y % 16 < 9;
-      const chevron = Math.abs(Math.abs(x - 31.5) - (y % 32) * .5) < 1 && y % 32 < 24;
-      pixels[i] = pixels[i + 1] = pixels[i + 2] = 255;
-      pixels[i + 3] = edge ? 255 : dash ? 200 : chevron ? 115 : 30;
-    }
-    this.texture = new THREE.DataTexture(pixels, 64, 128); this.texture.needsUpdate = true;
-    this.texture.magFilter = THREE.LinearFilter;
     const mk = (color: number) => {
-      const m = new THREE.Mesh(this.geo, new THREE.MeshBasicMaterial({
-        color, map: this.texture, transparent: true, opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false,
+      const m = new THREE.Mesh(this.geo, new THREE.ShaderMaterial({
+        uniforms: { uColor: { value: new THREE.Color(color) }, uOpacity: { value: 0.3 }, uT: { value: 0 }, uRange: { value: 20 } },
+        vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+        fragmentShader: `uniform vec3 uColor; uniform float uOpacity; uniform float uT; uniform float uRange; varying vec2 vUv;
+          void main(){
+            float along = 1.0 - vUv.y;
+            float ax = abs(vUv.x - 0.5) * 2.0;
+            float edge = smoothstep(0.82, 0.97, ax) * (1.0 - smoothstep(0.97, 1.0, ax));
+            float f = fract(along * uRange / 1.6 - ax * 0.35 - uT * 1.8);
+            float chevron = smoothstep(0.0, 0.08, f) * (1.0 - smoothstep(0.18, 0.3, f)) * (1.0 - ax * 0.6);
+            float fade = smoothstep(0.0, 0.06, along) * (1.0 - smoothstep(0.85, 1.0, along));
+            float tip = smoothstep(0.94, 0.985, along) * (1.0 - smoothstep(0.985, 1.0, along));
+            float a = (0.16 + edge * 1.2 + chevron * 0.75) * fade + tip * 1.6;
+            gl_FragColor = vec4(uColor * a * uOpacity * 3.0, 1.0);
+          }`,
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
       }));
       m.renderOrder = 5;
       m.frustumCulled = false;
@@ -72,15 +74,19 @@ export class AimIndicator {
     if (goal) {
       const sk = me.lo.skill;
       this.lane(this.mine, me, foe, goal, colliders);
-      this.mine.material.color.setHex(sk.color);
-      this.mine.material.opacity = (me.skillCd > 0 ? 0.22 : 0.8) * pulse;
+      const u = this.mine.material.uniforms;
+      (u.uColor.value as THREE.Color).setHex(me.skillCd > 0 ? 0x8a8f99 : sk.color);
+      u.uOpacity.value = (me.skillCd > 0 ? 0.35 : 1) * pulse * 0.4;
+      u.uT.value = time;
     }
     this.foe.visible = foe.castT >= 0;
     if (this.foe.visible) {
       const sk = foe.lo.skill;
       const t = foe.castTarget;
       this.lane(this.foe, foe, me, t ? new THREE.Vector3(...t) : null, colliders);
-      this.foe.material.opacity = (0.3 + .35 * (1 - Math.max(0, foe.castT) / sk.cast)) * pulse;
+      const fu = this.foe.material.uniforms;
+      fu.uOpacity.value = (0.3 + .35 * (1 - Math.max(0, foe.castT) / sk.cast)) * pulse;
+      fu.uT.value = time * 2;
     }
   }
 
@@ -89,7 +95,9 @@ export class AimIndicator {
     const y = groundHeightBelow(from.x, from.z, me.pos.y + 0.5, colliders) + 0.06;
     m.position.set(from.x, y, from.z);
     m.rotation.set(0, Math.atan2(end.x - from.x, end.z - from.z), 0);
-    m.scale.set(width, 1, Math.hypot(end.x - from.x, end.z - from.z));
+    const len = Math.hypot(end.x - from.x, end.z - from.z);
+    m.scale.set(width, 1, len);
+    (m.material as THREE.ShaderMaterial).uniforms.uRange.value = len;
   }
 
   hide() {
@@ -99,7 +107,6 @@ export class AimIndicator {
   dispose() {
     this.group.removeFromParent();
     this.geo.dispose();
-    this.texture.dispose();
     this.mine.material.dispose();
     this.foe.material.dispose();
   }
