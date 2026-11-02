@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Robo Arena — menus dev</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+    #bg { position: fixed; inset: 0; transition: background 0.4s; }
+    #bg::after { content: ''; position: absolute; left: 50%; top: 52%; width: 18vmin; height: 34vmin; transform: translate(-50%, -50%); border-radius: 40% 40% 10% 10%; background: linear-gradient(#f4f1ea, #ff6a1f); opacity: 0.25; }
+    #rect { position: fixed; display: none; border: 2px dashed #37e8ff; color: #37e8ff; font: 12px monospace; padding: 4px; pointer-events: none; }
+    #label { position: fixed; left: 8px; top: 4px; color: #6a7a90; font: 11px monospace; z-index: 50; pointer-events: none; }
+    #match { position: fixed; inset: 0; display: none; place-items: center; color: #ff6a1f; font: 20px monospace; }
+    #menus { position: fixed; inset: 0; }
+  </style>
+</head>
+<body>
+  <div id="bg"></div>
+  <div id="rect"></div>
+  <div id="match"></div>
+  <div id="label"></div>
+  <div id="menus"></div>
+  <script type="module" src="/src/ui/mockhost.ts"></script>
+</body>
+</html>

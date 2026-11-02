@@ -1,0 +1,30 @@
+// Playtest: node tools/play.mjs outDir "url" — boots a quick match, drives the player, screenshots.
+import { chromium } from 'playwright';
+const [outDir, url = 'index.html?quick=dex'] = process.argv.slice(2);
+const browser = await chromium.launch({ args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
+const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+const errs = [];
+page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') { errs.push(m.text()); console.log(`[${m.type()}]`, m.text()); } });
+page.on('pageerror', (e) => { errs.push(e.message); console.log('[pageerror]', e.message); });
+await page.goto(`http://localhost:5173/${url}`);
+const shot = async (n) => { await page.screenshot({ path: `${outDir}/${n}.png` }); console.log('shot', n, 'fps', await page.evaluate(() => window.__fps)); };
+await page.waitForTimeout(900); await shot('p0_intro');
+await page.waitForTimeout(1600); await shot('p1_land');
+await page.waitForTimeout(1600); await shot('p2_go');
+const k = page.keyboard;
+await k.down('KeyW'); await page.waitForTimeout(500);
+await page.mouse.move(800, 450); await page.mouse.down(); await page.waitForTimeout(80); await page.mouse.up();
+await page.waitForTimeout(150); await shot('p3_fire');
+await page.mouse.down({ button: 'right' }); await page.waitForTimeout(60); await page.mouse.up({ button: 'right' });
+await page.waitForTimeout(500); await shot('p4_bomb');
+await k.press('KeyE'); await page.waitForTimeout(300); await shot('p5_pod');
+await k.down('KeyA'); await k.press('ShiftLeft'); await page.waitForTimeout(120); await shot('p6_dash');
+await k.up('KeyA');
+await k.press('Space'); await page.waitForTimeout(300); await k.down('Space'); await page.waitForTimeout(500); await shot('p7_hover'); await k.up('Space');
+await k.press('KeyQ'); await page.waitForTimeout(350); await shot('p8_charge');
+await k.up('KeyW');
+for (let i = 0; i < 6; i++) { await page.mouse.down(); await page.waitForTimeout(60); await page.mouse.up(); await page.waitForTimeout(700); }
+await shot('p9_later');
+console.log('state', JSON.stringify(await page.evaluate(() => { const g = window.__game; return g && g.match ? { phase: g.match.phase, hp: g.match.world.fighters.map(f => f.hp), t: g.match.world.time } : null; })));
+console.log('errors', errs.length);
+await browser.close();

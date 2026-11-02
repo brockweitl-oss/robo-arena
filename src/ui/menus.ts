@@ -1,0 +1,1519 @@
+/**
+ * Robo Arena — menu / UI layer.
+ * DOM overlays above the WebGL canvas: title, main menu, story ladder, rival intro (VS),
+ * results + part unlocks, ending, free battle, garage, settings, pause.
+ * Full mouse + keyboard + gamepad navigation (spatial focus navigation).
+ */
+import '@fontsource/russo-one';
+import '@fontsource/chakra-petch/400.css';
+import '@fontsource/chakra-petch/600.css';
+import '@fontsource/chakra-petch/700.css';
+import './menus.css';
+
+import type { MenuHost, MenuLayer } from './host';
+import { ALL_PARTS, BODIES, LEGS, resolveLoadout, type AnyPart, type Slot } from '../data/parts';
+import { RIVALS, PLAYER_PAINT, PLAYER_ROBOT_NAME, rivalById, type Paint, type Rival } from '../data/characters';
+import { ARENA_IDS, ARENA_INFO, type ArenaId } from '../arena/index';
+import { defaultSave, isUnlocked, type Settings } from '../core/save';
+import type { MatchConfig, MatchResult } from '../game/types';
+import type { MusicTrack } from '../audio/audio';
+
+/* ------------------------------------------------------------------ helpers */
+
+type Kid = Node | string | number | null | undefined | false;
+
+function h<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', ...kids: Kid[]): HTMLElementTagNameMap[K] {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  for (const k of kids) {
+    if (k === null || k === undefined || k === false) continue;
+    e.append(typeof k === 'number' ? String(k) : k);
+  }
+  return e;
+}
+function svg(markup: string, cls = 'ra-ico'): HTMLElement {
+  const s = h('span', cls);
+  s.innerHTML = markup;
+  return s;
+}
+const hex = (n: number) => '#' + (n >>> 0).toString(16).padStart(6, '0').slice(-6);
+const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const fmtTime = (s: number) => {
+  const t = Math.max(0, Math.round(s));
+  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+};
+/** Mark children for staggered entrance. */
+function stagger(els: (HTMLElement | null | undefined)[], base = 0, step = 55) {
+  let i = 0;
+  for (const e of els) {
+    if (!e) continue;
+    e.classList.add('st');
+    e.style.setProperty('--d', `${base + i * step}ms`);
+    i++;
+  }
+}
+
+const SLOTS: Slot[] = ['gun', 'bomb', 'pod', 'body', 'legs'];
+const SLOT_LABEL: Record<Slot, string> = { gun: 'Gun', bomb: 'Bomb', pod: 'Pod', body: 'Body', legs: 'Legs' };
+const SLOT_ICON: Record<Slot, string> = {
+  gun: '<svg viewBox="0 0 24 24"><path d="M2 8h14l1.5-2H22v5h-3l-1.5 1.5V15h-3l-1 4H9.5l1-4H8l-1-2H2z"/></svg>',
+  bomb: '<svg viewBox="0 0 24 24"><circle cx="10.5" cy="14" r="7"/><path d="M14.5 8.6l2.6-2.6 1.4 1.4-2.6 2.6z"/><path d="M18.6 2.2l.9 2 2 .9-2 .9-.9 2-.9-2-2-.9 2-.9z"/></svg>',
+  pod: '<svg viewBox="0 0 24 24"><path d="M12 3l7.5 4.3v9.4L12 21l-7.5-4.3V7.3z" opacity=".95"/><circle cx="12" cy="12" r="3" fill="#0b0e14"/></svg>',
+  body: '<svg viewBox="0 0 24 24"><path d="M7 3h10l4 4-2.5 4.5V18l-3 3h-7l-3-3v-6.5L3 7z"/><path d="M9 8h6v3H9z" fill="#0b0e14"/></svg>',
+  legs: '<svg viewBox="0 0 24 24"><path d="M6 2h5v8l-2 7 3 5H4l1.5-5L6 10zM13 2h5v8l.5 7L20 22h-8l3-5-2-7z"/></svg>',
+};
+const LOCK_ICON = '<svg viewBox="0 0 24 24"><path d="M7 10V7a5 5 0 0110 0v3h2v12H5V10zm2 0h6V7a3 3 0 00-6 0z"/></svg>';
+const CHECK_ICON = '<svg viewBox="0 0 24 24"><path d="M9 16.2l-4.2-4.2-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>';
+
+const ARROW_HINT = { kb: 'WASD', pad: '✚' };
+
+function part(key: string): AnyPart | undefined {
+  const [slot, id] = key.split(':') as [Slot, string];
+  return ALL_PARTS[slot]?.[id];
+}
+function unlockSource(slot: Slot, id: string): Rival | undefined {
+  return RIVALS.find((r) => r.unlocks.includes(`${slot}:${id}`));
+}
+
+function emblem(p: Paint, unknown = false, cls = ''): HTMLElement {
+  const e = h('div', `ra-emblem ${unknown ? 'unknown' : ''} ${cls}`, h('span', '', unknown ? '?' : p.emblem));
+  if (!unknown) {
+    e.style.setProperty('--p', hex(p.primary));
+    e.style.setProperty('--s', hex(p.secondary));
+    e.style.setProperty('--g', hex(p.glow));
+    e.style.setProperty('--k', hex(p.dark));
+  }
+  return e;
+}
+function swatches(p: Paint): HTMLElement {
+  const row = h('div', 'ra-swatches');
+  for (const c of [p.primary, p.secondary, p.trim, p.glow]) {
+    const s = h('i');
+    s.style.background = hex(c);
+    row.append(s);
+  }
+  return row;
+}
+/** 1..5 segmented rating bar; optional comparison value. */
+function ratingBar(label: string, v: number, cmp?: number): HTMLElement {
+  const segs = h('div', 'ra-segs');
+  for (let i = 1; i <= 5; i++) {
+    let c = '';
+    if (i <= v) c = 'on';
+    if (cmp !== undefined) {
+      if (i > cmp && i <= v) c = 'on gain';
+      if (i > v && i <= cmp) c = 'loss';
+    }
+    const s = h('i', c);
+    s.style.setProperty('--i', String(i));
+    segs.append(s);
+  }
+  const delta = cmp !== undefined && cmp !== v ? h('span', `ra-delta ${v > cmp ? 'up' : 'down'}`, v > cmp ? `+${v - cmp}` : `${v - cmp}`) : null;
+  return h('div', 'ra-rating', h('span', 'ra-rating-l', label), segs, delta);
+}
+
+/* ------------------------------------------------------------------ navigation model */
+
+interface NavOpts {
+  act?: () => void;
+  adjust?: (dir: -1 | 1) => void;
+  focus?: () => void;
+  /** Non-interactive but focusable (plays error on act). */
+  locked?: boolean;
+  /** Don't play the move sound when focused. */
+  quiet?: boolean;
+}
+const NAV = new WeakMap<HTMLElement, NavOpts>();
+function nav<T extends HTMLElement>(el: T, o: NavOpts): T {
+  el.dataset.nav = '1';
+  NAV.set(el, o);
+  return el;
+}
+function btn(label: string, act: () => void, cls = '', icon?: string): HTMLElement {
+  const b = h('div', `ra-btn ${cls}`, icon ? svg(icon) : null, h('span', 'ra-btn-l', label));
+  return nav(b, { act });
+}
+
+type Input = 'up' | 'down' | 'left' | 'right' | 'confirm' | 'back' | 'prev' | 'next' | 'start';
+
+interface Layer {
+  el: HTMLElement;
+  back?: () => void;
+  /** Any key / button / click advances (title, ending). */
+  any?: () => void;
+  /** Intercept confirm (e.g. skip typewriter). Return true when consumed. */
+  confirm?: () => boolean;
+  key?: (k: Input) => boolean;
+  focus: HTMLElement | null;
+  /** Garage: right stick rotates preview. */
+  rotate?: boolean;
+}
+interface LayerOpts extends Omit<Layer, 'el' | 'focus'> {
+  initial?: HTMLElement | null;
+}
+
+type HintKey = 'move' | 'confirm' | 'back' | 'tabs' | 'drag' | 'adjust';
+const HINTS: Record<HintKey, [string, string]> = {
+  move: ['WASD', '✚'],
+  confirm: ['Enter', 'A'],
+  back: ['Esc', 'B'],
+  tabs: ['Q / E', 'LB / RB'],
+  drag: ['Drag', 'R-Stick'],
+  adjust: ['◀ ▶', '◀ ▶'],
+};
+function hints(list: [HintKey, string][]): HTMLElement {
+  const bar = h('div', 'ra-hints');
+  for (const [k, label] of list) {
+    const [kb, pad] = HINTS[k];
+    bar.append(h('div', 'ra-hint', h('kbd', `k-kb ${k === 'confirm' ? 'a' : k === 'back' ? 'b' : ''}`, kb), h('kbd', `k-pad ${k === 'confirm' ? 'pa' : k === 'back' ? 'pb' : ''}`, pad), h('span', '', label)));
+  }
+  return bar;
+}
+
+/* ------------------------------------------------------------------ Menus */
+
+export class Menus implements MenuLayer {
+  private stage: HTMLElement;
+  private over: HTMLElement;
+  private wipeEl: HTMLElement;
+  private screen: Layer | null = null;
+  private stack: Layer[] = [];
+  private raf = 0;
+  private padPrev: boolean[] = [];
+  private padInit = false;
+  private held = { dir: '' as '' | Input, next: 0 };
+  private lockUntil = 0;
+  private musicNow: MusicTrack | null = null;
+  private pauseResolve: ((v: 'resume' | 'restart' | 'quit') => void) | null = null;
+  private pauseLayer: Layer | null = null;
+  private resizeFn: (() => void) | null = null;
+  private mainIdx = 0;
+  private gSlot: Slot = 'gun';
+  private fb = { rival: RIVALS[0].id, arena: RIVALS[0].arena as string, time: 90 };
+
+  constructor(private host: MenuHost, private root: HTMLElement) {
+    root.classList.add('ra-root');
+    this.stage = h('div', 'ra-stage');
+    this.over = h('div', 'ra-over');
+    this.wipeEl = h('div', 'ra-wipe', h('i'), h('i'), h('i'));
+    root.append(this.stage, this.over, this.wipeEl, h('div', 'ra-scan'));
+
+    window.addEventListener('keydown', this.onKey, true);
+    // Hover only steals focus after a real mouse movement — otherwise a cursor parked
+    // where a new screen's button appears (e.g. after a match) would hijack keyboard focus.
+    let lastMove = 0;
+    window.addEventListener('pointermove', (e) => {
+      if (e.movementX || e.movementY) lastMove = performance.now();
+    });
+    root.addEventListener('pointerover', (e) => {
+      if (performance.now() - lastMove > 120) return;
+      const t = this.navTarget(e.target);
+      if (t && t !== this.top?.focus) this.setFocus(t, true);
+    });
+    root.addEventListener('pointerdown', (e) => {
+      this.root.classList.remove('pad');
+      const L = this.top;
+      if (L?.any && performance.now() > this.lockUntil) {
+        e.preventDefault();
+        L.any();
+      }
+    });
+    root.addEventListener('click', (e) => {
+      const t = this.navTarget(e.target);
+      if (!t || performance.now() < this.lockUntil) return;
+      this.setFocus(t, false);
+      this.activate(t);
+    });
+    root.addEventListener('contextmenu', (e) => {
+      if (this.active) e.preventDefault();
+    });
+    window.addEventListener('resize', () => this.resizeFn?.());
+    this.sync();
+  }
+
+  /* ---------------- MenuLayer API */
+
+  get active(): boolean {
+    return !!this.screen || this.stack.length > 0;
+  }
+
+  showTitle(): void {
+    this.backdrop('title');
+    this.music('menu');
+    const el = h('div', 'scr scr-title');
+    const logo = this.logo('big');
+    const tag = h('div', 'title-tag', h('i'), 'Build it · Bolt it · Battle it', h('i'));
+    const press = h('div', 'title-press', h('span', 'k-kb', 'Press any key'), h('span', 'k-pad', 'Press any button'));
+    const foot = h('div', 'title-foot', h('span', '', 'An original robot-combat game'), h('span', '', 'v1.0'));
+    el.append(h('div', 'vig vig-top'), h('div', 'vig vig-bot'), logo, tag, press, foot);
+    stagger([tag], 700);
+    let gone = false;
+    this.setScreen(el, {
+      any: () => {
+        if (gone) return;
+        gone = true;
+        this.host.sfx('ui_select');
+        press.classList.add('go');
+        setTimeout(() => this.showMain(), 260);
+      },
+    });
+  }
+
+  showPause(): Promise<'resume' | 'restart' | 'quit'> {
+    if (this.pauseResolve) this.closePause('resume');
+    return new Promise((resolve) => {
+      this.pauseResolve = resolve;
+      const el = h('div', 'ra-modal ra-pause');
+      const panel = h('div', 'ra-panel pause-panel');
+      const title = h('div', 'pause-title', 'PAUSED');
+      const list = h('div', 'pause-list');
+      const resume = btn('Resume', () => this.closePause('resume'), 'big');
+      const restart = btn('Restart', () => this.closePause('restart'), 'big');
+      const settings = btn('Settings', () => this.openSettingsOverlay(), 'big');
+      const quit = btn('Quit to Menu', async () => {
+        const ok = await this.confirmBox('Quit match?', 'Progress in this round will be lost.', 'Quit', 'Keep Fighting', true);
+        if (ok) this.closePause('quit');
+      }, 'big danger');
+      list.append(resume, restart, settings, quit);
+      panel.append(h('div', 'ra-kicker', 'Match suspended'), title, list, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Resume']]));
+      stagger([title, resume, restart, settings, quit], 0, 45);
+      el.append(panel);
+      this.pauseLayer = this.pushLayer(el, { back: () => this.closePause('resume', true), initial: resume });
+      this.host.sfx('ui_select');
+    });
+  }
+
+  hidePause(): void {
+    if (this.pauseResolve) this.closePause('resume', true);
+  }
+
+  /* ---------------- core layer plumbing */
+
+  private get top(): Layer | null {
+    return this.stack[this.stack.length - 1] ?? this.screen;
+  }
+
+  private sync() {
+    const a = this.active;
+    this.root.style.pointerEvents = a ? 'auto' : 'none';
+    this.root.classList.toggle('is-active', a);
+    if (a && !this.raf) {
+      this.padInit = false;
+      this.raf = requestAnimationFrame(this.loop);
+    } else if (!a && this.raf) {
+      cancelAnimationFrame(this.raf);
+      this.raf = 0;
+    }
+  }
+
+  private setScreen(el: HTMLElement, opts: LayerOpts = {}) {
+    const old = this.screen;
+    this.resizeFn = null;
+    if (old) {
+      old.el.classList.add('leaving');
+      setTimeout(() => old.el.remove(), 380);
+      this.wipe();
+    }
+    for (const l of this.stack) l.el.remove();
+    this.stack = [];
+    el.classList.add('scr');
+    this.stage.append(el);
+    const { initial, ...rest } = opts;
+    this.screen = { el, focus: null, ...rest };
+    this.lockUntil = performance.now() + 220;
+    this.sync();
+    const f = initial ?? this.navItems(this.screen)[0];
+    if (f) this.setFocus(f, false);
+  }
+
+  private pushLayer(el: HTMLElement, opts: LayerOpts = {}): Layer {
+    const { initial, ...rest } = opts;
+    const L: Layer = { el, focus: null, ...rest };
+    this.over.append(el);
+    this.stack.push(L);
+    this.lockUntil = performance.now() + 200;
+    this.sync();
+    const f = initial ?? this.navItems(L)[0];
+    if (f) this.setFocus(f, false);
+    return L;
+  }
+
+  private popLayer(L: Layer) {
+    const i = this.stack.indexOf(L);
+    if (i < 0) return;
+    this.stack.splice(i, 1);
+    L.el.classList.add('leaving');
+    setTimeout(() => L.el.remove(), 260);
+    this.lockUntil = performance.now() + 120;
+    this.sync();
+  }
+
+  private hideAll() {
+    if (this.screen) {
+      const el = this.screen.el;
+      el.classList.add('leaving');
+      setTimeout(() => el.remove(), 380);
+    }
+    for (const l of this.stack) l.el.remove();
+    this.stack = [];
+    this.screen = null;
+    this.resizeFn = null;
+    this.sync();
+  }
+
+  private wipe() {
+    const w = this.wipeEl;
+    w.classList.remove('run');
+    void w.offsetWidth;
+    w.classList.add('run');
+  }
+
+  private backdrop(kind: Parameters<MenuHost['setBackdrop']>[0], opts?: Parameters<MenuHost['setBackdrop']>[1]) {
+    this.host.setBackdrop(kind, opts);
+  }
+  private music(t: MusicTrack) {
+    if (this.musicNow === t) return;
+    this.musicNow = t;
+    this.host.music(t);
+  }
+
+  private navTarget(t: EventTarget | null): HTMLElement | null {
+    const L = this.top;
+    if (!L || !(t instanceof Element)) return null;
+    const n = t.closest('[data-nav]') as HTMLElement | null;
+    return n && L.el.contains(n) ? n : null;
+  }
+
+  private navItems(L: Layer): HTMLElement[] {
+    return Array.from(L.el.querySelectorAll<HTMLElement>('[data-nav]')).filter((e) => {
+      if (e.classList.contains('is-hidden')) return false;
+      const r = e.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    });
+  }
+
+  private setFocus(el: HTMLElement | null, sound: boolean) {
+    const L = this.top;
+    if (!L || !el) return;
+    if (L.focus === el) return;
+    L.focus?.classList.remove('is-focus');
+    L.focus = el;
+    el.classList.add('is-focus');
+    const o = NAV.get(el);
+    o?.focus?.();
+    if (sound && !o?.quiet) this.host.sfx('ui_move');
+    // keep visible inside scrolling lists
+    const sc = el.closest('.ra-scroll') as HTMLElement | null;
+    if (sc) {
+      const r = el.getBoundingClientRect(), s = sc.getBoundingClientRect();
+      if (r.top < s.top + 4) sc.scrollTop -= s.top - r.top + 8;
+      else if (r.bottom > s.bottom - 4) sc.scrollTop += r.bottom - s.bottom + 8;
+    }
+  }
+
+  private activate(el: HTMLElement) {
+    const o = NAV.get(el);
+    if (!o) return;
+    if (o.locked || el.classList.contains('is-disabled')) {
+      this.host.sfx('ui_error');
+      el.classList.remove('shake');
+      void el.offsetWidth;
+      el.classList.add('shake');
+      return;
+    }
+    if (o.act) {
+      el.classList.remove('press');
+      void el.offsetWidth;
+      el.classList.add('press');
+      o.act();
+    }
+  }
+
+  private move(dir: 'up' | 'down' | 'left' | 'right') {
+    const L = this.top;
+    if (!L) return;
+    const items = this.navItems(L);
+    if (!items.length) return;
+    const cur = L.focus && items.includes(L.focus) ? L.focus : null;
+    if (!cur) {
+      this.setFocus(items[0], true);
+      return;
+    }
+    const a = cur.getBoundingClientRect();
+    const ax = a.left + a.width / 2, ay = a.top + a.height / 2;
+    let best: HTMLElement | null = null, bestScore = Infinity;
+    for (const c of items) {
+      if (c === cur) continue;
+      const b = c.getBoundingClientRect();
+      const bx = b.left + b.width / 2, by = b.top + b.height / 2;
+      let along: number, ortho: number;
+      if (dir === 'left' || dir === 'right') {
+        const s = dir === 'right' ? 1 : -1;
+        if ((bx - ax) * s <= 2) continue;
+        along = Math.max(0, s > 0 ? b.left - a.right : a.left - b.right);
+        ortho = b.bottom < a.top ? a.top - b.bottom : b.top > a.bottom ? b.top - a.bottom : 0;
+        ortho += Math.abs(by - ay) * 0.1;
+      } else {
+        const s = dir === 'down' ? 1 : -1;
+        if ((by - ay) * s <= 2) continue;
+        along = Math.max(0, s > 0 ? b.top - a.bottom : a.top - b.bottom);
+        ortho = b.right < a.left ? a.left - b.right : b.left > a.right ? b.left - a.right : 0;
+        ortho += Math.abs(bx - ax) * 0.1;
+      }
+      const score = along + ortho * 2.5;
+      if (score < bestScore) {
+        bestScore = score;
+        best = c;
+      }
+    }
+    if (best) this.setFocus(best, true);
+  }
+
+  private input(k: Input) {
+    if (!this.active) return;
+    const L = this.top!;
+    const now = performance.now();
+    if (L.any) {
+      if (now > this.lockUntil) L.any();
+      return;
+    }
+    if (k === 'start') {
+      if (this.pauseResolve) this.closePause('resume');
+      else this.input('confirm');
+      return;
+    }
+    if ((k === 'confirm' || k === 'back') && now < this.lockUntil) return;
+    if (L.key?.(k)) return;
+    switch (k) {
+      case 'left':
+      case 'right': {
+        const o = L.focus ? NAV.get(L.focus) : undefined;
+        if (o?.adjust) {
+          o.adjust(k === 'left' ? -1 : 1);
+          return;
+        }
+        this.move(k);
+        return;
+      }
+      case 'up':
+      case 'down':
+        this.move(k);
+        return;
+      case 'confirm':
+        if (L.confirm?.()) return;
+        if (L.focus) this.activate(L.focus);
+        return;
+      case 'back':
+        if (L.back) {
+          this.host.sfx('ui_back');
+          L.back();
+        }
+        return;
+    }
+  }
+
+  private onKey = (e: KeyboardEvent) => {
+    if (!this.active) return;
+    this.root.classList.remove('pad');
+    const L = this.top!;
+    if (L.any) {
+      if (e.repeat || ['Shift', 'Control', 'Alt', 'Meta', 'Tab'].includes(e.key)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.input('confirm');
+      return;
+    }
+    let k: Input | null = null;
+    switch (e.code) {
+      case 'ArrowUp': case 'KeyW': k = 'up'; break;
+      case 'ArrowDown': case 'KeyS': k = 'down'; break;
+      case 'ArrowLeft': case 'KeyA': k = 'left'; break;
+      case 'ArrowRight': case 'KeyD': k = 'right'; break;
+      case 'Enter': case 'NumpadEnter': case 'Space': k = 'confirm'; break;
+      case 'Escape': case 'Backspace': k = 'back'; break;
+      case 'KeyQ': case 'PageUp': k = 'prev'; break;
+      case 'KeyE': case 'PageDown': k = 'next'; break;
+      case 'Tab': k = e.shiftKey ? 'prev' : 'next'; break;
+    }
+    if (!k) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.repeat && (k === 'confirm' || k === 'back' || k === 'prev' || k === 'next')) return;
+    this.input(k);
+  };
+
+  private loop = () => {
+    this.raf = requestAnimationFrame(this.loop);
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    let gp: Gamepad | null = null;
+    for (const p of pads) if (p && p.connected) { gp = p; break; }
+    if (!gp) return;
+    const b = gp.buttons.map((x) => x.pressed);
+    if (!this.padInit) {
+      this.padPrev = b;
+      this.padInit = true;
+      return;
+    }
+    const prev = this.padPrev;
+    const edge = (i: number) => !!b[i] && !prev[i];
+    const anyEdge = b.some((v, i) => v && !prev[i]);
+    const ax = gp.axes[0] ?? 0, ay = gp.axes[1] ?? 0;
+    let dir: '' | Input = '';
+    if (b[12]) dir = 'up';
+    else if (b[13]) dir = 'down';
+    else if (b[14]) dir = 'left';
+    else if (b[15]) dir = 'right';
+    else if (Math.abs(ax) > 0.55 || Math.abs(ay) > 0.55) dir = Math.abs(ax) > Math.abs(ay) ? (ax > 0 ? 'right' : 'left') : (ay > 0 ? 'down' : 'up');
+    if (anyEdge || dir) this.root.classList.add('pad');
+    this.padPrev = b;
+
+    const L = this.top;
+    if (!L) return;
+    if (L.any) {
+      if (anyEdge) this.input('confirm');
+      return;
+    }
+    if (L.rotate) {
+      const rx = gp.axes[2] ?? 0;
+      if (Math.abs(rx) > 0.15) this.host.rotatePreview(rx * 0.05);
+    }
+    const now = performance.now();
+    if (dir !== this.held.dir) {
+      this.held.dir = dir;
+      if (dir) {
+        this.input(dir);
+        this.held.next = now + 380;
+      }
+    } else if (dir && now >= this.held.next) {
+      this.input(dir);
+      this.held.next = now + 110;
+    }
+    if (edge(0)) this.input('confirm');
+    if (edge(1)) this.input('back');
+    if (edge(9)) this.input('start');
+    if (edge(4)) this.input('prev');
+    if (edge(5)) this.input('next');
+  };
+
+  /* ---------------- shared widgets */
+
+  private logo(size: 'big' | 'small'): HTMLElement {
+    const l = h('div', `ra-logo ${size}`);
+    const robo = h('div', 'logo-word w1', 'ROBO');
+    robo.dataset.t = 'ROBO';
+    const arena = h('div', 'logo-word w2', 'ARENA');
+    arena.dataset.t = 'ARENA';
+    l.append(h('div', 'logo-stripe', h('i'), h('i')), h('div', 'logo-line l1', robo), h('div', 'logo-line l2', arena), h('div', 'logo-chip', '07'));
+    return l;
+  }
+
+  private confirmBox(title: string, text: string, yes = 'Confirm', no = 'Cancel', danger = false): Promise<boolean> {
+    return new Promise((resolve) => {
+      const el = h('div', 'ra-modal ra-confirm');
+      let L: Layer;
+      const done = (v: boolean) => {
+        this.popLayer(L);
+        this.host.sfx(v ? 'ui_select' : 'ui_back');
+        resolve(v);
+      };
+      const bNo = btn(no, () => done(false));
+      const bYes = btn(yes, () => done(true), danger ? 'danger' : 'primary');
+      const panel = h('div', 'ra-panel confirm-panel', h('div', 'confirm-stripe'), h('div', 'confirm-title', title), h('div', 'confirm-text', text), h('div', 'confirm-btns', bNo, bYes));
+      el.append(panel);
+      L = this.pushLayer(el, { back: () => { this.popLayer(L); resolve(false); }, initial: bNo });
+    });
+  }
+
+  private toast(text: string) {
+    const t = h('div', 'ra-toast', text);
+    this.root.append(t);
+    setTimeout(() => t.classList.add('out'), 1800);
+    setTimeout(() => t.remove(), 2300);
+  }
+
+  private header(kicker: string, title: string, extra?: Kid): HTMLElement {
+    const hd = h('div', 'ra-header', h('div', 'ra-kicker', kicker), h('div', 'ra-title', title), extra ?? null);
+    stagger([hd], 0);
+    return hd;
+  }
+
+  /* ---------------- main menu */
+
+  private showMain() {
+    this.backdrop('title');
+    this.music('menu');
+    const s = this.host.save;
+    const el = h('div', 'scr-main');
+    const done = Math.min(s.ladder, RIVALS.length);
+    const champ = s.ladder >= RIVALS.length;
+
+    const items: [string, string, string | null, () => void][] = [
+      ['Story Ladder', champ ? 'You hold the crown. Defend it.' : 'Climb the circuit. Five rivals stand between you and the crown.', champ ? 'CHAMPION' : `Ladder ${done}/${RIVALS.length}`, () => this.showLadder()],
+      ['Free Battle', 'Any rival, any arena, your rules.', null, () => this.showFree()],
+      ['Garage', 'Swap guns, bombs, pods, frames and legs.', `${s.unlocked.length} parts`, () => this.showGarage(() => this.showMain())],
+      ['Settings', 'Audio, camera, graphics and controls.', null, () => this.showSettings(() => this.showMain())],
+    ];
+    const list = h('div', 'mm-list');
+    const hl = h('div', 'mm-hl');
+    list.append(hl);
+    const els = items.map(([label, desc, tag, act], i) => {
+      const it = nav(h('div', 'mm-item', h('div', 'mm-num', `0${i + 1}`), h('div', 'mm-text', h('div', 'mm-label', label), h('div', 'mm-desc', desc)), tag ? h('div', 'mm-tag', tag) : null), {
+        act: () => {
+          this.mainIdx = i;
+          this.host.sfx('ui_select');
+          act();
+        },
+        focus: () => {
+          this.mainIdx = i;
+          hl.style.transform = `translateY(${it.offsetTop}px)`;
+          hl.style.height = `${it.offsetHeight}px`;
+          hl.classList.add('on');
+        },
+      });
+      list.append(it);
+      return it;
+    });
+    const left = h('div', 'mm-left', this.logo('small'), list);
+    stagger(els, 120, 70);
+
+    // record card
+    const pips = h('div', 'mm-pips');
+    RIVALS.forEach((r, i) => {
+      const p = h('i', s.beaten.includes(r.id) || i < s.ladder ? 'on' : i === s.ladder ? 'next' : '');
+      pips.append(p);
+    });
+    const L = resolveLoadout(s.loadout);
+    const card = h('div', 'ra-panel mm-card',
+      h('div', 'mm-card-top', emblem(PLAYER_PAINT), h('div', '', h('div', 'mm-card-name', PLAYER_ROBOT_NAME), h('div', 'mm-card-sub', L.body.name))),
+      h('div', 'mm-card-row', h('span', '', 'Circuit'), pips),
+      h('div', 'mm-card-row', h('span', '', 'Record'), h('b', '', `${s.totals.wins}W · ${s.totals.losses}L`)),
+      h('div', 'mm-card-parts', ...SLOTS.map((sl) => h('div', 'mm-card-part', svg(SLOT_ICON[sl]), h('span', '', resolveLoadout(s.loadout)[sl].name)))),
+    );
+    stagger([card], 380);
+    el.append(h('div', 'vig vig-left'), left, card, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Title']]));
+    this.setScreen(el, { back: () => this.showTitle(), initial: els[clamp(this.mainIdx, 0, els.length - 1)] });
+  }
+
+  /* ---------------- story ladder */
+
+  private showLadder() {
+    this.backdrop('title');
+    this.music('menu');
+    const s = this.host.save;
+    const nextIdx = Math.min(s.ladder, RIVALS.length - 1);
+    const champ = s.ladder >= RIVALS.length;
+    const el = h('div', 'scr-ladder');
+    const cleared = RIVALS.filter((r, i) => s.beaten.includes(r.id) || i < s.ladder).length;
+    const hd = this.header('Story Mode', 'Story Ladder', h('div', 'ra-sub', champ ? 'Champion of the circuit — every rival can be challenged again.' : `Rank ${cleared + 1} of ${RIVALS.length} · Defeat each rival to climb. Wins unlock their parts.`));
+
+    const row = h('div', 'lad-row');
+    let initial: HTMLElement | null = null;
+    const cols: HTMLElement[] = [];
+    RIVALS.forEach((r, i) => {
+      const isClear = s.beaten.includes(r.id) || i < s.ladder;
+      const isNext = !champ && i === s.ladder;
+      const locked = !isClear && !isNext;
+      const state = isClear ? 'cleared' : isNext ? 'next' : 'locked';
+      const arena = ARENA_INFO[r.arena as ArenaId];
+      const card = h('div', `lad-card ${state} ${i === RIVALS.length - 1 ? 'champ' : ''}`);
+      if (!locked) {
+        card.style.setProperty('--p', hex(r.paint.primary));
+        card.style.setProperty('--g', hex(r.paint.glow));
+      }
+      card.append(
+        h('div', 'lad-rank', i === RIVALS.length - 1 ? 'FINAL' : `ROUND ${i + 1}`),
+        h('div', 'lad-badge', isClear ? h('span', 'ok', svg(CHECK_ICON), 'Cleared') : isNext ? h('span', 'nx', 'Next') : h('span', 'lk', svg(LOCK_ICON), 'Locked')),
+        emblem(r.paint, locked, 'lad-emb'),
+        h('div', 'lad-robot', locked ? '???' : r.robotName),
+        h('div', 'lad-pilot', locked ? 'Unknown pilot' : r.pilot),
+        h('div', 'lad-title', locked ? '— — —' : r.title),
+        locked ? h('div', 'ra-swatches ghost', h('i'), h('i'), h('i'), h('i')) : swatches(r.paint),
+        h('div', 'lad-arena', h('span', '', 'Arena'), locked ? '???' : arena?.name ?? r.arena),
+      );
+      if (arena && !locked) card.style.setProperty('--a', arena.accent);
+      nav(card, { act: () => { this.host.sfx('ui_select'); this.showIntro(i); }, locked });
+      const plinth = h('div', 'lad-plinth', h('span', '', String(i + 1).padStart(2, '0')));
+      plinth.style.height = `calc(var(--u) * ${2.6 + i * 1.7})`;
+      const col = h('div', `lad-col ${state}`, card, plinth);
+      cols.push(col);
+      row.append(col);
+      if (i === nextIdx) initial = card;
+    });
+    stagger(cols, 120, 80);
+
+    const next = RIVALS[nextIdx];
+    const fight = btn(champ ? `Rematch ${next.pilot}` : `Fight ${next.pilot}`, () => { this.host.sfx('ui_select'); this.showIntro(nextIdx); }, 'primary big', SLOT_ICON.gun);
+    const garage = btn('Garage', () => { this.host.sfx('ui_select'); this.showGarage(() => this.showLadder()); }, 'big', SLOT_ICON.body);
+    const back = btn('Back', () => { this.host.sfx('ui_back'); this.showMain(); }, 'big');
+    const bar = h('div', 'ra-actions', fight, garage, back);
+    stagger([bar], 520);
+    el.append(h('div', 'vig vig-bot'), hd, row, bar, hints([['move', 'Move'], ['confirm', 'Fight'], ['back', 'Back']]));
+    this.setScreen(el, { back: () => this.showMain(), initial: initial ?? fight });
+  }
+
+  /* ---------------- versus / rival intro */
+
+  private showIntro(i: number) {
+    const r = RIVALS[i];
+    const s = this.host.save;
+    const cfg: MatchConfig = { mode: 'ladder', playerLoadout: { ...s.loadout }, rivalId: r.id, arenaId: r.arena, ladderIndex: i };
+    const arena = ARENA_INFO[r.arena as ArenaId];
+    this.showVersus(r, {
+      line: r.intro,
+      kicker: i === RIVALS.length - 1 ? 'Championship Final' : `Ladder Round ${i + 1} / ${RIVALS.length}`,
+      info: [arena?.name ?? r.arena, arena?.subtitle ?? ''],
+      onFight: () => this.runMatch(cfg),
+      onBack: () => this.showLadder(),
+      onGarage: () => this.showGarage(() => this.showIntro(i)),
+    });
+  }
+
+  private showVersus(r: Rival, o: { line: string; kicker: string; info: [string, string]; onFight: () => void; onBack: () => void; onGarage?: () => void }) {
+    const s = this.host.save;
+    this.backdrop('versus', { loadout: s.loadout, rivalId: r.id });
+    this.music('menu');
+    const el = h('div', 'scr-vs');
+    const L = resolveLoadout(s.loadout);
+    const left = h('div', 'vs-plate left',
+      emblem(PLAYER_PAINT, false, 'vs-emb'),
+      h('div', 'vs-names', h('div', 'vs-pilot', 'Player 1'), h('div', 'vs-robot', PLAYER_ROBOT_NAME), h('div', 'vs-title', `${L.body.name} · ${L.gun.name}`)));
+    left.style.setProperty('--g', hex(PLAYER_PAINT.secondary));
+    const right = h('div', 'vs-plate right',
+      h('div', 'vs-names', h('div', 'vs-pilot', r.pilot), h('div', 'vs-robot', r.robotName), h('div', 'vs-title', r.title)),
+      emblem(r.paint, false, 'vs-emb'));
+    right.style.setProperty('--g', hex(r.paint.glow));
+    const vs = h('div', 'vs-slam', h('span', 'v', 'V'), h('span', 's', 'S'));
+    const info = h('div', 'vs-info', h('div', 'vs-kicker', o.kicker), h('div', 'vs-arena', o.info[0]), o.info[1] ? h('div', 'vs-arena-sub', o.info[1]) : null);
+
+    // dialog
+    const text = h('div', 'dlg-text');
+    const caret = h('div', 'dlg-caret');
+    const fight = btn('FIGHT', () => go(), 'primary big fight-btn');
+    const acts: HTMLElement[] = [fight];
+    if (o.onGarage) acts.push(btn('Garage', () => { this.host.sfx('ui_select'); o.onGarage!(); }, 'big'));
+    acts.push(btn('Back', () => { this.host.sfx('ui_back'); o.onBack(); }, 'big'));
+    const actRow = h('div', 'dlg-acts', ...acts);
+    for (const a of acts) a.classList.add('is-hidden');
+    const dlg = h('div', 'ra-panel dlg', h('div', 'dlg-name', emblem(r.paint, false, 'mini'), r.pilot), text, caret, actRow);
+    el.append(h('div', 'vig vig-top'), h('div', 'vig vig-bot'), left, vs, right, info, dlg, hints([['confirm', 'Skip / Fight'], ['back', 'Back']]));
+
+    let typing = true, n = 0, timer = 0;
+    const full = o.line;
+    const finish = () => {
+      typing = false;
+      clearInterval(timer);
+      text.textContent = full;
+      caret.classList.add('done');
+      for (const a of acts) a.classList.remove('is-hidden');
+      actRow.classList.add('show');
+      if (this.screen?.el === el) this.setFocus(fight, false);
+    };
+    const startType = () => {
+      timer = window.setInterval(() => {
+        if (this.screen?.el !== el) { clearInterval(timer); return; }
+        n += 1;
+        text.textContent = full.slice(0, n);
+        if (n >= full.length) finish();
+      }, 24);
+    };
+    setTimeout(() => { if (this.screen?.el === el) this.host.sfx('ui_unlock'); }, 520);
+    setTimeout(() => { if (typing) startType(); }, 900);
+
+    let launched = false;
+    const go = () => {
+      if (launched) return;
+      launched = true;
+      this.host.sfx('ui_select');
+      const stamp = h('div', 'fight-stamp', h('span', '', 'FIGHT!'));
+      el.append(stamp);
+      el.classList.add('launch');
+      setTimeout(() => o.onFight(), 950);
+    };
+    this.setScreen(el, {
+      back: () => { clearInterval(timer); if (!launched) o.onBack(); },
+      confirm: () => {
+        if (launched) return true;
+        if (typing) {
+          finish();
+          return true;
+        }
+        return false;
+      },
+    });
+  }
+
+  /* ---------------- match & results */
+
+  private async runMatch(cfg: MatchConfig) {
+    cfg = { ...cfg, playerLoadout: { ...this.host.save.loadout } };
+    this.hideAll();
+    this.musicNow = null;
+    let res: MatchResult = await this.host.startMatch(cfg);
+    while (res.restart && !res.quit) res = await this.host.startMatch(cfg);
+    this.musicNow = null;
+    if (res.quit) {
+      if (cfg.mode === 'ladder') this.showLadder();
+      else this.showFree();
+      return;
+    }
+    this.showResults(res);
+  }
+
+  private showResults(res: MatchResult) {
+    const s = this.host.save;
+    const cfg = res.config;
+    const r = rivalById(cfg.rivalId);
+    const ladder = cfg.mode === 'ladder';
+    const idx = cfg.ladderIndex ?? RIVALS.findIndex((x) => x.id === r.id);
+    const win = res.outcome === 'win';
+    const newParts: string[] = [];
+    let championNow = false;
+
+    if (win) {
+      s.totals.wins++;
+      if (ladder) {
+        if (!s.beaten.includes(r.id)) {
+          s.beaten.push(r.id);
+          for (const u of r.unlocks) {
+            if (!s.unlocked.includes(u)) {
+              s.unlocked.push(u);
+              newParts.push(u);
+            }
+          }
+          if (idx === RIVALS.length - 1) championNow = true;
+        }
+        s.ladder = Math.max(s.ladder, idx + 1);
+      }
+    } else if (res.outcome === 'lose') {
+      s.totals.losses++;
+    }
+    s.totals.knockdowns += res.player?.knockdowns ?? 0;
+    this.host.persist();
+
+    this.backdrop('versus', { loadout: s.loadout, rivalId: r.id });
+    this.music(win ? 'victory' : 'results');
+
+    const el = h('div', `scr-res ${res.outcome}`);
+    const word = win ? 'VICTORY' : res.outcome === 'lose' ? 'DEFEAT' : 'DRAW';
+    const banner = h('div', 'res-banner', h('div', 'res-word', ...word.split('').map((c, i) => {
+      const sp = h('span', '', c);
+      sp.style.setProperty('--i', String(i));
+      return sp;
+    })), h('div', 'res-finish', h('b', '', res.finish === 'ko' ? 'K.O.' : 'TIME UP'), h('span', '', fmtTime(res.time)), h('span', '', ladder ? (idx === RIVALS.length - 1 ? 'Championship Final' : `Ladder Round ${idx + 1}`) : 'Free Battle')));
+    banner.dataset.word = word;
+
+    const hpBar = (hp: number, max: number, side: 'l' | 'r') => {
+      const pct = clamp(max > 0 ? hp / max : 0, 0, 1);
+      const fill = h('i');
+      fill.style.setProperty('--w', String(pct));
+      return h('div', `res-hp ${side} ${pct < 0.3 ? 'low' : ''}`, h('div', 'res-hp-track', fill), h('span', '', `${Math.max(0, Math.round(hp))} / ${Math.round(max)}`));
+    };
+    const top = h('div', 'res-top',
+      h('div', 'res-side l', emblem(PLAYER_PAINT), h('div', '', h('div', 'res-name', PLAYER_ROBOT_NAME), hpBar(res.playerHp, res.playerMaxHp, 'l'))),
+      h('div', 'res-mid', 'HP'),
+      h('div', 'res-side r', h('div', '', h('div', 'res-name', r.robotName), hpBar(res.rivalHp, res.rivalMaxHp, 'r')), emblem(r.paint)));
+    const rows: [string, keyof MatchResult['player']][] = [['Damage dealt', 'damageDealt'], ['Hits', 'hits'], ['Knockdowns', 'knockdowns'], ['Dodges', 'dodges'], ['Shots fired', 'shots']];
+    const stats = h('div', 'res-stats');
+    const counters: [HTMLElement, number][] = [];
+    rows.forEach(([label, key], i) => {
+      const a = Math.round(res.player?.[key] ?? 0), b = Math.round(res.rival?.[key] ?? 0);
+      const m = Math.max(1, a, b);
+      const la = h('b', a >= b ? 'lead' : '', '0'), lb = h('b', b >= a ? 'lead' : '', '0');
+      counters.push([la, a], [lb, b]);
+      const fa = h('i'), fb = h('i');
+      fa.style.setProperty('--w', String(a / m));
+      fb.style.setProperty('--w', String(b / m));
+      const row = h('div', 'res-row', la, h('div', 'res-bar l', fa), h('span', 'res-lbl', label), h('div', 'res-bar r', fb), lb);
+      row.style.setProperty('--i', String(i));
+      stats.append(row);
+    });
+    const line = win ? r.defeatLine : res.outcome === 'lose' ? r.taunt : r.taunt;
+    const quote = h('div', 'res-quote', emblem(r.paint, false, 'mini'), h('div', '', h('div', 'res-quote-name', r.pilot), h('div', 'res-quote-text', `“${line}”`)));
+    const panel = h('div', 'ra-panel res-panel', top, stats, quote);
+
+    const acts: HTMLElement[] = [];
+    const retryCfg = () => ({ ...cfg, playerLoadout: { ...s.loadout } });
+    if (championNow) {
+      acts.push(btn('Continue', () => { this.host.sfx('ui_select'); this.showEnding(); }, 'primary big'));
+    } else if (ladder) {
+      if (win && idx + 1 < RIVALS.length) acts.push(btn('Next Fight', () => { this.host.sfx('ui_select'); this.showIntro(idx + 1); }, 'primary big'));
+      acts.push(btn(win ? 'Fight Again' : 'Retry', () => { this.host.sfx('ui_select'); this.runMatch(retryCfg()); }, win && idx + 1 < RIVALS.length ? 'big' : 'primary big'));
+      acts.push(btn('Garage', () => { this.host.sfx('ui_select'); this.showGarage(() => this.showLadder()); }, 'big'));
+      acts.push(btn('Main Menu', () => { this.host.sfx('ui_back'); this.showMain(); }, 'big'));
+    } else {
+      acts.push(btn('Rematch', () => { this.host.sfx('ui_select'); this.runMatch(retryCfg()); }, 'primary big'));
+      acts.push(btn('Change Setup', () => { this.host.sfx('ui_select'); this.showFree(); }, 'big'));
+      acts.push(btn('Main Menu', () => { this.host.sfx('ui_back'); this.showMain(); }, 'big'));
+    }
+    const bar = h('div', 'ra-actions res-acts', ...acts);
+    stagger([panel], 450);
+    stagger([bar], 800);
+    el.append(h('div', 'vig vig-top'), h('div', 'vig vig-bot'), banner, panel, bar, hints([['move', 'Move'], ['confirm', 'Select']]));
+    this.setScreen(el, { back: championNow ? undefined : () => this.showMain(), initial: acts[0] });
+
+    // count-up numbers
+    const t0 = performance.now() + 600;
+    const tick = () => {
+      if (this.screen?.el !== el) return;
+      const k = clamp((performance.now() - t0) / 900, 0, 1);
+      const e = 1 - Math.pow(1 - k, 3);
+      for (const [n, v] of counters) n.textContent = String(Math.round(v * e));
+      if (k < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+
+    if (newParts.length) {
+      (async () => {
+        await wait(1300);
+        for (const p of newParts) {
+          if (this.screen?.el !== el) return;
+          await this.unlockCard(p);
+        }
+      })();
+    }
+  }
+
+  private unlockCard(key: string): Promise<void> {
+    const p = part(key);
+    if (!p) return Promise.resolve();
+    return new Promise((resolve) => {
+      const el = h('div', 'ra-modal ra-unlock');
+      let L: Layer;
+      const close = () => {
+        this.popLayer(L);
+        this.host.sfx('ui_select');
+        resolve();
+      };
+      const ok = btn('Awesome!', close, 'primary');
+      const ratings = h('div', 'unl-ratings', ...Object.entries(p.ratings).map(([k, v]) => ratingBar(k, v)));
+      const card = h('div', 'unl-card',
+        h('div', 'unl-burst'),
+        h('div', 'unl-new', 'NEW PART!'),
+        h('div', 'unl-icon', svg(SLOT_ICON[p.slot])),
+        h('div', 'unl-slot', `${SLOT_LABEL[p.slot]} Part`),
+        h('div', 'unl-name', p.name),
+        h('div', 'unl-desc', p.desc),
+        ratings,
+        h('div', 'unl-foot', 'Equip it in the Garage'),
+        ok);
+      el.append(card);
+      this.host.sfx('ui_unlock');
+      L = this.pushLayer(el, { back: close, initial: ok });
+    });
+  }
+
+  /* ---------------- ending */
+
+  private showEnding() {
+    this.backdrop('title');
+    this.music('victory');
+    const el = h('div', 'scr-end');
+    const rays = h('div', 'end-rays');
+    const crown = h('div', 'end-crown', svg('<svg viewBox="0 0 64 40"><path d="M4 36L0 6l16 12L32 0l16 18L64 6l-4 30z"/></svg>'));
+    const word = h('div', 'end-word', ...'CHAMPION'.split('').map((c, i) => {
+      const sp = h('span', '', c);
+      sp.style.setProperty('--i', String(i));
+      return sp;
+    }));
+    const sub = h('div', 'end-sub', `${PLAYER_ROBOT_NAME} · Champion of the Circuit`);
+    const epi = h('div', 'end-epi');
+    const lines = [
+      'Sovereign drops to one knee on the Halo Deck, and the ring goes silent — then erupts.',
+      'Five rivals. Three arenas. One rookie pilot and a robot bolted together part by part.',
+      'The crown is yours now. Somewhere far below, someone is already building the machine that will come for it.',
+    ];
+    lines.forEach((t, i) => {
+      const p = h('p', '', t);
+      p.style.setProperty('--d', `${1400 + i * 900}ms`);
+      epi.append(p);
+    });
+    const credits = h('div', 'end-credits');
+    const roll = h('div', 'end-roll');
+    const C: [string, string[]][] = [
+      ['Robo Arena', ['An original robot-combat game']],
+      ['Game Design', ['The Robo Arena Team']],
+      ['Robots & Arenas', ['Procedurally modeled in code', 'Three.js renderer']],
+      ['Rival Pilots', RIVALS.map((x) => `${x.pilot} — ${x.robotName}`)],
+      ['Audio', ['All music & sound effects', 'synthesized at runtime', 'with the Web Audio API']],
+      ['Typefaces', ['Russo One · Chakra Petch', 'SIL Open Font License']],
+      ['Built With', ['TypeScript · Vite · Three.js']],
+      ['Thanks for playing', ['See you in the arena.']],
+    ];
+    for (const [hd, names] of C) roll.append(h('div', 'cr-block', h('div', 'cr-h', hd), ...names.map((n) => h('div', 'cr-n', n))));
+    credits.append(roll);
+    el.append(h('div', 'vig vig-full'), rays, crown, word, sub, epi, credits, hints([['confirm', 'Continue']]));
+    let phase = 0;
+    const toCredits = () => {
+      phase = 1;
+      el.classList.add('roll');
+      roll.addEventListener('animationend', () => { if (phase === 1) finish(); }, { once: true });
+    };
+    const finish = () => {
+      if (phase === 2) return;
+      phase = 2;
+      this.host.sfx('ui_select');
+      this.showMain();
+    };
+    const auto = setTimeout(() => { if (phase === 0 && this.screen?.el === el) toCredits(); }, 9000);
+    this.setScreen(el, {
+      any: () => {
+        if (phase === 0) { clearTimeout(auto); this.host.sfx('ui_move'); toCredits(); }
+        else finish();
+      },
+    });
+    this.lockUntil = performance.now() + 1200;
+    this.host.sfx('ui_unlock');
+  }
+
+  /* ---------------- free battle */
+
+  private showFree() {
+    this.music('menu');
+    const s = this.host.save;
+    const fb = this.fb;
+    const setBd = () => this.backdrop('versus', { loadout: s.loadout, rivalId: fb.rival });
+    setBd();
+    const el = h('div', 'scr-free');
+    const hd = this.header('Exhibition', 'Free Battle', h('div', 'ra-sub', 'Pick a rival, an arena and the clock. Free battle wins don’t unlock parts.'));
+
+    const section = (n: string, label: string, ...kids: Kid[]) => h('div', 'fb-sec', h('div', 'fb-sec-h', h('b', '', n), label), ...kids);
+
+    // opponents
+    const tiles = h('div', 'fb-tiles');
+    const detail = h('div', 'fb-detail');
+    const tileEls: HTMLElement[] = [];
+    const showDetail = (r: Rival) => {
+      const beaten = s.beaten.includes(r.id);
+      detail.replaceChildren(h('b', '', r.robotName), h('span', '', r.title), swatches(r.paint), h('em', beaten ? 'ok' : 'warn', beaten ? 'Beaten' : 'Unbeaten'));
+    };
+    RIVALS.forEach((r) => {
+      const beaten = s.beaten.includes(r.id);
+      const t = nav(h('div', `fb-tile ${fb.rival === r.id ? 'sel' : ''}`, emblem(r.paint), h('div', 'fb-tile-n', r.pilot), h('div', 'fb-tile-r', r.robotName), beaten ? null : h('div', 'fb-flag', 'Unbeaten')), {
+        focus: () => showDetail(r),
+        act: () => {
+          this.host.sfx('ui_select');
+          fb.rival = r.id;
+          tileEls.forEach((x) => x.classList.toggle('sel', x === t));
+          setBd();
+        },
+      });
+      t.style.setProperty('--g', hex(r.paint.glow));
+      tileEls.push(t);
+      tiles.append(t);
+    });
+    showDetail(rivalById(fb.rival));
+    tiles.addEventListener('pointerleave', () => showDetail(rivalById(fb.rival)));
+
+    // arenas
+    const arenas = h('div', 'fb-arenas');
+    const blurb = h('div', 'fb-blurb');
+    const arenaEls: HTMLElement[] = [];
+    const showBlurb = (id: ArenaId) => blurb.replaceChildren(h('b', '', ARENA_INFO[id].subtitle), ' — ', ARENA_INFO[id].blurb);
+    for (const id of ARENA_IDS) {
+      const a = ARENA_INFO[id];
+      const c = nav(h('div', `fb-arena ${fb.arena === id ? 'sel' : ''}`, h('div', 'fb-arena-art'), h('div', 'fb-arena-n', a.name), h('div', 'fb-arena-s', a.subtitle)), {
+        focus: () => showBlurb(id),
+        act: () => {
+          this.host.sfx('ui_select');
+          fb.arena = id;
+          arenaEls.forEach((x) => x.classList.toggle('sel', x === c));
+        },
+      });
+      c.style.setProperty('--a', a.accent);
+      arenaEls.push(c);
+      arenas.append(c);
+    }
+    showBlurb((ARENA_IDS as readonly string[]).includes(fb.arena) ? (fb.arena as ArenaId) : 'foundry');
+
+    // time
+    const times = h('div', 'fb-times');
+    const timeEls: HTMLElement[] = [];
+    for (const t of [60, 90, 120]) {
+      const c = nav(h('div', `fb-time ${fb.time === t ? 'sel' : ''}`, h('b', '', String(t)), h('span', '', 'sec')), {
+        act: () => {
+          this.host.sfx('ui_select');
+          fb.time = t;
+          timeEls.forEach((x) => x.classList.toggle('sel', x === c));
+        },
+      });
+      timeEls.push(c);
+      times.append(c);
+    }
+
+    const cont = btn('Continue', () => {
+      this.host.sfx('ui_select');
+      const r = rivalById(fb.rival);
+      const a = ARENA_INFO[fb.arena as ArenaId];
+      const cfg: MatchConfig = { mode: 'free', playerLoadout: { ...s.loadout }, rivalId: r.id, arenaId: fb.arena, timeLimit: fb.time };
+      this.showVersus(r, {
+        line: r.taunt,
+        kicker: `Free Battle · ${fb.time}s`,
+        info: [a?.name ?? fb.arena, a?.subtitle ?? ''],
+        onFight: () => this.runMatch(cfg),
+        onBack: () => this.showFree(),
+        onGarage: () => this.showGarage(() => this.showFree()),
+      });
+    }, 'primary big');
+    const garage = btn('Garage', () => { this.host.sfx('ui_select'); this.showGarage(() => this.showFree()); }, 'big');
+    const back = btn('Back', () => { this.host.sfx('ui_back'); this.showMain(); }, 'big');
+
+    const s1 = section('01', 'Opponent', tiles, detail);
+    const s2 = section('02', 'Arena', arenas, blurb);
+    const s3 = section('03', 'Round Time', times);
+    const bar = h('div', 'ra-actions', cont, garage, back);
+    const panel = h('div', 'ra-panel fb-panel', s1, s2, s3, bar);
+    stagger([s1, s2, s3, bar], 100, 70);
+    el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
+    this.setScreen(el, { back: () => this.showMain(), initial: tileEls[Math.max(0, RIVALS.findIndex((r) => r.id === fb.rival))] });
+  }
+
+  /* ---------------- garage */
+
+  private showGarage(onBack: () => void) {
+    this.music('garage');
+    const s = this.host.save;
+    const el = h('div', 'scr-garage');
+    const hd = this.header('Workshop', 'Garage');
+
+    const preview = h('div', 'gar-preview', h('div', 'gar-ring'), h('div', 'gar-drag', svg('<svg viewBox="0 0 24 24"><path d="M12 5c-4 0-7.5 1.6-9 4l-2-1v5h5L4 11.5C5.2 9.5 8.3 8 12 8s6.8 1.5 8 3.5L18 13h5V8l-2 1c-1.5-2.4-5-4-9-4z"/></svg>'), h('span', 'k-kb', 'Drag to rotate'), h('span', 'k-pad', 'R-Stick to rotate')));
+    const sendBackdrop = () => {
+      const r = preview.getBoundingClientRect();
+      this.backdrop('garage', { loadout: { ...s.loadout }, paint: PLAYER_PAINT, previewRect: { x: r.left, y: r.top, w: r.width, h: r.height } });
+    };
+    // drag-rotate
+    let dragging = false, lx = 0;
+    preview.addEventListener('pointerdown', (e) => {
+      dragging = true;
+      lx = e.clientX;
+      preview.setPointerCapture(e.pointerId);
+      preview.classList.add('dragging');
+    });
+    preview.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - lx;
+      lx = e.clientX;
+      this.host.rotatePreview(dx * 0.01);
+    });
+    const endDrag = () => { dragging = false; preview.classList.remove('dragging'); };
+    preview.addEventListener('pointerup', endDrag);
+    preview.addEventListener('pointercancel', endDrag);
+
+    // tabs
+    const tabs = h('div', 'gar-tabs');
+    const tabEls = new Map<Slot, HTMLElement>();
+    const list = h('div', 'gar-list ra-scroll');
+    const detail = h('div', 'ra-panel gar-detail');
+    const summary = h('div', 'ra-panel gar-summary');
+
+    const renderSummary = () => {
+      const R = resolveLoadout(s.loadout);
+      const body = R.body, legs = R.legs;
+      const stat = (k: string, v: string) => h('div', 'gs-stat', h('span', '', k), h('b', '', v));
+      summary.replaceChildren(
+        h('div', 'gs-h', 'Loadout', h('span', '', PLAYER_ROBOT_NAME)),
+        h('div', 'gs-parts', ...SLOTS.map((sl) => h('div', `gs-part ${sl === this.gSlot ? 'cur' : ''}`, svg(SLOT_ICON[sl]), h('span', 'gs-slot', SLOT_LABEL[sl]), h('b', '', R[sl].name)))),
+        h('div', 'gs-stats',
+          stat('Armor', `${body.hp} HP`),
+          stat('Run', `${(body.runSpeed * legs.speedMul).toFixed(1)} m/s`),
+          stat('Dash', `${(body.dashSpeed * legs.dashMul).toFixed(0)} m/s`),
+          stat('Air jumps', `${legs.airJumps}`),
+          stat('Hover', `${(body.hoverTime * legs.hoverMul).toFixed(1)} s`),
+          stat('Charge', body.chargeName)),
+      );
+    };
+
+    const renderDetail = (p: AnyPart) => {
+      const owned = isUnlocked(s, p.slot, p.id);
+      const equipped = s.loadout[p.slot] === p.id;
+      const eq = ALL_PARTS[p.slot][s.loadout[p.slot]];
+      const src = unlockSource(p.slot, p.id);
+      const extra: HTMLElement[] = [];
+      if (p.slot === 'body') {
+        const b = BODIES[p.id];
+        extra.push(h('div', 'gd-extra', h('span', '', 'Armor'), h('b', '', `${b.hp} HP`), h('span', '', 'Charge'), h('b', '', b.chargeName)));
+      } else if (p.slot === 'legs') {
+        const l = LEGS[p.id];
+        extra.push(h('div', 'gd-extra', h('span', '', 'Air jumps'), h('b', '', String(l.airJumps)), h('span', '', 'Air dashes'), h('b', '', String(l.airDashes))));
+      }
+      detail.replaceChildren(
+        h('div', 'gd-top', h('div', 'gd-ico', svg(SLOT_ICON[p.slot])), h('div', '', h('div', 'gd-slot', `${SLOT_LABEL[p.slot]} Part`), h('div', 'gd-name', owned ? p.name : p.name))),
+        equipped ? h('div', 'gd-tag eq', svg(CHECK_ICON), 'Equipped') : owned ? h('div', 'gd-tag', 'Owned · press to equip') : h('div', 'gd-tag lk', svg(LOCK_ICON), src ? `Beat ${src.pilot} to unlock` : 'Locked'),
+        h('div', 'gd-desc', p.desc),
+        h('div', 'gd-ratings', ...Object.entries(p.ratings).map(([k, v]) => ratingBar(k, v, equipped ? undefined : eq?.ratings[k]))),
+        ...extra,
+      );
+      detail.classList.toggle('locked', !owned);
+      detail.classList.remove('pop');
+      void detail.offsetWidth;
+      detail.classList.add('pop');
+    };
+
+    let partEls: HTMLElement[] = [];
+    const count = h('span', 'gar-count');
+    const renderList = (slot: Slot) => {
+      const parts = Object.values(ALL_PARTS[slot]);
+      partEls = parts.map((p, i) => {
+        const owned = isUnlocked(s, slot, p.id);
+        const equipped = s.loadout[slot] === p.id;
+        const src = unlockSource(slot, p.id);
+        const pips = h('div', 'gp-pips', ...Object.entries(p.ratings).map(([k, v]) => h('span', '', k.slice(0, 3), h('b', '', '■'.repeat(v)))));
+        const el = nav(h('div', `gar-part ${owned ? '' : 'locked'} ${equipped ? 'equipped' : ''}`,
+          h('div', 'gp-ico', svg(owned ? SLOT_ICON[slot] : LOCK_ICON)),
+          h('div', 'gp-body', h('div', 'gp-name', owned ? p.name : p.name), owned ? pips : h('div', 'gp-lock', src ? `Beat ${src.pilot} to unlock` : 'Locked')),
+          equipped ? h('div', 'gp-eq', svg(CHECK_ICON), 'E') : null), {
+          locked: !owned,
+          focus: () => { renderDetail(p); this.host.focusPreview(slot); },
+          act: () => {
+            if (s.loadout[slot] === p.id) { this.host.sfx('ui_move'); return; }
+            s.loadout[slot] = p.id;
+            this.host.persist();
+            this.host.sfx('ui_select');
+            sendBackdrop();
+            const keep = i;
+            renderList(slot);
+            renderSummary();
+            this.setFocusKeep(partEls[keep]);
+          },
+        });
+        el.style.setProperty('--d', `${i * 40}ms`);
+        return el;
+      });
+      list.replaceChildren(...partEls);
+      count.textContent = `${parts.filter((p) => isUnlocked(s, slot, p.id)).length} / ${parts.length} owned`;
+    };
+
+    const selectSlot = (slot: Slot, sound: boolean) => {
+      if (this.gSlot === slot && list.childElementCount) return;
+      this.gSlot = slot;
+      tabEls.forEach((t, k) => t.classList.toggle('sel', k === slot));
+      renderList(slot);
+      renderSummary();
+      const eqEl = partEls.find((e) => e.classList.contains('equipped'));
+      const p = ALL_PARTS[slot][s.loadout[slot]];
+      if (p) renderDetail(p);
+      this.host.focusPreview(slot);
+      list.classList.remove('swap');
+      void list.offsetWidth;
+      list.classList.add('swap');
+      if (sound) this.host.sfx('ui_move');
+      void eqEl;
+    };
+
+    for (const slot of SLOTS) {
+      const t = nav(h('div', 'gar-tab', svg(SLOT_ICON[slot]), h('span', '', SLOT_LABEL[slot])), {
+        focus: () => selectSlot(slot, false),
+        act: () => {
+          const eqEl = partEls.find((e) => e.classList.contains('equipped')) ?? partEls[0];
+          if (eqEl) this.setFocus(eqEl, true);
+        },
+      });
+      t.addEventListener('pointerenter', () => this.host.focusPreview(slot));
+      tabEls.set(slot, t);
+      tabs.append(t);
+    }
+
+    const backBtn = btn('Back', () => { this.host.sfx('ui_back'); leave(); }, 'big');
+    const left = h('div', 'ra-panel gar-left', tabs, h('div', 'gar-list-h', h('span', '', `Parts`), count), list, h('div', 'gar-left-foot', backBtn));
+    const right = h('div', 'gar-right', detail, summary);
+    stagger([left], 80);
+    stagger([right], 200);
+    el.append(h('div', 'vig vig-left'), h('div', 'vig vig-right'), hd, preview, left, right, hints([['move', 'Move'], ['tabs', 'Slot'], ['confirm', 'Equip'], ['drag', 'Rotate'], ['back', 'Back']]));
+
+    const leave = () => {
+      this.host.focusPreview(null);
+      onBack();
+    };
+    const cycle = (d: number) => {
+      const i = (SLOTS.indexOf(this.gSlot) + d + SLOTS.length) % SLOTS.length;
+      const t = tabEls.get(SLOTS[i])!;
+      selectSlot(SLOTS[i], true);
+      // keep focus in the list if it was there
+      const L = this.top;
+      if (L?.focus && L.focus.classList.contains('gar-part')) {
+        const eqEl = partEls.find((e) => e.classList.contains('equipped')) ?? partEls[0];
+        this.setFocusKeep(eqEl);
+      } else this.setFocusKeep(t);
+    };
+
+    const slot0 = this.gSlot;
+    this.gSlot = '' as Slot;
+    // build list before focusing
+    this.setScreen(el, {
+      back: () => leave(),
+      key: (k) => {
+        if (k === 'prev') { cycle(-1); return true; }
+        if (k === 'next') { cycle(1); return true; }
+        return false;
+      },
+      rotate: true,
+      initial: tabEls.get(slot0),
+    });
+    if (!list.childElementCount) selectSlot(slot0, false);
+    // initial focus on the equipped part of the slot
+    const eqEl = partEls.find((e) => e.classList.contains('equipped'));
+    if (eqEl) this.setFocusKeep(eqEl);
+    requestAnimationFrame(() => sendBackdrop());
+    this.resizeFn = () => sendBackdrop();
+  }
+
+  /** Move focus without sound (and without re-triggering when unchanged). */
+  private setFocusKeep(el: HTMLElement | undefined) {
+    if (!el) return;
+    const L = this.top;
+    if (L && L.focus && !L.el.contains(L.focus)) L.focus = null;
+    this.setFocus(el, false);
+  }
+
+  /* ---------------- settings */
+
+  private settingsPanel(inPause: boolean, onBack: () => void): HTMLElement {
+    const s = this.host.save;
+    const st = s.settings;
+    const apply = () => {
+      this.host.applySettings(st);
+      this.host.persist();
+    };
+    const rowsEl = h('div', 'set-rows');
+
+    const slider = (label: string, get: () => number, set: (v: number) => void, min: number, max: number, step: number, fmt: (v: number) => string) => {
+      const fill = h('i');
+      const knob = h('b');
+      const val = h('span', 'set-val');
+      const track = h('div', 'set-track', fill, knob);
+      const paint = () => {
+        const k = (get() - min) / (max - min);
+        fill.style.transform = `scaleX(${k})`;
+        knob.style.left = `${k * 100}%`;
+        val.textContent = fmt(get());
+      };
+      const setV = (v: number, sound = true) => {
+        const nv = clamp(Math.round(v / step) * step, min, max);
+        if (Math.abs(nv - get()) < 1e-6) return;
+        set(+nv.toFixed(3));
+        paint();
+        apply();
+        if (sound) this.host.sfx('ui_move');
+      };
+      const row = nav(h('div', 'set-row', h('span', 'set-l', label), h('div', 'set-ctl', h('span', 'set-arrow', '◀'), track, h('span', 'set-arrow', '▶'), val)), {
+        adjust: (d) => setV(get() + d * step),
+      });
+      let drag = false;
+      const fromX = (x: number, sound: boolean) => {
+        const r = track.getBoundingClientRect();
+        setV(min + clamp((x - r.left) / r.width, 0, 1) * (max - min), sound);
+      };
+      track.addEventListener('pointerdown', (e) => { drag = true; track.setPointerCapture(e.pointerId); fromX(e.clientX, true); });
+      track.addEventListener('pointermove', (e) => { if (drag) fromX(e.clientX, false); });
+      track.addEventListener('pointerup', () => { drag = false; });
+      paint();
+      rowsEl.append(row);
+      return row;
+    };
+    const choice = <T>(label: string, opts: [T, string][], get: () => T, set: (v: T) => void) => {
+      const seg = h('div', 'set-seg');
+      const els = opts.map(([v, l]) => {
+        const o = h('span', '', l);
+        o.addEventListener('click', (e) => { e.stopPropagation(); pick(v); });
+        seg.append(o);
+        return o;
+      });
+      const paint = () => els.forEach((e, i) => e.classList.toggle('on', opts[i][0] === get()));
+      const pick = (v: T) => {
+        if (v === get()) return;
+        set(v);
+        paint();
+        apply();
+        this.host.sfx('ui_move');
+      };
+      const idx = () => Math.max(0, opts.findIndex((o) => o[0] === get()));
+      const row = nav(h('div', 'set-row', h('span', 'set-l', label), h('div', 'set-ctl', h('span', 'set-arrow', '◀'), seg, h('span', 'set-arrow', '▶'))), {
+        adjust: (d) => pick(opts[clamp(idx() + d, 0, opts.length - 1)][0]),
+        act: () => pick(opts[(idx() + 1) % opts.length][0]),
+      });
+      paint();
+      rowsEl.append(row);
+      return row;
+    };
+    const pct = (v: number) => `${Math.round(v * 100)}%`;
+    const group = (t: string) => rowsEl.append(h('div', 'set-group', t));
+
+    group('Audio');
+    const first = slider('Master volume', () => st.master, (v) => (st.master = v), 0, 1, 0.05, pct);
+    slider('Effects volume', () => st.sfx, (v) => (st.sfx = v), 0, 1, 0.05, pct);
+    slider('Music volume', () => st.music, (v) => (st.music = v), 0, 1, 0.05, pct);
+    group('Camera');
+    slider('Camera sensitivity', () => st.sensitivity, (v) => (st.sensitivity = v), 0.2, 3, 0.1, (v) => `${v.toFixed(1)}×`);
+    choice('Invert Y', [[false, 'Off'], [true, 'On']], () => st.invertY, (v) => (st.invertY = v));
+    choice('Camera shake', [[false, 'Off'], [true, 'On']], () => st.cameraShake, (v) => (st.cameraShake = v));
+    group('Display');
+    choice<Settings['quality']>('Graphics quality', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], () => st.quality, (v) => (st.quality = v));
+    choice('Damage numbers', [[false, 'Off'], [true, 'On']], () => st.damageNumbers, (v) => (st.damageNumbers = v));
+
+    const actions: HTMLElement[] = [btn('Back', () => { this.host.sfx('ui_back'); onBack(); }, 'big')];
+    if (!inPause) {
+      actions.push(btn('Reset Progress', async () => {
+        const ok = await this.confirmBox('Reset all progress?', 'Ladder progress, unlocked parts, loadout and record will be erased. Settings are kept. This cannot be undone.', 'Erase', 'Cancel', true);
+        if (!ok) return;
+        const d = defaultSave();
+        s.unlocked = d.unlocked;
+        s.loadout = d.loadout;
+        s.ladder = d.ladder;
+        s.beaten = d.beaten;
+        s.totals = d.totals;
+        this.host.persist();
+        this.toast('Progress reset');
+      }, 'big danger'));
+    }
+    const left = h('div', 'ra-panel set-panel', h('div', 'set-panel-h', 'Options'), rowsEl, h('div', 'ra-actions set-acts', ...actions));
+
+    // controls reference
+    const ctl = (rows: [string, string][]) => h('div', 'ctl-list', ...rows.map(([k, a]) => h('div', 'ctl-row', h('span', 'ctl-k', ...k.split(' / ').flatMap((x, i) => (i ? [h('em', '', '/'), h('kbd', '', x)] : [h('kbd', '', x)]))), h('span', 'ctl-a', a))));
+    const kb = ctl([['WASD', 'Move'], ['Mouse', 'Camera'], ['Space', 'Jump · double jump · hold to hover'], ['Shift', 'Dash'], ['LMB', 'Fire gun'], ['RMB', 'Throw bomb'], ['E / MMB', 'Launch pod'], ['Q', 'Charge attack'], ['Tab / F', 'Toggle lock-on'], ['Esc', 'Pause']]);
+    const gp = ctl([['L-Stick', 'Move'], ['R-Stick', 'Camera'], ['A', 'Jump · double jump · hover'], ['B', 'Dash'], ['RT', 'Fire gun'], ['LT', 'Throw bomb'], ['RB', 'Launch pod'], ['X', 'Charge attack'], ['R3', 'Toggle lock-on'], ['Start', 'Pause']]);
+    const right = h('div', 'ra-panel ctl-panel', h('div', 'set-panel-h', 'Controls'), h('div', 'ctl-cols', h('div', '', h('div', 'ctl-h', 'Keyboard + Mouse'), kb), h('div', '', h('div', 'ctl-h', 'Gamepad'), gp)));
+    stagger([left], 80);
+    stagger([right], 180);
+    const wrap = h('div', 'set-wrap', left, right);
+    (wrap as HTMLElement & { _first?: HTMLElement })._first = first;
+    return wrap;
+  }
+
+  private showSettings(onBack: () => void) {
+    this.backdrop('title');
+    this.music('menu');
+    const el = h('div', 'scr-settings');
+    const wrap = this.settingsPanel(false, onBack);
+    el.append(h('div', 'vig vig-full'), this.header('System', 'Settings'), wrap, hints([['move', 'Move'], ['adjust', 'Adjust'], ['back', 'Back']]));
+    this.setScreen(el, { back: onBack, initial: (wrap as HTMLElement & { _first?: HTMLElement })._first });
+  }
+
+  private openSettingsOverlay() {
+    this.host.sfx('ui_select');
+    const el = h('div', 'ra-modal ra-pause-settings');
+    let L: Layer;
+    const close = () => this.popLayer(L);
+    const wrap = this.settingsPanel(true, close);
+    el.append(this.header('Paused', 'Settings'), wrap, hints([['move', 'Move'], ['adjust', 'Adjust'], ['back', 'Back']]));
+    L = this.pushLayer(el, { back: close, initial: (wrap as HTMLElement & { _first?: HTMLElement })._first });
+  }
+
+  private closePause(v: 'resume' | 'restart' | 'quit', silent = false) {
+    const res = this.pauseResolve;
+    if (!res) return;
+    this.pauseResolve = null;
+    // remove the pause layer and everything above it
+    const i = this.pauseLayer ? this.stack.indexOf(this.pauseLayer) : -1;
+    if (i >= 0) {
+      const above = this.stack.splice(i);
+      for (const l of above) {
+        l.el.classList.add('leaving');
+        setTimeout(() => l.el.remove(), 260);
+      }
+    }
+    this.pauseLayer = null;
+    this.sync();
+    if (!silent) this.host.sfx(v === 'resume' ? 'ui_back' : 'ui_select');
+    res(v);
+  }
+}

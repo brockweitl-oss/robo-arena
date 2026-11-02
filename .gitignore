@@ -1,0 +1,8 @@
+node_modules/
+dist/
+playtest/
+test-results/
+*.log
+.DS_Store
+.wrangler/
+playtest-build/
