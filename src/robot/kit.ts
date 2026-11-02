@@ -10,6 +10,37 @@ import type { VisualPaint } from './paint';
 
 export type Geo = THREE.BufferGeometry;
 
+/** Convex armor profile with a genuine interior crown and beveled perimeter. +Z faces out. */
+export function ridgeShell(points: [number, number][], depth: number, crown = .04, center?: [number, number]): Geo {
+  const outline = points.map(p => [...p] as [number, number]);
+  const area = outline.reduce((sum,p,i) => { const q=outline[(i+1)%outline.length]; return sum+p[0]*q[1]-q[0]*p[1]; },0);
+  if(area<0) outline.reverse();
+  const n=outline.length, c=center ?? [outline.reduce((s,p)=>s+p[0],0)/n,outline.reduce((s,p)=>s+p[1],0)/n];
+  const positions:number[]=[], indices:number[]=[];
+  for(const [x,y] of outline) positions.push(x,y,0);
+  for(const [x,y] of outline) positions.push(c[0]+(x-c[0])*.88,c[1]+(y-c[1])*.88,depth*.5);
+  for(const [x,y] of outline) positions.push(x,y,-depth*.5);
+  positions.push(c[0],c[1],depth*.5+crown,c[0],c[1],-depth*.5);
+  for(let i=0;i<n;i++) {
+    const j=(i+1)%n;
+    indices.push(i,j,n+j,i,n+j,n+i,n+i,n+j,3*n);
+    indices.push(i,2*n+j,j,i,2*n+i,2*n+j,2*n+j,2*n+i,3*n+1);
+  }
+  const indexed=new THREE.BufferGeometry();indexed.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));indexed.setIndex(indices);
+  const geometry=indexed.toNonIndexed();indexed.dispose();geometry.computeVertexNormals();
+  // Only the broad front fan receives continuous shading. The bevel, side wall,
+  // and back keep separate hard normals so this reads as pressed armor, not a crystal.
+  const normal=geometry.getAttribute('normal'),position=geometry.getAttribute('position');
+  const rx=Math.max(...outline.map(p=>Math.abs(p[0]-c[0])),.001),ry=Math.max(...outline.map(p=>Math.abs(p[1]-c[1])),.001);
+  const direction=new THREE.Vector3();
+  for(let i=0;i<n;i++) for(let j=6;j<9;j++) {
+    const k=i*18+j;
+    direction.set((position.getX(k)-c[0])*crown*2/(rx*rx),(position.getY(k)-c[1])*crown*2/(ry*ry),1).normalize();
+    normal.setXYZ(k,direction.x,direction.y,direction.z);
+  }
+  return geometry;
+}
+
 export function rbox(w: number, h: number, d: number, r = 0.03, seg = 2): Geo {
   r = Math.min(r, w / 2 - 0.001, h / 2 - 0.001, d / 2 - 0.001);
   return new RoundedBoxGeometry(w, h, d, seg, Math.max(0.001, r));

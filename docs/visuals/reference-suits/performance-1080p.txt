@@ -1,0 +1,7 @@
+reference-suits-final garden {
+  frames: 1488,
+  fps: 135.40591397849462,
+  calls: 689.1532258064516,
+  cpuMs: 5.310819891031071,
+  geos: [ 387, 441 ]
+} []

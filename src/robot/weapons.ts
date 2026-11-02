@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Rig } from './rig';
-import { PartBuilder, rbox, plate, chamferBox, cyl, sphere, torus, xf, vents, lathe, boltRing } from './kit';
+import { PartBuilder, rbox, plate, ridgeShell, chamferBox, cyl, sphere, torus, xf, vents, lathe, boltRing } from './kit';
 import type { GunDef, BombDef, PodDef } from '../data/parts';
 import type { MatSet } from './kit';
 
@@ -133,11 +133,18 @@ export function buildBomb(def: VisualBomb, rig: Rig, b: PartBuilder): THREE.Grou
     b.add(launcher, 'glowHot', xf(cyl(0.038, 0.038, 0.005, 12), [0, 0.373, 0]));
     rig.bombMuzzle.position.set(0, 0.39, 0);
   } else if (def.model === 'mortar') {
-    b.add(launcher, 'dark', xf(cyl(0.075, 0.085, 0.28, 18), [0, 0.13, 0], [0, 0, 0]));
-    b.add(launcher, 'secondary', xf(cyl(0.088, 0.088, 0.06, 18), [0, 0.08, 0]));
-    b.add(launcher, 'chrome', xf(torus(0.072, 0.012, 18, 6), [0, 0.27, 0], [Math.PI / 2, 0, 0]));
-    b.add(launcher, 'glowHot', xf(cyl(0.055, 0.055, 0.005, 14), [0, 0.255, 0]));
-    b.add(launcher, 'trim', xf(chamferBox(0.04, 0.16, 0.06, 0.012), [0.085, 0.12, 0]));
+    // Compact armored breech and a narrow exposed launch throat. The muzzle and
+    // pivot stay exactly where animation/effects expect them; only casing changes.
+    b.add(launcher, 'dark', xf(cyl(0.044, 0.058, 0.30, 14), [0, 0.15, 0]));
+    const casing: [number, number][] = [[-.059,-.015],[.059,-.015],[.067,.075],[.042,.20],[-.042,.20],[-.067,.075]];
+    for (const side of [-1, 1]) {
+      b.add(launcher, 'primary', xf(ridgeShell(casing,.018,.008), [0,0,side*.047], [0,side<0?Math.PI:0,0]));
+      b.add(launcher, 'trim', xf(chamferBox(.016,.19,.024,.004), [side*.057,.095,0]));
+    }
+    b.add(launcher, 'secondary', xf(plate([[-.029,.015],[.029,.015],[.024,.075],[-.024,.075]],.006,.002), [0,0,.065]));
+    b.add(launcher, 'chrome', xf(torus(.047,.006,16,5), [0,.303,0], [Math.PI/2,0,0]));
+    b.add(launcher, 'dark', xf(cyl(.038,.038,.014,14), [0,.294,0]));
+    b.add(launcher, 'glowHot', xf(cyl(.025,.025,.004,12), [0,.303,0]));
     rig.bombMuzzle.position.set(0, 0.32, 0);
   } else {
     b.add(launcher, 'dark', xf(chamferBox(0.2, 0.2, 0.09, 0.03), [0, 0.1, 0]));
