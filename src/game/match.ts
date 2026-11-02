@@ -1195,6 +1195,11 @@ export class Match {
               fx.dashBurst(f.chestPoint(), f.dashDir, s.paint.glow, !ev.air);
               s.anim.event({ type: 'dash' });
               break;
+            case 'skid':
+              // planted reversal: a small kick of dust at the feet
+              fx.dustRing(f.pos, 0.35 + Math.min(0.35, ev.speed / 30), 5);
+              fx.footDust(f.pos, 1);
+              break;
             case 'land': {
               const strength = Math.min(1, ev.speed / 22);
               if (ev.speed > 2) {
