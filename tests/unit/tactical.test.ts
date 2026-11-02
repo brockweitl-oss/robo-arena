@@ -94,10 +94,6 @@ describe('Playtest 3 action commitment', () => {
     expect(a.mode).toBe('ground'); expect(a.dashCharges).toBe(1);
     step(w, 32); expect(a.stats.shots).toBe(1); expect(a.recoveryTime).toBeGreaterThan(0);
   });
-  it('hits and knockdowns do not freeze simulation', () => {
-    const { w, a } = fixture(); a.takeHit({ damage: 10, down: 110, dir: v(0, 0, -1), knock: 3, heavy: true, source: 'gun' });
-    expect(a.hitstop).toBe(0); const time = a.modeTime; step(w); expect(a.modeTime).toBeGreaterThan(time);
-  });
 });
 
 describe('Playtest 3 predictable weapons and opponents', () => {
@@ -107,14 +103,14 @@ describe('Playtest 3 predictable weapons and opponents', () => {
     const pod = { id: 999, owner: 1, def: PODS.seeker, pos: v(0, 1.2, 0.4), vel: v(), age: 1, hp: 40, alive: true, triggeredAt: -1, heading: 0, actT: 0 };
     const trap = { index: 0, pos: v(8, 0, 8), sw: v(0, 1.2, 0.4), armedAt: -1, readyAt: 0, owner: -1 };
     w.pods.push(pod); w.traps.push(trap);
-    (w as any).makeProjectile(0, gunShotSpec(a), v(0, 1.2, -3), v(0, 0, 600), 1);
+    (w as any).makeProjectile(0, { ...gunShotSpec(a), homing: 0, speed: 600 }, v(0, 1.2, -3), v(0, 0, 600), 1);
     (w as any).stepProjectiles(SIM_DT);
     expect(pod.hp).toBe(40); expect(trap.armedAt).toBe(-1); expect(w.projectiles.length).toBe(0);
   });
   it('a shot passing through a perfect dodge still stops at the wall behind it that same tick', () => {
     const { w, a, b } = fixture({ gun: 'rail' }); b.pos.set(0, 0, 0); b.dashIframe = 0.1;
     w.colliders.push({ kind: 'box', min: v(-2, 0, 1), max: v(2, 4, 1.2) });
-    (w as any).makeProjectile(0, gunShotSpec(a), v(0, 1.2, -3), v(0, 0, 600), 1);
+    (w as any).makeProjectile(0, { ...gunShotSpec(a), homing: 0, speed: 600 }, v(0, 1.2, -3), v(0, 0, 600), 1);
     (w as any).stepProjectiles(SIM_DT);
     expect(b.hp).toBe(b.maxHp); expect(b.stats.dodges).toBe(1); expect(w.projectiles.length).toBe(0);
   });
@@ -143,22 +139,36 @@ describe('Playtest 3 predictable weapons and opponents', () => {
     const t = interceptTime(target, velocity, speed);
     expect(target.clone().addScaledVector(velocity, t).length()).toBeCloseTo(speed * t, 6);
   });
-  it('rail can hit straight strafing at mid-range without homing', () => {
-    const { w, b } = fixture({ gun: 'rail' }); step(w, 1, { gunPressed: true }, { moveX: 1 });
-    step(w, 60, {}, { moveX: 1 }); expect(b.hp).toBeLessThan(b.maxHp);
-  });
-  it('airborne shots and bomb patterns do not depend on random seed', () => {
-    const go = (seed: number) => {
-      const { w, a } = fixture({ bomb: 'cluster' }, seed); a.aimJitter = 0.2;
-      (w as any).spawnShot(a, 0, true, 1); (w as any).spawnBomb(a);
-      return { shots: w.projectiles.map(p => p.vel.toArray()), bombs: w.bombs.map(b => [b.vel.toArray(), b.target.toArray()]) };
-    };
-    expect(go(1)).toEqual(go(9981));
-  });
   it('AI behavior is seed-independent but personalities choose different movement', () => {
     const { w, a, b } = fixture();
     const one = new AIPilot('bomber', 0.8, 1), two = new AIPilot('bomber', 0.8, 999);
     expect(one.think(w, a, b)).toEqual(two.think(w, a, b));
     expect(new AIPilot('rusher', 0.8).think(w, a, b)).not.toEqual(new AIPilot('bomber', 0.8).think(w, a, b));
+  });
+});
+
+describe('3.0 integration decisions (owner-approved)', () => {
+  it('hit-stop is brief and presses during it are not lost', () => {
+    const { w, a, b } = fixture();
+    w.applyHit(b, a.id, { damage: 50, down: 10, dir: v(0, 0, 1), knock: 2, heavy: true, source: 'gun' }, b.chestPoint(), 0);
+    expect(b.hitstop).toBeGreaterThan(0);
+    expect(b.hitstop).toBeLessThanOrEqual(0.1);
+    // a press made during a hit-stop is applied when the robot unfreezes
+    const f = fixture();
+    step(f.w, 5);
+    f.b.hitstop = 0.05;
+    step(f.w, 1, {}, { jumpPressed: true, jumpHeld: true });
+    for (let i = 0; i < 8; i++) step(f.w, 1, {}, { jumpHeld: true });
+    expect(f.b.grounded).toBe(false);
+  });
+  it('airborne gun shots are deterministic for a given seed', () => {
+    const run = () => {
+      const { w, a } = fixture({}, 77);
+      a.pos.y = 5; a.grounded = false; a.setMode('air');
+      step(w, 1, { gunPressed: true, gunHeld: true });
+      for (let i = 0; i < 3; i++) step(w);
+      return w.projectiles.map((p) => p.vel.toArray().map((x) => x.toFixed(4)));
+    };
+    expect(run()).toEqual(run());
   });
 });

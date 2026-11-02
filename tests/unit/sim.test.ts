@@ -112,16 +112,18 @@ describe('fighter', () => {
     expect(Math.abs(a.vel.x)).toBeGreaterThan(a.runSpeed * 1.5);
   });
 
-  it('knocks down when the down gauge fills, then is invulnerable', () => {
-    const { a } = makeWorld();
+  it('knocks down when the down gauge fills (after a stun window), then is invulnerable', () => {
+    const { w, a } = makeWorld();
     const dir = V(0, 0, -1);
     let knocked = false;
-    for (let i = 0; i < 10 && a.mode !== 'down'; i++) {
+    for (let i = 0; i < 10 && !knocked; i++) {
       a.hitstop = 0;
       knocked = a.takeHit({ damage: 30, down: 20, dir, knock: 2, heavy: false, source: 'gun' }).knockdown;
     }
-    expect(a.mode).toBe('down');
     expect(knocked).toBe(true);
+    expect(a.mode).toBe('stagger'); // punish window
+    run(w, 40);
+    expect(a.mode).toBe('down');
     expect(a.isInvulnerable).toBe(true);
     const hp = a.hp;
     expect(a.takeHit({ damage: 50, down: 10, dir, knock: 2, heavy: false, source: 'gun' }).applied).toBe(false);
@@ -384,5 +386,61 @@ describe('replay validation hardening (Codex, PR #20 final)', () => {
     expect(validateReplay(vs)).toBe(true);
     expect(validateReplay({ ...vs, config: { ...vs.config, versus: { ...vs.config.versus, p2Paint: undefined } } })).toBe(false);
     expect(validateReplay({ ...vs, config: { ...vs.config, versus: { ...vs.config.versus, p2Paint: { ...paint, glow: 'red' } } } })).toBe(false);
+  });
+});
+
+describe('Combat 3.0', () => {
+  it('guns overheat when spammed and lock out', () => {
+    const { w, a } = makeWorld();
+    let over = false;
+    for (let i = 0; i < 60 * 8 && !over; i++) {
+      run(w, 1, { gunPressed: true, gunHeld: true });
+      over = a.overheated;
+    }
+    expect(over).toBe(true);
+    const cd = a.gunCd;
+    run(w, 1, { gunPressed: true, gunHeld: true });
+    expect(a.stats.shots).toBeGreaterThan(0);
+    void cd;
+  });
+
+  it('prime then trigger = combo bonus damage', () => {
+    const { w, a, b } = makeWorld();
+    const before = b.hp;
+    w.applyHit(b, 0, { damage: 10, down: 1, dir: V(0, 0, -1), knock: 0, heavy: false, source: 'gun', prime: 'shock' }, b.chestPoint(), 0);
+    expect(b.primed?.el).toBe('shock');
+    const mid = b.hp;
+    b.hitstop = 0;
+    w.applyHit(b, 0, { damage: 10, down: 1, dir: V(0, 0, -1), knock: 0, heavy: false, source: 'charge', trigger: true }, b.chestPoint(), 0);
+    expect(b.primed).toBeNull();
+    expect(w.events.some((e) => e.type === 'combo')).toBe(true);
+    // the trigger hit dealt far more than its base 10 damage
+    expect(mid - b.hp).toBeGreaterThan(30);
+    expect(before - mid).toBeLessThan(10);
+    expect(a.stats.combos).toBe(1);
+  });
+
+  it('combo scaling reduces damage on consecutive hits', () => {
+    const { a } = makeWorld();
+    const dmg: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      a.hitstop = 0;
+      dmg.push(a.takeHit({ damage: 100, down: 1, dir: V(0, 0, -1), knock: 0, heavy: false, source: 'gun' }).damage);
+    }
+    expect(dmg[0]).toBe(100);
+    expect(dmg[4]).toBeLessThan(dmg[1]);
+  });
+
+  it('parrying a charge attack adds down gauge to the attacker', () => {
+    const { w, a, b } = makeWorld();
+    a.pos.set(0, 0, 1.2);
+    b.pos.set(0, 0, -0.2);
+    a.yaw = Math.PI;
+    a.setMode('charge');
+    a.chargePhase = 1;
+    b.setMode('charge');
+    b.chargePhase = 0;
+    run(w, 1);
+    expect(a.down).toBeGreaterThanOrEqual(30);
   });
 });

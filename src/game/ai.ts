@@ -27,6 +27,7 @@ export const AI_PROFILES: Record<AIPersonality, Profile> = {
 export class AIPilot {
   private p: Profile;
   private reaction: number;
+  private railRead: boolean | null = null;
   private history: { t: number; pos: THREE.Vector3; vel: THREE.Vector3; mode: string; recovery: number; rail: number; guard: boolean }[] = [];
   private strafeDir = 1;
   private strafeAt = 0;
@@ -42,7 +43,14 @@ export class AIPilot {
   private input = emptyInput();
   private wasHolding = false;
 
+  private rngState = 7;
+  private rnd() {
+    this.rngState = (this.rngState * 16807) % 2147483647;
+    return this.rngState / 2147483647;
+  }
+
   constructor(readonly personality: AIPersonality, readonly skill: number, _seed = 7) {
+    this.rngState = Math.max(1, Math.floor(_seed) % 2147483646);
     this.p = AI_PROFILES[personality];
     this.reaction = THREE.MathUtils.lerp(0.42, 0.18, skill);
   }
@@ -116,7 +124,10 @@ export class AIPilot {
     }
     if (this.seenProj.size > 200) this.seenProj.clear();
     // Read precision wind-ups, rather than magically dodging a hypersonic slug after release.
-    if (seen.rail > 0.55 && this.skill >= 0.6 && me.canAct && me.canDash && t >= this.mobilityAt) {
+    // a read, not a reflex: even the best pilots miss some wind-ups (decided once per wind-up)
+    if (seen.rail <= 0.05) this.railRead = null;
+    else if (seen.rail > 0.55 && this.railRead === null) this.railRead = this.rnd() < 0.35 + this.skill * 0.3;
+    if (seen.rail > 0.55 && this.railRead && this.skill >= 0.6 && me.canAct && me.canDash && t >= this.mobilityAt) {
       inp.dashPressed = true; inp.moveX = side.x * this.strafeDir; inp.moveZ = side.z * this.strafeDir;
       this.mobilityAt = t + 1.8;
     }
@@ -127,7 +138,16 @@ export class AIPilot {
       const inRange = dist < (g === 'scatter' ? 6.5 : g === 'blaster' ? 27 : 34);
       // Rail waits for a setup when possible, but will probe straight movement at a measured cadence.
       const precisionOpening = g !== 'rail' || vulnerable || seen.vel.lengthSq() < 8 || t >= this.gunAt + 0.2;
-      if (los && inRange && !seen.guard && me.gunCd <= 0 && t >= this.gunAt && precisionOpening) {
+      // combos: when the foe is primed, cash it in with a trigger
+      if (foe.primed && this.rnd() < 0.35 + this.skill * 0.5) {
+        if (me.lo.bomb.trigger && me.bombCd <= 0) {
+          inp.bombPressed = true;
+          this.utilityAt = t + this.p.utilityCadence;
+        } else if (dist < 6 && me.chargeCd <= 0 && Math.abs(seen.pos.y - me.pos.y) < 1.5) inp.chargePressed = true;
+      }
+      // heat discipline: better pilots stop firing earlier
+      const heatOk = !me.overheated && me.heat < THREE.MathUtils.lerp(95, 70, this.skill);
+      if (los && inRange && !seen.guard && me.gunCd <= 0 && t >= this.gunAt && precisionOpening && heatOk) {
         this.holdGunUntil = t + (me.lo.gun.holdMax ? (vulnerable ? 0.45 : me.lo.gun.holdMax) : 0.12);
         this.gunAt = t + Math.max(0.1, this.p.gunCadence - 0.3) + me.lo.gun.cooldown + me.lo.gun.windup;
       } else if (t >= this.utilityAt) {

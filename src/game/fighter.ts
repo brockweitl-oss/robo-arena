@@ -33,10 +33,23 @@ export const PACE = 0.88;
 const BUFFER = 0.1;
 const COYOTE = 0.1;
 /** Guard frames at the very start of a charge that count as a parry. */
-export const PARRY_WINDOW = 0.12;
+export const PARRY_WINDOW = 0.16;
 /** Guard covers a 100-degree forward arc, shared by deflection and damage resolution. */
 export const GUARD_DOT = Math.cos(50 * Math.PI / 180);
 export const DASH_RECOVERY = 0.22;
+/** Parrying adds this much down gauge to the attacker (reward). */
+export const PARRY_DOWN = 40;
+/** Combo damage scaling per consecutive hit (fighting-game style; no touch-of-death). */
+export const COMBO_SCALE = [1, 0.85, 0.72, 0.62, 0.55, 0.5, 0.45];
+/** Seconds without being hit before a combo resets. */
+export const COMBO_RESET = 1.0;
+/** Stun (punish window) before a knockdown launches. */
+export const STUN_TIME = 0.45;
+export const HEAT_MAX = 100;
+export const HEAT_COOL = 30; // per second, after a short delay
+export const OVERHEAT_LOCK = 1.6;
+/** How long a primed mark lasts. */
+export const PRIME_TIME = 4;
 /** Bonus damage multiplier on the hit that causes a knockdown (combo finisher). */
 export const KNOCKDOWN_BONUS = 1.25;
 /** Below this HP fraction, bomb/pod cooldowns recover faster (comeback). */
@@ -49,7 +62,8 @@ export type FighterEvent =
   | { type: 'jump' } | { type: 'airjump' } | { type: 'dash'; air: boolean } | { type: 'land'; speed: number; hard: boolean }
   | { type: 'fire'; index: number } | { type: 'railCharge' } | { type: 'bomb' } | { type: 'pod' }
   | { type: 'chargeStart'; wakeup: boolean } | { type: 'chargeLunge' } | { type: 'knockdown' } | { type: 'getup' }
-  | { type: 'parry' } | { type: 'guardBreak' } | { type: 'hover'; on: boolean };
+  | { type: 'parry' } | { type: 'guardBreak' } | { type: 'hover'; on: boolean }
+  | { type: 'overheat' } | { type: 'stun' } | { type: 'cancel' };
 
 export interface HitInfo {
   damage: number;
@@ -64,6 +78,9 @@ export interface HitInfo {
   guardBreak?: boolean;
   /** Light damage-over-time: no flinch, no hit-stop. */
   tick?: boolean;
+  /** Combo roles of the attack that landed. */
+  prime?: import('../data/parts').Element;
+  trigger?: boolean;
 }
 
 export interface HitResult {
@@ -148,6 +165,21 @@ export class Fighter implements AnimSource {
   homingMul = 1;
   /** Legacy field retained for callers; simulation does not apply random aim error. */
   aimJitter = 0;
+  /** Gun heat 0..100 and overheat lockout. */
+  heat = 0;
+  overheatT = 0;
+  private sinceShot = 9;
+  /** Consecutive hits taken (combo counter) and the primed mark on this robot. */
+  comboHits = 0;
+  primed: { el: import('../data/parts').Element; t: number; by: number } | null = null;
+  /** Status from combos: burning (with owner) and chilled (slow). */
+  burnT = 0;
+  burnBy = -1;
+  slowT = 0;
+  private stunned = false;
+  private pressLatch = { jump: false, dash: false, gun: false, bomb: false, pod: false, charge: false };
+  private stunHit: HitInfo | null = null;
+  private jumpCancelUsed = false;
   /** Pick-up buffs (seconds remaining) and shield HP. */
   buffs = { overdrive: 0, speed: 0, shield: 0 };
 
@@ -156,7 +188,7 @@ export class Fighter implements AnimSource {
   readonly spawns: SpawnReq[] = [];
 
   // stats
-  stats = { damageDealt: 0, hits: 0, knockdowns: 0, knockdownsTaken: 0, shots: 0, dodges: 0, parries: 0, gunProjectiles: 0, gunHits: 0, gunDamage: 0, gunDeflected: 0 };
+  stats = { damageDealt: 0, hits: 0, knockdowns: 0, knockdownsTaken: 0, shots: 0, dodges: 0, parries: 0, combos: 0, gunProjectiles: 0, gunHits: 0, gunDamage: 0, gunDeflected: 0 };
 
   constructor(readonly id: number, readonly lo: ResolvedLoadout) {
     this.st = deriveStats(lo);
@@ -169,7 +201,7 @@ export class Fighter implements AnimSource {
     return this.hp > 0;
   }
   get runSpeed() {
-    return this.st.runSpeed * PACE * (this.buffs.speed > 0 ? 1.15 : 1);
+    return this.st.runSpeed * PACE * (this.buffs.speed > 0 ? 1.15 : 1) * (this.slowT > 0 ? 0.6 : 1);
   }
   /** Down-gauge capacity. */
   get endurance() {
@@ -191,12 +223,16 @@ export class Fighter implements AnimSource {
     return this.recoveryTime > 0 || this.holdT >= 0 || this.burstLeft > 0;
   }
   get canDash() {
-    return this.dashCharges > 0 && this.dashGap <= 0 && !this.attackCommitted;
+    // dash may cancel attack *recovery* (costs a dash charge), but not a burst or a charge-up in progress
+    return this.dashCharges > 0 && this.dashGap <= 0 && this.burstLeft === 0 && this.holdT < 0;
   }
   /** Incoming travel direction must point into our forward guard, not our back. */
   facesIncoming(dir: THREE.Vector3) {
     const length = dir.length();
     return length > 1e-6 && (-dir.x * Math.sin(this.yaw) - dir.z * Math.cos(this.yaw)) / length >= GUARD_DOT;
+  }
+  get overheated() {
+    return this.overheatT > 0;
   }
   get canAct() {
     return !this.locked && !this.attackCommitted && (this.mode === 'ground' || this.mode === 'air');
@@ -262,8 +298,23 @@ export class Fighter implements AnimSource {
   step(dt: number, inp: FighterInput, target: Fighter, colliders: Collider[], halfX: number, halfZ: number) {
     this.events.length = 0;
     this.spawns.length = 0;
-    // Real-time combat: presentation must never freeze simulation or eat controls.
-    this.hitstop = 0;
+    // Hit-stop freezes this robot for a few frames on impact (game feel). Presses during it are kept, not lost.
+    if (this.hitstop > 0) {
+      this.hitstop -= dt;
+      const L = this.pressLatch;
+      L.jump ||= inp.jumpPressed;
+      L.dash ||= inp.dashPressed;
+      L.gun ||= inp.gunPressed;
+      L.bomb ||= inp.bombPressed;
+      L.pod ||= inp.podPressed;
+      L.charge ||= inp.chargePressed;
+      return;
+    }
+    if (this.pressLatch.jump || this.pressLatch.dash || this.pressLatch.gun || this.pressLatch.bomb || this.pressLatch.pod || this.pressLatch.charge) {
+      const L = this.pressLatch;
+      inp = { ...inp, jumpPressed: inp.jumpPressed || L.jump, dashPressed: inp.dashPressed || L.dash, gunPressed: inp.gunPressed || L.gun, bombPressed: inp.bombPressed || L.bomb, podPressed: inp.podPressed || L.pod, chargePressed: inp.chargePressed || L.charge };
+      L.jump = L.dash = L.gun = L.bomb = L.pod = L.charge = false;
+    }
     this.modeTime += dt;
     this.sinceHit += dt;
     // comeback: utility cooldowns recover faster at low HP
@@ -277,6 +328,18 @@ export class Fighter implements AnimSource {
     this.dashGap = Math.max(0, this.dashGap - dt);
     this.recoveryTime = Math.max(0, this.recoveryTime - dt);
     this.landT = Math.max(0, this.landT - dt);
+    // heat: cools after a short pause; overheat locks the gun
+    this.sinceShot += dt;
+    if (this.overheatT > 0) {
+      this.overheatT -= dt;
+      this.heat = Math.max(0, this.heat - HEAT_MAX * dt / OVERHEAT_LOCK);
+    } else if (this.sinceShot > 0.35) this.heat = Math.max(0, this.heat - HEAT_COOL * dt);
+    if (this.sinceHit > COMBO_RESET && this.mode !== 'stagger' && this.mode !== 'down') this.comboHits = 0;
+    if (this.primed) {
+      this.primed.t -= dt;
+      if (this.primed.t <= 0) this.primed = null;
+    }
+    this.slowT = Math.max(0, this.slowT - dt);
     for (const k of ['overdrive', 'speed'] as const) this.buffs[k] = Math.max(0, this.buffs[k] - dt);
     // dash charges refill one at a time
     if (this.dashCharges < this.st.dashCharges) {
@@ -329,15 +392,20 @@ export class Fighter implements AnimSource {
         }
         const recovering = (this.landT > 0 && grounded) || this.recoveryTime > 0;
         // --- dash ---
-        if (!recovering && this.bufDash > 0 && this.canDash && (grounded || this.airDashes > 0)) {
+        const dashCancel = this.recoveryTime > 0 && !(this.landT > 0 && grounded);
+        if ((!recovering || dashCancel) && this.bufDash > 0 && this.canDash && (grounded || this.airDashes > 0)) {
           this.bufDash = 0;
+          if (dashCancel) {
+            this.recoveryTime = 0;
+            this.events.push({ type: 'cancel' });
+          }
           const dir = moveLen > 0.2 ? mv.clone() : new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
           this.dashDir.copy(dir);
           const air = !grounded;
           if (air) this.airDashes--;
           this.setMode(air ? 'airdash' : 'dash');
-          const sp = this.st.dashSpeed * PACE;
-          this.dashIframe = 0.12;
+          const sp = this.st.dashSpeed * PACE * (this.slowT > 0 ? 0.7 : 1);
+          this.dashIframe = 0.14;
           this.dodgeAwarded = false;
           this.vel.set(dir.x * sp, air ? (this.st.dashStyle === 'flight' ? 2.5 : 0.5) : 0, dir.z * sp);
           if (inp.faceTarget || this.aimHold > 0) this.yaw = yawToTarget;
@@ -353,8 +421,13 @@ export class Fighter implements AnimSource {
           this.startCharge(yawToTarget, false);
           break;
         }
-        // --- jump / air jump ---
-        if (this.bufJump > 0 && !recovering && !this.attackCommitted) {
+        // --- jump / air jump (a jump can cancel landing recovery once per landing) ---
+        if (this.bufJump > 0 && this.landT > 0 && grounded && !this.jumpCancelUsed && !this.attackCommitted) {
+          this.jumpCancelUsed = true;
+          this.landT = 0;
+          this.events.push({ type: 'cancel' });
+        }
+        if (this.bufJump > 0 && this.landT <= 0 && !this.attackCommitted && this.recoveryTime <= 0) {
           if (grounded || this.coyote > 0) {
             this.bufJump = 0;
             this.vel.y = this.st.jumpVel;
@@ -378,7 +451,7 @@ export class Fighter implements AnimSource {
         // --- gun ---
         if (gun.holdMax) {
           // hold-to-charge gun: press starts charging, release fires
-          if (this.holdT < 0 && this.bufGun > 0 && this.gunCd <= 0 && !recovering && this.bombLockT <= 0) {
+          if (this.holdT < 0 && this.bufGun > 0 && this.gunCd <= 0 && !recovering && this.bombLockT <= 0 && !this.overheated) {
             this.bufGun = 0;
             this.holdT = 0;
             this.events.push({ type: 'railCharge' });
@@ -397,7 +470,7 @@ export class Fighter implements AnimSource {
               this.gunCd = gun.cooldown * (grounded ? 1 : 1.15);
             }
           }
-        } else if (this.bufGun > 0 && this.gunCd <= 0 && this.burstLeft === 0 && !recovering && this.bombLockT <= 0) {
+        } else if (this.bufGun > 0 && this.gunCd <= 0 && this.burstLeft === 0 && !recovering && this.bombLockT <= 0 && !this.overheated) {
           this.bufGun = 0;
           this.burstLeft = gun.burst;
           this.shotTimer = gun.windup * this.st.gunWindupMul;
@@ -504,6 +577,14 @@ export class Fighter implements AnimSource {
           }
         } else {
           this.applyFriction(dt, 40);
+          // dash-cancel the recovery (costs a dash charge)
+          if (controls && this.bufDash > 0 && this.canDash && this.modeTime > 0.05) {
+            this.chargeCd = this.st.chargeCooldown;
+            this.wakeup = false;
+            this.setMode(this.grounded ? 'ground' : 'air');
+            this.events.push({ type: 'cancel' });
+            break;
+          }
           if (this.modeTime >= ch.recover) {
             this.chargeCd = this.st.chargeCooldown * (this.wakeup ? 1.3 : 1);
             this.wakeup = false;
@@ -514,7 +595,13 @@ export class Fighter implements AnimSource {
       }
       case 'stagger': {
         this.applyFriction(dt, this.grounded ? 22 : 2);
-        if (this.modeTime >= this.staggerTime) this.setMode(this.grounded ? 'ground' : 'air');
+        if (this.modeTime >= this.staggerTime) {
+          if (this.stunned) {
+            // punish window over: now the knockdown launches
+            this.stunned = false;
+            this.knockdown(this.stunHit!, 1);
+          } else this.setMode(this.grounded ? 'ground' : 'air');
+        }
         break;
       }
       case 'down': {
@@ -601,6 +688,7 @@ export class Fighter implements AnimSource {
       if (this.mode === 'air') this.setMode('ground');
       const hard = r.landSpeed > HARD_LANDING && this.mode === 'ground';
       if (hard) this.landT = this.st.landingLag * Math.min(2, r.landSpeed / 18);
+      this.jumpCancelUsed = false;
       if (this.mode !== 'down' || r.landSpeed > 4) this.events.push({ type: 'land', speed: r.landSpeed, hard });
       if (this.mode === 'down') this.downGroundT = 0;
     }
@@ -613,6 +701,14 @@ export class Fighter implements AnimSource {
   }
 
   private fireShot(air: boolean, power: number) {
+    this.sinceShot = 0;
+    this.heat += this.lo.gun.heat * (this.lo.gun.holdMax ? 0.5 + power * 0.5 : 1);
+    if (this.heat >= HEAT_MAX) {
+      this.heat = HEAT_MAX;
+      this.overheatT = OVERHEAT_LOCK;
+      this.burstLeft = 0;
+      this.events.push({ type: 'overheat' });
+    }
     this.spawns.push({ kind: 'shot', index: this.shotIndex, air, power });
     this.events.push({ type: 'fire', index: this.shotIndex });
     this.stats.shots++;
@@ -702,7 +798,11 @@ export class Fighter implements AnimSource {
       this.buffs.shield -= a;
       dmgIn -= a;
     }
-    const willKnock = !out.blocked && this.down + h.down >= this.endurance;
+    // combo scaling: each consecutive hit in a combo deals less (no touch-of-death)
+    if (!h.tick) this.comboHits++;
+    const scale = COMBO_SCALE[Math.min(COMBO_SCALE.length - 1, Math.max(0, this.comboHits - 1))];
+    dmgIn *= scale;
+    const willKnock = !out.blocked && !this.stunned && this.down + h.down >= this.endurance;
     if (willKnock) dmgIn *= KNOCKDOWN_BONUS;
     const dmg = Math.round(dmgIn);
     this.hp = Math.max(0, this.hp - dmg);
@@ -715,16 +815,28 @@ export class Fighter implements AnimSource {
       this.knockdown(h, 1.4);
       return out;
     }
+    if (this.stunned) return out; // already in the punish window: hits land, knockdown is pending
     if (this.down >= this.endurance) {
+      // brief stun before the knockdown: a punish window for follow-ups
       out.knockdown = true;
       this.stats.knockdownsTaken++;
-      this.knockdown(h, 1);
+      this.stunned = true;
+      this.stunHit = { ...h };
+      this.burstLeft = 0;
+      this.holdT = -1;
+      this.railCharge = 0;
+      this.hovering = false;
+      this.staggerTime = STUN_TIME;
+      this.setMode('stagger');
+      this.vel.multiplyScalar(0.2);
+      this.hitstop = 0.08;
+      this.events.push({ type: 'stun' });
       return out;
     }
     // Low-impact small arms pressure HP/down but cannot repeatedly erase a committed attack.
     // Heavy shots and accumulated down still create real punish windows.
     if (h.tick || h.source === 'gun' && !h.heavy && h.down <= 12) return out;
-    this.hitstop = 0;
+    this.hitstop = h.heavy ? 0.07 : 0.035;
     if ((armored || out.blocked) && !out.guardBroken) return out;
     // flinch
     const k = h.knock * this.st.knockMul;
@@ -748,6 +860,8 @@ export class Fighter implements AnimSource {
   }
 
   private knockdown(h: HitInfo, mul: number) {
+    this.stunned = false;
+    this.comboHits = 0;
     this.burstLeft = 0;
     this.holdT = -1;
     this.railCharge = 0;
