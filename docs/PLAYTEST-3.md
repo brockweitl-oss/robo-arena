@@ -58,3 +58,11 @@ Final balance refresh: 180 scenarios per part and 1,800 generated-build fights. 
 Final source checks after Pulse tuning: real-browser replay exactly 630/451 HP for both original and replay. Full controls smoke observed all seven action types and completed a 45-second match at 30 fps, zero console errors/warnings. Smoke now waits for actual action-ready/airborne states instead of fixed delays. Minor HUD readiness polish includes landing recovery and remaining air-dash allowance. Final frozen build verification follows.
 
 Review stack: #23 mech art; #24 garage/photo; #25 tactical combat; #26 arenas/release. Kept draft for the outstanding uncontended performance acceptance, rather than publishing an unverified 60 fps claim to main.
+
+### Frozen local release
+
+Build: `pt3-c6a60a1`. Ready address: http://127.0.0.1:5320/ (frozen production files, no HMR). TypeScript, 86 unit tests and production build passed. Final frozen full smoke observed every weapon/movement action and finished a 45-second match, 51 fps sampled, zero console errors/warnings. Frozen match/session events were verified in `playtest/telemetry.jsonl` with the correct build ID; headless QA sessions remain distinguishable from human playtests.
+
+Playtest 2 remains on 4317. Automatic approval review rejected stopping its server to reuse that port, citing a policy restriction, so the verified 5320 server is the release address instead. Browser storage is origin-specific: the old save remains preserved on 4317 and is not automatically migrated to 5320. No old save or original checkout was changed.
+
+The four review PRs remain draft: #23, #24, #25, #26. No main/public-site deployment or Claude approval is claimed. Hosted online, hosted CI, separate modular stat sockets and an uncontended 60 fps acceptance benchmark remain outstanding as documented above.

@@ -61,3 +61,5 @@ The owner authorized Codex to complete gameplay and visuals while Claude has no 
 
 See [PLAYTEST-3.md](PLAYTEST-3.md) for player notes, telemetry, release boundaries and final validation.
 
+
+Frozen PT3 candidate c6a60a1 verified on http://127.0.0.1:5320/; final smoke and telemetry pass. PRs #23–26 remain draft pending performance acceptance; old PT2 remains on4317 after policy blocked replacement.
