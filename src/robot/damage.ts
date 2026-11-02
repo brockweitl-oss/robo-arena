@@ -74,12 +74,12 @@ export class DamageVisuals {
       this.position.y += 0.06;
       this.sparkTimer -= dt;
       if (this.sparkTimer <= 0) {
-        this.sparks.emit({ pos: this.position, count: 3, speed: [0.4, 1.3], life: [0.1, 0.28], size: [0.012, 0.025], color: 0xffa44a, intensity: 3, gravity: 2, stretch: 0.08 });
-        this.sparkTimer = 0.65 + 0.2 * Math.sin(time * 1.7);
+        this.sparks.emit({ pos: this.position, count: 7, speed: [0.8, 2.2], life: [0.1, 0.28], size: [0.04, 0.07], color: 0xffa44a, intensity: 3, gravity: 2, stretch: 0.08 });
+        this.sparkTimer = 1.2 + 0.2 * Math.sin(time * 1.7);
       }
       this.smokeTimer -= dt;
       if (this.hp < 0.25 && this.smokeTimer <= 0) {
-        this.smoke.emit({ pos: this.position, count: 1, vel: this.up, speed: [0.03, 0.12], life: [0.7, 1.3], size: [0.05, 0.09], grow: 3, color: 0x34343a, alpha: 0.34, drag: 0.1 });
+        this.smoke.emit({ pos: this.position, count: 1, vel: this.up, speed: [0.03, 0.12], life: [0.7, 1.3], size: [0.15, 0.25], grow: 3, color: 0x34343a, alpha: 0.34, drag: 0.1 });
         this.smokeTimer = 0.1;
       }
       this.loose.rotation.set(0.2 + Math.sin(time * 6) * 0.12, 0.1, -0.22 + Math.sin(time * 4) * 0.08);

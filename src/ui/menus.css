@@ -763,3 +763,7 @@
 @media (prefers-reduced-motion: reduce) {
   .ra-root *, .ra-root *::before, .ra-root *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* Compact threat chevrons remain legible against bright explosions. */
+.hud .hud-threat { filter:drop-shadow(0 2px 1px #05090f) drop-shadow(0 0 4px var(--c)); border-left-width:8px; border-right-width:8px; border-bottom-width:16px; }
+.hud .hud-threat::after { content:''; position:absolute; left:-5px; top:7px; border-left:5px solid transparent; border-right:5px solid transparent; border-bottom:8px solid #111823; }

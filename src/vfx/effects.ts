@@ -1,3 +1,4 @@
+import { PanelDebris } from './combatDetails';
 import * as THREE from 'three';
 import { PoseSnapshot } from './poseSnapshot';
 import { ParticleSystem } from './particles';
@@ -64,6 +65,7 @@ export class Effects {
   readonly group = new THREE.Group();
   readonly sparks: ParticleSystem;
   readonly smoke: ParticleSystem;
+  readonly panels = new PanelDebris();
   private rings: Ring[] = [];
   private decals: Decal[] = [];
   private flashes: Flash[] = [];
@@ -91,6 +93,7 @@ export class Effects {
     this.smoke.scale = Math.max(0.6, q);
     this.group.add(this.sparks.mesh, this.smoke.mesh);
     scene.add(this.group);
+    this.group.add(this.panels.mesh);
 
     // shockwave rings
     for (let i = 0; i < 10; i++) {
@@ -309,6 +312,29 @@ export class Effects {
     this.sparks.emit({ pos, count: 10, speed: [2, 6], size: [0.08, 0.12], life: [0.25, 0.4], color: 0xffffff, color2: color, intensity: 2.6, drag: 3 });
   }
 
+  parry(pos: THREE.Vector3, dir: THREE.Vector3, color: number) {
+    this.ring(pos, dir, 0xe7ffff, 0.15, 1.7, 0.18, 0.9);
+    this.ring(pos, dir, color, 0.35, 1.2, 0.32, 0.55);
+    this.sparks.emit({ pos, count: 26, dir, cone: 0.2, speed: [5, 12], size: [0.04, 0.07], life: [0.12, 0.3], color: 0xffffff, color2: color, intensity: 4, stretch: 0.08, drag: 3 });
+    this.lightFlash(pos, color, 18, 0.12);
+  }
+
+  guardBreak(pos: THREE.Vector3, color = 0xff6550) {
+    this.panels.burst(pos, color, 18, 0.22);
+    this.ring(pos, UP, color, 0.3, 2, 0.24, 0.7);
+    this.sparks.emit({ pos, count: 28, speed: [4, 10], size: [0.04, 0.08], life: [0.2, 0.4], color: 0xffffff, color2: color, intensity: 3, stretch: 0.06, gravity: 8 });
+  }
+
+  chargeGlint(pos: THREE.Vector3, color: number) {
+    this.sparks.emit({ pos, count: 1, size: [0.75, 0.75], life: [0.16, 0.16], color: 0xffffff, color2: color, intensity: 4, grow: 0.15 });
+    this.ring(pos, new THREE.Vector3(0, 0.2, 1).normalize(), color, 0.6, 0.08, 0.3, 0.7);
+  }
+
+  chargeWarning(pos: THREE.Vector3, dir: THREE.Vector3) {
+    this.ring(pos, dir, 0xff4433, 0.85, 0.3, 0.24, 0.8);
+    this.sparks.emit({ pos, count: 1, size: [0.65, 0.7], life: [0.12, 0.16], color: 0xff5533, intensity: 3, grow: 0.3 });
+  }
+
   /* --------------------------------------------------------------- live entities */
 
   syncProjectiles(list: Projectile[], dt: number) {
@@ -476,6 +502,7 @@ export class Effects {
 
   update(dt: number) {
     this.time += dt;
+    this.panels.update(dt);
     this.sparks.update(dt);
     this.smoke.update(dt);
     for (const r of this.rings) {
@@ -555,13 +582,14 @@ export class Effects {
   }
 
   clear() {
+    this.panels.clear();
     this.sparks.clear();
     this.smoke.clear();
-    for (const [, v] of this.projViews) this.group.remove(v.core, v.halo);
+    for (const [, v] of this.projViews) { this.group.remove(v.core, v.halo); this.projPool.push({core:v.core,halo:v.halo}); }
     this.projViews.clear();
-    for (const [, g] of this.bombViews) this.group.remove(g);
+    for (const [, g] of this.bombViews) { this.group.remove(g); ((g.children[2] as THREE.Mesh).material as THREE.Material).dispose(); }
     this.bombViews.clear();
-    for (const [, v] of this.podViews) this.group.remove(v.g);
+    for (const [, v] of this.podViews) { this.group.remove(v.g); Effects.disposeGeometries(v.g); (v.light.material as THREE.Material).dispose(); }
     this.podViews.clear();
   }
 
@@ -573,6 +601,15 @@ export class Effects {
     for (const m of this.coreMats.values()) m.dispose();
     for (const m of this.haloMats.values()) m.dispose();
     for (const list of this.ghosts.values()) for (const g of list) { g.mat.dispose(); g.snapshot.geometry.dispose(); }
+    this.panels.dispose();
+    this.coreGeo.dispose(); this.ringGeo.dispose();
+    Object.values(this.bombGeo).forEach(g => g.dispose());
+    this.bombShellMat.dispose(); this.bombBandMats.forEach(m => m.dispose());
+    const decalGeos = new Set<THREE.BufferGeometry>();
+    for (const d of this.decals) { decalGeos.add(d.mesh.geometry); (d.mesh.material as THREE.Material).dispose(); }
+    decalGeos.forEach(g => g.dispose());
+    for (const r of this.rings) (r.mesh.material as THREE.Material).dispose();
+    this.chunkMesh.geometry.dispose(); (this.chunkMesh.material as THREE.Material).dispose();
     this.chunkMesh.dispose();
   }
 }

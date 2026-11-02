@@ -1,3 +1,4 @@
+import { landingMaterial } from './combatDetails';
 import * as THREE from 'three';
 import type { World, Crate, Trap, Pickup, FireZone, Bomb } from '../game/world';
 import { CRATE, TRAP, PICKUP } from '../game/tactics';
@@ -38,13 +39,13 @@ export class TacticsView {
   private markers = new Map<number, THREE.Mesh>();
   private crateMat: THREE.MeshStandardMaterial;
   private stripeMat: THREE.MeshStandardMaterial;
-  private markerGeo = new THREE.RingGeometry(0.82, 1, 40);
+  private markerGeo = new THREE.PlaneGeometry(2, 2);
   private time = 0;
 
   constructor(private world: World, private fx: Effects, scene: THREE.Scene) {
     scene.add(this.group);
     const pm = panelMaps(31, 512, 1);
-    this.crateMat = new THREE.MeshStandardMaterial({ color: 0x5a6270, metalness: 0.55, roughness: 0.5, normalMap: pm.normal, roughnessMap: pm.rough, normalScale: new THREE.Vector2(0.6, 0.6) });
+    this.crateMat = new THREE.MeshStandardMaterial({ color: 0x5a6270, metalness: 0.55, roughness: 0.5, normalMap: pm.normal, roughnessMap: pm.rough, normalScale: new THREE.Vector2(0.15, 0.15) });
     this.stripeMat = new THREE.MeshStandardMaterial({ map: stripeTexture(), metalness: 0.3, roughness: 0.6 });
     for (const c of world.crates) this.makeCrate(c);
     for (const t of world.traps) this.makePad(t);
@@ -70,7 +71,7 @@ export class TacticsView {
 
   private makePad(trap: Trap) {
     const R = TRAP.radius;
-    const ring = new THREE.Mesh(new THREE.RingGeometry(R * 0.9, R, 64), new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide }));
+    const ring = new THREE.Mesh(new THREE.RingGeometry(R * 0.975, R, 64), new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide }));
     ring.rotation.x = -Math.PI / 2;
     ring.position.copy(trap.pos).add(new THREE.Vector3(0, 0.03, 0));
     const disc = new THREE.Mesh(new THREE.CircleGeometry(R * 0.9, 48), new THREE.MeshBasicMaterial({ color: 0xffd23a, transparent: true, opacity: 0.08, depthWrite: false, blending: THREE.AdditiveBlending }));
@@ -100,8 +101,10 @@ export class TacticsView {
     const g = this.crates.get(c.id);
     if (!g) return;
     const center = c.pos.clone().add(new THREE.Vector3(0, CRATE.size / 2, 0));
-    this.fx.explosion(center, 1.6, 0xffa040, false, true);
-    this.fx.debris(center, 16, 9);
+    this.fx.panels.burst(center, 0x8b959f, 14, 0.45);
+    this.fx.sparks.emit({ pos: center, count: 20, speed: [3, 7], size: [0.04, 0.08], life: [0.2, 0.5], color: 0xffd693, intensity: 2.5, gravity: 10 });
+    this.fx.smoke.emit({ pos: center, count: 7, speed: [1, 3], size: [0.3, 0.5], grow: 2, life: [0.4, 0.8], color: 0x5b626a, alpha: 0.3 });
+    g.traverse(o => { const mesh = o as THREE.Mesh; if (mesh.isMesh) mesh.geometry.dispose(); });
     this.group.remove(g);
     this.crates.delete(c.id);
   }
@@ -121,8 +124,7 @@ export class TacticsView {
         g.userData.shake = sh - dt;
         g.position.set(c!.pos.x + (Math.random() - 0.5) * sh, c!.pos.y, c!.pos.z + (Math.random() - 0.5) * sh);
       }
-      // damaged crates darken
-      if (c) this.crateMat.needsUpdate = false;
+      if (c && sh <= 0) g.position.copy(c.pos);
     }
     // pads & switches
     for (const p of this.pads) {
@@ -139,21 +141,21 @@ export class TacticsView {
         ringMat.color.set(0xff3b3b);
         ringMat.opacity = 0.6 + pulse * 0.4;
         discMat.color.set(0xff3b3b);
-        discMat.opacity = 0.12 + pulse * 0.2;
+        discMat.opacity = 0.04 + pulse * 0.06;
         coreMat.emissive.set(0xff3b3b);
         coreMat.emissiveIntensity = 6;
         p.column.visible = false;
         if (Math.random() < 0.5) this.fx.sparks.emit({ pos: p.trap.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 3, 0.1, (Math.random() - 0.5) * 3)), count: 1, vel: new THREE.Vector3(0, 3, 0), size: [0.08, 0.12], life: [0.2, 0.4], color: 0xffd23a, intensity: 3 });
       } else if (st === 2) {
         p.column.visible = true;
-        colMat.opacity = 0.55 + Math.random() * 0.3;
+        colMat.opacity = 0.12 + Math.random() * 0.08;
         p.column.scale.set(1, 1 + Math.random() * 0.2, 1);
         ringMat.opacity = 1;
       } else {
         p.column.visible = false;
         ringMat.color.set(ready ? 0xffd23a : 0x55565c);
-        ringMat.opacity = ready ? 0.45 + Math.sin(this.time * 2) * 0.1 : 0.25;
-        discMat.opacity = ready ? 0.06 : 0.02;
+        ringMat.opacity = ready ? 0.3 + Math.sin(this.time * 2) * 0.06 : 0.15;
+        discMat.opacity = ready ? 0.025 : 0.01;
         coreMat.emissive.set(ready ? 0xffd23a : 0x333333);
         coreMat.emissiveIntensity = ready ? 3 : 0.4;
       }
@@ -166,9 +168,9 @@ export class TacticsView {
       if (!g) {
         g = new THREE.Group();
         const col = PICKUP_COLOR[pk.kind];
-        const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.42, 1), new THREE.MeshStandardMaterial({ color: 0x0b0b0b, emissive: col, emissiveIntensity: 4, metalness: 0.2, roughness: 0.2, flatShading: true }));
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.75, 0.04, 8, 48), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(3) }));
-        const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.5, 6, 16, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(1.5), transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+        const core = new THREE.Mesh(pk.kind === 'shield' ? new THREE.IcosahedronGeometry(0.42, 1) : pk.kind === 'overdrive' ? new THREE.OctahedronGeometry(0.48) : new THREE.ConeGeometry(0.3, 0.8, 3), new THREE.MeshStandardMaterial({ color: 0x0b0b0b, emissive: col, emissiveIntensity: 1.8, metalness: 0.2, roughness: 0.2, flatShading: true }));
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.018, 6, 40), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(3) }));
+        const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.5, 6, 16, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(1.5), transparent: true, opacity: 0.08, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
         beam.position.y = 3;
         g.add(core, ring, beam);
         g.position.copy(pk.pos);
@@ -224,10 +226,10 @@ export class TacticsView {
       if (!m) m = this.makeMarker(b);
       const flight = b.def.flightTime;
       const k = Math.min(1, b.age / flight);
-      const r = b.def.blastRadius * (1.4 - 0.4 * k);
+      const r = b.def.blastRadius;
       m.scale.setScalar(r);
       m.position.set(b.target.x, b.target.y + 0.04, b.target.z);
-      (m.material as THREE.MeshBasicMaterial).opacity = 0.35 + 0.5 * k * (0.6 + 0.4 * Math.sin(this.time * 25));
+      (m.material as THREE.ShaderMaterial).uniforms.progress.value = k;
       m.visible = b.def.model !== 'bouncer' || b.bounces === b.def.bounces;
     }
     for (const [id, m] of this.markers) if (!seenB.has(id)) {
@@ -248,7 +250,7 @@ export class TacticsView {
   }
 
   private makeMarker(b: Bomb) {
-    const m = new THREE.Mesh(this.markerGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(b.def.color).multiplyScalar(2), transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide }));
+    const m = new THREE.Mesh(this.markerGeo, landingMaterial(b.owner === 1));
     m.rotation.x = -Math.PI / 2;
     m.renderOrder = 3;
     this.group.add(m);
@@ -258,8 +260,15 @@ export class TacticsView {
 
   dispose() {
     this.group.parent?.remove(this.group);
-    this.crateMat.dispose();
-    this.stripeMat.dispose();
-    this.markerGeo.dispose();
+    const geometries = new Set<THREE.BufferGeometry>([this.markerGeo]);
+    const materials = new Set<THREE.Material>([this.crateMat, this.stripeMat]);
+    this.group.traverse(o => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      geometries.add(mesh.geometry);
+      for (const mat of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) materials.add(mat);
+    });
+    geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose());
+    this.group.clear(); this.crates.clear(); this.pickups.clear(); this.fires.clear(); this.markers.clear();
   }
 }
