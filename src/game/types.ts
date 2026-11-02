@@ -9,6 +9,8 @@ export interface MatchConfig {
   ladderIndex?: number;
   /** Round length in seconds. */
   timeLimit?: number;
+  /** Pick-ups mode (power-ups spawn mid-arena). */
+  pickups?: boolean;
 }
 
 export interface MatchStats {

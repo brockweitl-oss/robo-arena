@@ -44,6 +44,7 @@ export class AIPilot {
   private input = emptyInput();
   private rng: () => number;
   private openingDelay = -1;
+  private wasHolding = false;
 
   constructor(personality: AIPersonality, readonly skill: number, seed = 7) {
     this.p = PROFILES[personality];
@@ -76,7 +77,10 @@ export class AIPilot {
       this.strafeT = 0.8 + r() * 1.8;
       if (r() < 0.55) this.strafeDir *= -1;
     }
-    const range = this.p.range * (foe.mode === 'down' || foe.mode === 'getup' ? 0.8 : 1);
+    // fight at the gun's best range (scatter close, rail/beam long), blended with personality
+    const g = me.lo.gun.model;
+    const gunRange = g === 'scatter' ? 5 : g === 'rail' || g === 'beam' ? 14 : g === 'homer' ? 11 : this.p.range;
+    const range = (this.p.range * 0.4 + gunRange * 0.6) * (foe.mode === 'down' || foe.mode === 'getup' ? 0.8 : 1);
     let fwd = 0;
     if (dist > range + 2.5) fwd = 1;
     else if (dist < range - 2.5) fwd = -0.9;
@@ -100,6 +104,30 @@ export class AIPilot {
       if (!(hz.isWarning(t) || hz.isActive(t))) continue;
       const d = new THREE.Vector3(me.pos.x - hz.center.x, 0, me.pos.z - hz.center.z);
       if (d.length() < hz.radius + 1.5) move.addScaledVector(d.normalize(), 1.5);
+    }
+    // avoid burning ground and armed traps
+    for (const z of world.fires) {
+      const d = new THREE.Vector3(me.pos.x - z.pos.x, 0, me.pos.z - z.pos.z);
+      if (d.length() < z.radius + 1) move.addScaledVector(d.normalize(), 1.4);
+    }
+    for (const tr of world.traps) {
+      if (world.trapState(tr) === 0) continue;
+      const d = new THREE.Vector3(me.pos.x - tr.pos.x, 0, me.pos.z - tr.pos.z);
+      if (d.length() < 3) move.addScaledVector(d.normalize(), 1.6);
+    }
+    // spring a trap when the foe stands on its pad and the switch is close
+    for (const tr of world.traps) {
+      if (world.trapState(tr) !== 0 || t < tr.readyAt) continue;
+      const foeOn = Math.hypot(foe.pos.x - tr.pos.x, foe.pos.z - tr.pos.z) < 2;
+      const meOn = Math.hypot(me.pos.x - tr.pos.x, me.pos.z - tr.pos.z) < 2.6;
+      const toSw = new THREE.Vector3(tr.sw.x - me.pos.x, 0, tr.sw.z - me.pos.z);
+      if (foeOn && !meOn && toSw.length() < 7 && r() < 0.5 + this.skill * 0.4) move.copy(toSw.normalize());
+    }
+    // contest pick-ups
+    for (const pk of world.pickups) {
+      const mine = me.pos.distanceTo(pk.pos);
+      const theirs = foe.pos.distanceTo(pk.pos);
+      if (mine < theirs + 2 && mine < 16) move.lerp(new THREE.Vector3(pk.pos.x - me.pos.x, 0, pk.pos.z - me.pos.z).normalize(), 0.75);
     }
     // flee incoming bombs
     for (const b of world.bombs) {
@@ -132,6 +160,12 @@ export class AIPilot {
       const tti = closing / pr.vel.length();
       if (tti > 0.45 || tti < this.reaction * 0.5) continue;
       this.seenProj.add(pr.id);
+      // guard / parry frontal shots with the charge
+      const front = (-pr.vel.x * Math.sin(me.yaw) - pr.vel.z * Math.cos(me.yaw)) / (Math.hypot(pr.vel.x, pr.vel.z) || 1) > 0.5;
+      if (front && me.chargeCd <= 0 && me.canAct && r() < this.p.dodge * 0.3 * this.skill) {
+        inp.chargePressed = true;
+        continue;
+      }
       if (r() < this.p.dodge * (0.35 + this.skill * 0.65)) {
         const perp = new THREE.Vector3(-pr.vel.z, 0, pr.vel.x).normalize().multiplyScalar(r() < 0.5 ? 1 : -1);
         inp.moveX = perp.x;
@@ -153,7 +187,7 @@ export class AIPilot {
     if (this.openingDelay < 0) this.openingDelay = 0.5 + r() * 1.2;
     if (this.decideT <= 0 && canHit && t > this.openingDelay) {
       this.decideT = THREE.MathUtils.lerp(0.65, 0.32, this.skill) + r() * 0.3;
-      if (los && dist < 28 && me.gunCd <= 0 && r() < this.p.gunRate) this.holdGun = 0.15;
+      if (los && dist < 28 && me.gunCd <= 0 && r() < this.p.gunRate) this.holdGun = me.lo.gun.holdMax ? 0.35 + r() * 0.8 : 0.15;
       if (me.bombCd <= 0 && dist > 4 && r() < this.p.bombRate * (los ? 0.45 : 1)) inp.bombPressed = true;
       if (me.podCd <= 0 && dist > 6 && r() < this.p.podRate * 0.5) inp.podPressed = true;
       // punish recovery / close range with the charge
@@ -161,10 +195,13 @@ export class AIPilot {
       if (me.chargeCd <= 0 && dist < 6 && (punish || r() < this.p.chargeRate * 0.35) && Math.abs(foe.pos.y - me.pos.y) < 1.5) inp.chargePressed = true;
     }
     this.holdGun -= dt;
-    inp.gunPressed = this.holdGun > 0 && this.holdGun > 0.13;
+    inp.gunPressed = this.holdGun > 0 && !this.wasHolding;
+    this.wasHolding = this.holdGun > 0;
+    // wake-up attack when the foe crowds the get-up
+    if (me.mode === 'getup' && dist < 4.5 && r() < 0.08 * this.skill) inp.chargePressed = true;
     inp.gunHeld = this.holdGun > 0;
     // dash in to close distance for rushers
-    if (dist > range + 6 && me.dashCd <= 0 && r() < this.p.aggression * 0.03) {
+    if (dist > range + 6 && me.canDash && r() < this.p.aggression * 0.03) {
       inp.dashPressed = true;
       inp.moveX = toN.x;
       inp.moveZ = toN.z;

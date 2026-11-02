@@ -6,7 +6,7 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 let errs = 0;
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') { errs++; console.log(`[${m.type()}]`, m.text()); } });
 page.on('pageerror', (e) => { errs++; console.log('[pageerror]', e.message); });
-await page.goto(`http://localhost:5173/index.html?quick=${rival}&arena=${arena}&autoplay=1&time=${time}`);
+await page.goto(`http://127.0.0.1:5317/index.html?quick=${rival}&arena=${arena}&autoplay=1&time=${time}`);
 let i = 0, lastPhase = '', minFps = 999;
 const t0 = Date.now();
 while (Date.now() - t0 < (+time + 25) * 1000) {

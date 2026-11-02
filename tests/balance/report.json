@@ -1,0 +1,105 @@
+{
+  "n": 200,
+  "field": 2000,
+  "seconds": 40.811,
+  "report": {
+    "gun": {
+      "pulse": {
+        "vsDefault": 0.505,
+        "field": 0.5405405405405406
+      },
+      "scatter": {
+        "vsDefault": 0.375,
+        "field": 0.5313953488372093
+      },
+      "rail": {
+        "vsDefault": 0.65,
+        "field": 0.45995145631067963
+      },
+      "beam": {
+        "vsDefault": 0.505,
+        "field": 0.41331658291457285
+      },
+      "homer": {
+        "vsDefault": 0.54,
+        "field": 0.5585464333781965
+      }
+    },
+    "bomb": {
+      "mortar": {
+        "vsDefault": 0.505,
+        "field": 0.5645004849660524
+      },
+      "cluster": {
+        "vsDefault": 0.475,
+        "field": 0.4888673765730881
+      },
+      "napalm": {
+        "vsDefault": 0.36,
+        "field": 0.41119483315392896
+      },
+      "bouncer": {
+        "vsDefault": 0.54,
+        "field": 0.5273088381330685
+      }
+    },
+    "pod": {
+      "seeker": {
+        "vsDefault": 0.505,
+        "field": 0.4599033816425121
+      },
+      "mine": {
+        "vsDefault": 0.545,
+        "field": 0.5102880658436214
+      },
+      "turret": {
+        "vsDefault": 0.385,
+        "field": 0.4396378269617706
+      },
+      "interceptor": {
+        "vsDefault": 0.555,
+        "field": 0.5915915915915916
+      }
+    },
+    "body": {
+      "striker": {
+        "vsDefault": 0.505,
+        "field": 0.49950932286555444
+      },
+      "ironclad": {
+        "vsDefault": 0.545,
+        "field": 0.5404858299595142
+      },
+      "wisp": {
+        "vsDefault": 0.57,
+        "field": 0.45445344129554655
+      },
+      "regent": {
+        "vsDefault": 0.625,
+        "field": 0.5054726368159204
+      }
+    },
+    "legs": {
+      "stride": {
+        "vsDefault": 0.505,
+        "field": 0.532
+      },
+      "hopper": {
+        "vsDefault": 0.465,
+        "field": 0.5323383084577115
+      },
+      "sprint": {
+        "vsDefault": 0.61,
+        "field": 0.5457788347205708
+      },
+      "anchor": {
+        "vsDefault": 0.375,
+        "field": 0.39659367396593675
+      },
+      "feather": {
+        "vsDefault": 0.495,
+        "field": 0.4955300127713921
+      }
+    }
+  }
+}

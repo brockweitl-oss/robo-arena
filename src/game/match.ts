@@ -14,6 +14,7 @@ import { World, SIM_DT, type GameEvent } from './world';
 import { AIPilot } from './ai';
 import { ChaseCamera } from './camera';
 import { Effects } from '../vfx/effects';
+import { TacticsView } from '../vfx/tacticsView';
 import { audio, type LoopHandle } from '../audio/audio';
 import type { MatchConfig, MatchResult } from './types';
 import { groundHeightBelow, segmentHit } from './collision';
@@ -107,6 +108,7 @@ export class Match {
   readonly world: World;
   readonly cam: ChaseCamera;
   readonly fx: Effects;
+  private tactics!: TacticsView;
   private sides: [Side, Side];
   private ai: AIPilot;
   /** Testing: an AI also drives the player (?autoplay). */
@@ -137,7 +139,7 @@ export class Match {
     used: { jump: 0, airjump: 0, dash: 0, airdash: 0, fire: 0, bomb: 0, pod: 0, charge: 0 } as Record<string, number>,
     dmgTaken: {} as Record<string, number>,
     dmgDealt: {} as Record<string, number>,
-    deflects: 0, hitsTaken: 0, hitsDealt: 0, kdTaken: 0, kdDealt: 0, hazardHits: 0, dodges: 0, pauses: 0,
+    deflects: 0, parries: 0, confirms: 0, hitsTaken: 0, hitsDealt: 0, kdTaken: 0, kdDealt: 0, hazardHits: 0, dodges: 0, pauses: 0,
     airT: 0, hoverT: 0, lockT: 0, fightT: 0,
     distSum: 0, distN: 0, dist: [0, 0, 0, 0] as number[],
     fpsMin: 999, fpsSum: 0, fpsN: 0, fpsAcc: 0, fpsFrames: 0,
@@ -161,7 +163,7 @@ export class Match {
     const rLo = resolveLoadout(rival.loadout);
     const pf = new Fighter(0, pLo);
     const rf = new Fighter(1, rLo);
-    this.world = new World(this.arena, pf, rf);
+    this.world = new World(this.arena, pf, rf, { arenaId: cfg.arenaId, pickups: !!cfg.pickups, seed: 1 + Math.floor(Math.random() * 1e9) });
     this.ai = new AIPilot(rival.ai, rival.skill, 1 + Math.floor(Math.random() * 2147483000));
     // AI handicaps: softer tracking and range-based aim error keep shots dodgeable
     rf.homingMul = 0.5;
@@ -203,6 +205,7 @@ export class Match {
     this.sides = [mkSide(pf, pLo, PLAYER_PAINT, sp0, sp1), mkSide(rf, rLo, rival.paint, sp1, sp0)];
     this.cam.snapBehind(sp0, sp1);
     this.hazardWarned = this.arena.hazards.map(() => false);
+    this.tactics = new TacticsView(this.world, this.fx, s);
 
     host.hud.setup(pf, rf, [PLAYER_ROBOT_NAME, 'YOU', rival.robotName, rival.pilot], host.input.lastDevice === 'pad');
     host.hud.damageNumbers = host.settings.damageNumbers;
@@ -308,6 +311,7 @@ export class Match {
     this.fx.syncProjectiles(this.world.projectiles, dt);
     this.fx.syncBombs(this.world.bombs, dt);
     this.fx.syncPods(this.world.pods, dt);
+    this.tactics.update(dt);
     this.fx.update(dt);
 
     const pf = this.player.fighter;
@@ -330,7 +334,20 @@ export class Match {
     const H = host.hud.el.clientHeight;
     const camDir = cam.getWorldDirection(new THREE.Vector3());
     const behind = lp.clone().sub(cam.position).dot(camDir) < 0;
-    host.hud.update(dtReal, [pf, rf], this.timeLeft, { x: (proj.x * 0.5 + 0.5) * W, y: (-proj.y * 0.5 + 0.5) * H, on: this.phase === 'fight' && rf.alive, behind }, this.hardLock);
+    // off-screen threats: enemy bombs and pods that are not visible
+    const threats: { x: number; y: number; behind: boolean; color: string }[] = [];
+    if (this.phase === 'fight') {
+      const add = (p: THREE.Vector3, color: number) => {
+        const v = p.clone().project(cam);
+        const bh = p.clone().sub(cam.position).dot(camDir) < 0;
+        const sx = (v.x * 0.5 + 0.5) * W;
+        const sy = (-v.y * 0.5 + 0.5) * H;
+        if (bh || sx < 0 || sx > W || sy < 0 || sy > H) threats.push({ x: sx, y: sy, behind: bh, color: '#' + new THREE.Color(color).getHexString() });
+      };
+      for (const b of this.world.bombs) if (b.owner === 1) add(b.target, b.def.color);
+      for (const p of this.world.pods) if (p.owner === 1 && p.pos.distanceTo(pf.pos) < 14) add(p.pos, p.def.color);
+    }
+    host.hud.update(dtReal, [pf, rf], this.timeLeft, { x: (proj.x * 0.5 + 0.5) * W, y: (-proj.y * 0.5 + 0.5) * H, on: this.phase === 'fight' && rf.alive, behind }, this.hardLock, threats);
     if (this.phase === 'fight') this.telFrame(dtReal, pf, rf);
     if (this.phase === 'fight' && pf.hp / pf.maxHp < 0.25) {
       this.lowHpT -= dtReal;
@@ -399,6 +416,7 @@ export class Match {
       this.fx.dashTrail(f.pos, f.vel, s.paint.glow);
     } else s.ghostT = 0;
     m.setPodReady(f.podCd <= 0);
+    (m as unknown as { setDamage?: (f: number) => void }).setDamage?.(f.hp / f.maxHp);
     // charge guard shield
     const sh = s.shield;
     const on = f.guarding ? 1 : 0;
@@ -518,7 +536,7 @@ export class Match {
           this.shotYaw = this.clearShot(c, Math.atan2(cp.x - c.x, cp.z - c.z), 4.2, 2.0);
         }
         const y = this.shotYaw;
-        this.cam.cine = { pos: c.clone().add(new THREE.Vector3(Math.sin(y) * 4.2, 2.0, Math.cos(y) * 4.2)), look: c.clone().add(new THREE.Vector3(0, 0.8, 0)), k: 3 };
+        this.cam.cine = { pos: c.clone().add(new THREE.Vector3(Math.sin(y) * this.shotDist, this.shotH, Math.cos(y) * this.shotDist)), look: c.clone().add(new THREE.Vector3(0, 0.8, 0)), k: 3 };
       }
       if (t > 1.8 && lf.grounded && lf.mode === 'down') {
         lf.setMode('defeat');
@@ -535,7 +553,7 @@ export class Match {
       const c = w.model.root.position;
       if (this.shotYaw === null) this.shotYaw = this.clearShot(c, w.fighter.yaw + 0.5, 3.4, 1.5);
       const yaw = this.shotYaw + Math.sin(t * 0.4) * 0.12;
-      this.cam.cine = { pos: c.clone().add(new THREE.Vector3(Math.sin(yaw) * 3.4, 1.5, Math.cos(yaw) * 3.4)), look: c.clone().add(new THREE.Vector3(0, 1.1, 0)), k: t < 0.1 ? 8 : 3 };
+      this.cam.cine = { pos: c.clone().add(new THREE.Vector3(Math.sin(yaw) * this.shotDist, this.shotH, Math.cos(yaw) * this.shotDist)), look: c.clone().add(new THREE.Vector3(0, 1.1, 0)), k: t < 0.1 ? 8 : 3 };
       if (t > 3.6) this.end({});
     }
   }
@@ -578,14 +596,27 @@ export class Match {
   }
 
   /** Find a camera yaw around `c` whose view line is not blocked by cover. */
+  private shotDist = 0;
+  private shotH = 0;
+
   private clearShot(c: THREE.Vector3, prefer: number, dist: number, h: number) {
     const look = c.clone().add(new THREE.Vector3(0, 1, 0));
-    for (let k = 0; k < 12; k++) {
-      const y = prefer + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.5;
-      const p = c.clone().add(new THREE.Vector3(Math.sin(y) * dist, h, Math.cos(y) * dist));
-      if (Math.abs(p.x) > this.arena.halfX + 2 || Math.abs(p.z) > this.arena.halfZ + 2) continue;
-      if (!segmentHit(look, p, this.arena.colliders)) return y;
+    // try progressively closer / higher framings until one has a clear line of sight
+    for (const [dk, hk] of [[1, 0], [0.75, 0.8], [0.55, 1.8], [0.45, 3]] as [number, number][]) {
+      for (let k = 0; k < 12; k++) {
+        const y = prefer + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.5;
+        const d = dist * dk;
+        const p = c.clone().add(new THREE.Vector3(Math.sin(y) * d, h + hk, Math.cos(y) * d));
+        if (Math.abs(p.x) > this.arena.halfX + 2 || Math.abs(p.z) > this.arena.halfZ + 2) continue;
+        if (!segmentHit(look, p, this.arena.colliders)) {
+          this.shotDist = d;
+          this.shotH = h + hk;
+          return y;
+        }
+      }
     }
+    this.shotDist = dist * 0.5;
+    this.shotH = h + 3;
     return prefer;
   }
 
@@ -687,7 +718,7 @@ export class Match {
       outcome: o.quit ? 'quit' : o.restart ? 'restart' : this.winner < 0 ? 'draw' : this.winner === 0 ? 'win' : 'lose',
       finish: this.finish, fightTime: r1(this.fightTime), playerHp: Math.round(p.hp), playerMaxHp: p.maxHp, rivalHp: Math.round(r.hp), rivalMaxHp: r.maxHp,
       used: T.used, dmgDealtBy: T.dmgDealt, dmgTakenBy: T.dmgTaken, hitsDealt: T.hitsDealt, hitsTaken: T.hitsTaken,
-      kdDealt: T.kdDealt, kdTaken: T.kdTaken, hazardHits: T.hazardHits, dodges: T.dodges, deflects: T.deflects, pauses: T.pauses,
+      kdDealt: T.kdDealt, kdTaken: T.kdTaken, hazardHits: T.hazardHits, dodges: T.dodges, deflects: T.deflects, parries: T.parries, pauses: T.pauses,
       airPct: T.fightT ? r1((T.airT / T.fightT) * 100) : 0, hoverS: r1(T.hoverT), hardLockPct: T.fightT ? r1((T.lockT / T.fightT) * 100) : 0,
       avgDist: T.distN ? r1(T.distSum / T.distN) : 0, distSec: { '<5m': r1(T.dist[0]), '5-10m': r1(T.dist[1]), '10-16m': r1(T.dist[2]), '>16m': r1(T.dist[3]) },
       fpsAvg: T.fpsN ? r1(T.fpsSum / T.fpsN) : null, fpsMin: T.fpsN ? r1(T.fpsMin) : null, device: T.device,
@@ -769,6 +800,12 @@ export class Match {
             }
             case 'railCharge':
               audio.play('gun_rail_charge', { pos: f.pos });
+              if (!isP) {
+                // telegraph: bright glint at the enemy muzzle
+                s.model.root.updateMatrixWorld(true);
+                const gp = s.model.rig.muzzle.getWorldPosition(new THREE.Vector3());
+                fx.sparks.emit({ pos: gp, count: 1, size: [1.6, 2.0], life: [0.25, 0.3], color: 0xffffff, color2: f.lo.gun.color, intensity: 3 });
+              }
               break;
             case 'bomb': {
               audio.play('bomb_throw', { pos: f.pos });
@@ -785,11 +822,28 @@ export class Match {
               break;
             case 'chargeStart':
               audio.play('charge_windup', { pos: f.pos });
+              if (!isP) fx.ring(f.chestPoint(), new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), f.yaw), 0xff3b3b, 0.3, 2.4, 0.3, 1);
+              if (ev.wakeup) this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1, 0))), 'WAKE-UP!', 'tag');
               fx.sparks.emit({ pos: f.chestPoint(), count: 16, speed: [1, 3], size: [0.1, 0.16], life: [0.2, 0.35], color: s.paint.glow, intensity: 2.6, drag: 2 });
               break;
             case 'chargeLunge':
               audio.play('charge_swing', { pos: f.pos });
               fx.dashBurst(f.chestPoint(), new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)), s.paint.glow, f.grounded);
+              break;
+            case 'parry':
+              audio.play('shield_block', { pos: f.pos, pitch: 1.5 });
+              audio.play('hit_heavy', { pos: f.pos, volume: 0.6 });
+              fx.ring(f.chestPoint(), new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), f.yaw), 0xffffff, 0.3, 3, 0.35, 1);
+              fx.sparks.emit({ pos: f.chestPoint(), count: 30, speed: [6, 14], size: [0.06, 0.1], life: [0.2, 0.4], color: 0xffffff, color2: s.paint.glow, intensity: 3.5, stretch: 0.04, drag: 2 });
+              this.slowmo(0.3, 0.28);
+              if (isP) this.tel.parries++;
+              this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1.2, 0))), 'PARRY!', 'tag');
+              this.sides[e.who].shieldPulse = 1.5;
+              break;
+            case 'guardBreak':
+              audio.play('knockdown', { pos: f.pos, volume: 0.7, pitch: 1.3 });
+              fx.knockdownBurst(f.chestPoint(), 0xff3b3b);
+              this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1.2, 0))), 'GUARD BREAK', 'tag');
               break;
             case 'knockdown': {
               audio.play('knockdown', { pos: f.pos });
@@ -811,8 +865,50 @@ export class Match {
           }
           break;
         }
+        case 'fireStart':
+          audio.play('explosion_small', { pos: e.zone.pos, volume: 0.6, pitch: 0.8 });
+          break;
+        case 'intercept': {
+          // point-defense laser: streak of particles from drone to target
+          const n = 10;
+          for (let i = 0; i <= n; i++) {
+            const p = e.from.clone().lerp(e.to, i / n);
+            fx.sparks.emit({ pos: p, count: 1, size: [0.12, 0.16], life: [0.08, 0.12], color: 0x9cc8ff, intensity: 3 });
+          }
+          fx.impact(e.to, new THREE.Vector3(0, 1, 0), 0x7aa8ff, 0.5);
+          audio.play('gun_blaster', { pos: e.from, volume: 0.4, pitch: 1.8 });
+          break;
+        }
+        case 'turretShot':
+          fx.muzzle(e.pod.pos.clone().add(new THREE.Vector3(0, 0.35, 0)), e.proj.vel.clone().normalize(), e.pod.def.color, false);
+          audio.play('gun_blaster', { pos: e.pod.pos, volume: 0.5, pitch: 1.3 });
+          break;
+        case 'crateHit':
+          this.tactics.crateHit(e.crate);
+          break;
+        case 'crateBreak':
+          this.tactics.crateBreak(e.crate);
+          audio.play('explosion_small', { pos: e.crate.pos });
+          break;
+        case 'trapArm':
+          audio.play('hazard_warn', { pos: e.trap.pos });
+          if (e.by === 0) this.host.hud.popup(this.worldToScreen(e.trap.sw.clone()), 'TRAP ARMED', 'tag');
+          break;
+        case 'trapFire':
+          audio.play('hazard_zap', { pos: e.trap.pos });
+          fx.explosion(e.trap.pos.clone().add(new THREE.Vector3(0, 0.2, 0)), 2, 0xffd23a, false, true);
+          break;
+        case 'pickupSpawn':
+          audio.play('ui_unlock', { pos: e.pickup.pos, volume: 0.6 });
+          this.host.hud.popup(this.worldToScreen(e.pickup.pos.clone().add(new THREE.Vector3(0, 1.5, 0))), e.pickup.kind.toUpperCase(), 'tag');
+          break;
+        case 'pickupTake':
+          this.tactics.pickupTaken(e.pickup);
+          audio.play('getup', { pos: e.pickup.pos });
+          this.host.hud.popup(this.worldToScreen(e.pickup.pos.clone().add(new THREE.Vector3(0, 1.2, 0))), `${e.who === 0 ? '' : 'RIVAL '}${e.pickup.kind.toUpperCase()}!`, 'tag');
+          break;
         case 'impact':
-          fx.impact(e.pos, e.normal, e.color, e.proj.def.model === 'rail' ? 1.6 : 0.8);
+          fx.impact(e.pos, e.normal, e.color, e.proj.spec.look === 'rail' || e.proj.spec.look === 'beam' ? 1.6 : 0.8);
           audio.play('hit_light', { pos: e.pos, volume: 0.35, pitch: 1.3 });
           break;
         case 'explosion': {
@@ -841,6 +937,10 @@ export class Match {
           if (e.blocked) {
             audio.play('shield_block', { pos: e.pos });
             this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 1.1, 0))), 'BLOCK', 'tag');
+          }
+          if (e.attacker === 0 && !e.parried) {
+            this.host.hud.confirm(e.heavy);
+            audio.play('ui_move', { volume: e.heavy ? 0.9 : 0.6, pitch: e.heavy ? 1.6 : 2.2 });
           }
           if (isPV) this.host.hud.hurtFlash(e.heavy ? 0.4 : e.blocked ? 0.08 : 0.18);
           break;
@@ -900,6 +1000,7 @@ export class Match {
     }
     this.ambience?.stop();
     audio.setTimeScale(1);
+    this.tactics.dispose();
     this.fx.dispose();
     this.arena.dispose();
     this.host.input.enabled = false;

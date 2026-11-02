@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { ResolvedLoadout } from '../data/parts';
+import { deriveStats, type DerivedStats, type ResolvedLoadout } from '../data/parts';
 import type { AnimMode, AnimSource } from '../robot/animator';
 import { moveAndCollide } from './collision';
 import type { Collider } from '../arena/types';
@@ -32,13 +32,21 @@ export const HEIGHT = 2.0;
 export const PACE = 0.88;
 const BUFFER = 0.1;
 const COYOTE = 0.1;
-const DOWN_MAX = 100;
+/** Guard frames at the very start of a charge that count as a parry. */
+export const PARRY_WINDOW = 0.12;
+/** Bonus damage multiplier on the hit that causes a knockdown (combo finisher). */
+export const KNOCKDOWN_BONUS = 1.25;
+/** Below this HP fraction, bomb/pod cooldowns recover faster (comeback). */
+export const COMEBACK_HP = 0.25;
+export const COMEBACK_CD = 0.85;
+/** Hard landing threshold (m/s downward). */
+const HARD_LANDING = 13;
 
 export type FighterEvent =
-  | { type: 'jump' } | { type: 'airjump' } | { type: 'dash'; air: boolean } | { type: 'land'; speed: number }
+  | { type: 'jump' } | { type: 'airjump' } | { type: 'dash'; air: boolean } | { type: 'land'; speed: number; hard: boolean }
   | { type: 'fire'; index: number } | { type: 'railCharge' } | { type: 'bomb' } | { type: 'pod' }
-  | { type: 'chargeStart' } | { type: 'chargeLunge' } | { type: 'knockdown' } | { type: 'getup' }
-  | { type: 'hover'; on: boolean };
+  | { type: 'chargeStart'; wakeup: boolean } | { type: 'chargeLunge' } | { type: 'knockdown' } | { type: 'getup' }
+  | { type: 'parry' } | { type: 'guardBreak' } | { type: 'hover'; on: boolean };
 
 export interface HitInfo {
   damage: number;
@@ -48,17 +56,26 @@ export interface HitInfo {
   heavy: boolean;
   /** Launch upward (m/s), e.g. hazards. */
   launch?: number;
-  source: 'gun' | 'bomb' | 'pod' | 'charge' | 'hazard';
+  source: 'gun' | 'bomb' | 'pod' | 'charge' | 'hazard' | 'fire';
+  /** Direct bomb hit: breaks a guard instead of being blocked. */
+  guardBreak?: boolean;
+  /** Light damage-over-time: no flinch, no hit-stop. */
+  tick?: boolean;
 }
 
 export interface HitResult {
   applied: boolean;
   /** Absorbed by a charge guard (reduced damage, no flinch). */
   blocked?: boolean;
+  /** Perfect guard at the start of a charge: no damage at all. */
+  parried?: boolean;
+  guardBroken?: boolean;
   knockdown: boolean;
   ko: boolean;
   damage: number;
 }
+
+export type SpawnReq = { kind: 'shot'; index: number; air: boolean; power: number } | { kind: 'bomb' } | { kind: 'pod' };
 
 export class Fighter implements AnimSource {
   readonly pos = new THREE.Vector3();
@@ -73,6 +90,8 @@ export class Fighter implements AnimSource {
   aimWeight = 0;
   railCharge = 0;
   readonly dashDir = new THREE.Vector3(0, 0, 1);
+  /** Derived movement/defense stats for this loadout. */
+  readonly st: DerivedStats;
 
   hp: number;
   maxHp: number;
@@ -87,7 +106,10 @@ export class Fighter implements AnimSource {
   bombCd = 0;
   podCd = 0;
   chargeCd = 0;
+  /** Time until the next dash charge is restored (0 = full). */
   dashCd = 0;
+  dashCharges: number;
+  private dashGap = 0;
   private burstLeft = 0;
   private shotTimer = 0;
   private shotIndex = 0;
@@ -110,20 +132,29 @@ export class Fighter implements AnimSource {
   private groundCollider: Collider | null = null;
   private hazardCd = 0;
   private downGroundT = 0;
+  /** Hold-to-charge gun (beam): seconds held, -1 when not holding. */
+  private holdT = -1;
+  /** Hard-landing recovery remaining. */
+  landT = 0;
   dashIframe = 0;
+  private wakeup = false;
   /** AI handicaps (player = 1 / 0). */
   homingMul = 1;
   aimJitter = 0;
+  /** Pick-up buffs (seconds remaining) and shield HP. */
+  buffs = { overdrive: 0, speed: 0, shield: 0 };
 
   readonly events: FighterEvent[] = [];
   /** Requests for the world to spawn projectiles etc. */
-  readonly spawns: ({ kind: 'shot'; index: number } | { kind: 'bomb' } | { kind: 'pod' })[] = [];
+  readonly spawns: SpawnReq[] = [];
 
   // stats
-  stats = { damageDealt: 0, hits: 0, knockdowns: 0, shots: 0, dodges: 0 };
+  stats = { damageDealt: 0, hits: 0, knockdowns: 0, shots: 0, dodges: 0, parries: 0 };
 
   constructor(readonly id: number, readonly lo: ResolvedLoadout) {
-    this.maxHp = this.hp = lo.body.hp;
+    this.st = deriveStats(lo);
+    this.maxHp = this.hp = this.st.hp;
+    this.dashCharges = this.st.dashCharges;
     this.resetAir();
   }
 
@@ -131,7 +162,11 @@ export class Fighter implements AnimSource {
     return this.hp > 0;
   }
   get runSpeed() {
-    return this.lo.body.runSpeed * this.lo.legs.speedMul * PACE;
+    return this.st.runSpeed * PACE * (this.buffs.speed > 0 ? 1.15 : 1);
+  }
+  /** Down-gauge capacity. */
+  get endurance() {
+    return this.st.endurance;
   }
   /** Brief invulnerability at the start of a dash (perfect-dodge window). */
   get dodging() {
@@ -141,6 +176,13 @@ export class Fighter implements AnimSource {
   get guarding() {
     return this.mode === 'charge' && this.chargePhase < 2;
   }
+  /** First frames of the guard: a perfect parry. */
+  get parrying() {
+    return this.mode === 'charge' && this.chargePhase === 0 && this.modeTime < PARRY_WINDOW;
+  }
+  get canDash() {
+    return this.dashCharges > 0 && this.dashGap <= 0;
+  }
   get canAct() {
     return !this.locked && (this.mode === 'ground' || this.mode === 'air');
   }
@@ -148,12 +190,25 @@ export class Fighter implements AnimSource {
     return this.invuln > 0 || this.mode === 'down' || this.mode === 'getup';
   }
   get maxHover() {
-    return this.lo.body.hoverTime * this.lo.legs.hoverMul;
+    return this.st.hoverTime;
+  }
+  get lowHp() {
+    return this.hp / this.maxHp < COMEBACK_HP;
+  }
+  /** Damage multiplier for this fighter's attacks (pick-up overdrive). */
+  get damageMul() {
+    return this.buffs.overdrive > 0 ? 1.2 : 1;
+  }
+  /** Gun hold progress 0..1 (beam), for HUD/visuals. */
+  get holdFrac() {
+    const g = this.lo.gun;
+    if (!g.holdMax || this.holdT < 0) return 0;
+    return Math.min(1, this.holdT / g.holdMax);
   }
 
   private resetAir() {
-    this.airJumps = this.lo.legs.airJumps;
-    this.airDashes = this.lo.legs.airDashes;
+    this.airJumps = this.st.airJumps;
+    this.airDashes = this.st.airDashes;
     this.hoverFuel = this.maxHover;
   }
 
@@ -175,6 +230,17 @@ export class Fighter implements AnimSource {
     return out.set(this.pos.x + c * -0.42 + s * 0.55, this.pos.y + 1.3, this.pos.z - s * -0.42 + c * 0.55);
   }
 
+  private startCharge(yawToTarget: number, wake: boolean) {
+    this.bufCharge = 0;
+    this.setMode('charge');
+    this.chargePhase = 0;
+    this.chargeHit = false;
+    this.wakeup = wake;
+    this.yaw = yawToTarget;
+    this.holdT = -1;
+    this.events.push({ type: 'chargeStart', wakeup: wake });
+  }
+
   step(dt: number, inp: FighterInput, target: Fighter, colliders: Collider[], halfX: number, halfZ: number) {
     this.events.length = 0;
     this.spawns.length = 0;
@@ -184,7 +250,25 @@ export class Fighter implements AnimSource {
     }
     this.modeTime += dt;
     this.sinceHit += dt;
-    for (const k of ['gunCd', 'bombCd', 'podCd', 'chargeCd', 'dashCd', 'invuln', 'hazardCd'] as const) this[k] = Math.max(0, this[k] - dt);
+    // comeback: utility cooldowns recover faster at low HP
+    const cdRate = this.lowHp ? 1 / COMEBACK_CD : 1;
+    this.gunCd = Math.max(0, this.gunCd - dt);
+    this.bombCd = Math.max(0, this.bombCd - dt * cdRate);
+    this.podCd = Math.max(0, this.podCd - dt * cdRate);
+    this.chargeCd = Math.max(0, this.chargeCd - dt);
+    this.invuln = Math.max(0, this.invuln - dt);
+    this.hazardCd = Math.max(0, this.hazardCd - dt);
+    this.dashGap = Math.max(0, this.dashGap - dt);
+    this.landT = Math.max(0, this.landT - dt);
+    for (const k of ['overdrive', 'speed'] as const) this.buffs[k] = Math.max(0, this.buffs[k] - dt);
+    // dash charges refill one at a time
+    if (this.dashCharges < this.st.dashCharges) {
+      this.dashCd -= dt;
+      if (this.dashCd <= 0) {
+        this.dashCharges++;
+        this.dashCd = this.dashCharges < this.st.dashCharges ? this.dashRecharge() : 0;
+      }
+    } else this.dashCd = 0;
     this.fireSlowT = Math.max(0, this.fireSlowT - dt);
     this.dashIframe = Math.max(0, this.dashIframe - dt);
     this.bombLockT = Math.max(0, this.bombLockT - dt);
@@ -196,7 +280,7 @@ export class Fighter implements AnimSource {
     const buf = (b: number, pressed: boolean) => (live && pressed ? BUFFER : Math.max(0, b - dt));
     this.bufJump = buf(this.bufJump, inp.jumpPressed);
     this.bufDash = buf(this.bufDash, inp.dashPressed);
-    this.bufGun = buf(this.bufGun, inp.gunPressed || (inp.gunHeld && this.burstLeft === 0));
+    this.bufGun = buf(this.bufGun, inp.gunPressed || (inp.gunHeld && this.burstLeft === 0 && this.holdT < 0));
     this.bufBomb = buf(this.bufBomb, inp.bombPressed);
     this.bufPod = buf(this.bufPod, inp.podPressed);
     this.bufCharge = buf(this.bufCharge, inp.chargePressed);
@@ -206,13 +290,13 @@ export class Fighter implements AnimSource {
     const tgt = target.chestPoint();
     this.aimTarget = tgt;
     const toT = new THREE.Vector3(tgt.x - this.pos.x, 0, tgt.z - this.pos.z);
-    const distT = toT.length();
     const yawToTarget = Math.atan2(toT.x, toT.z);
 
     const moveLen = Math.min(1, Math.hypot(inp.moveX, inp.moveZ));
     const mv = new THREE.Vector3(inp.moveX, 0, inp.moveZ);
     if (moveLen > 0.001) mv.normalize();
     const controls = live && this.alive;
+    const gun = this.lo.gun;
 
     // ------------------------------------------------ state logic
     switch (this.mode) {
@@ -226,38 +310,36 @@ export class Fighter implements AnimSource {
           this.applyFriction(dt, grounded ? 40 : 2);
           break;
         }
+        const recovering = this.landT > 0 && grounded;
         // --- dash ---
-        if (this.bufDash > 0 && this.dashCd <= 0 && (grounded || this.airDashes > 0)) {
+        if (!recovering && this.bufDash > 0 && this.canDash && (grounded || this.airDashes > 0)) {
           this.bufDash = 0;
           const dir = moveLen > 0.2 ? mv.clone() : new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
           this.dashDir.copy(dir);
           const air = !grounded;
           if (air) this.airDashes--;
           this.setMode(air ? 'airdash' : 'dash');
-          const sp = this.lo.body.dashSpeed * this.lo.legs.dashMul * PACE;
+          const sp = this.st.dashSpeed * PACE;
           this.dashIframe = 0.16;
-          this.vel.set(dir.x * sp, air ? 0.5 : 0, dir.z * sp);
+          this.vel.set(dir.x * sp, air ? (this.st.dashStyle === 'flight' ? 2.5 : 0.5) : 0, dir.z * sp);
           if (inp.faceTarget || this.aimHold > 0) this.yaw = yawToTarget;
           else this.yaw = Math.atan2(dir.x, dir.z);
-          this.dashCd = 0.42;
+          if (this.dashCharges === this.st.dashCharges) this.dashCd = this.dashRecharge();
+          this.dashCharges--;
+          this.dashGap = this.st.dashTime + 0.08;
           this.events.push({ type: 'dash', air });
           break;
         }
-        // --- charge attack ---
-        if (this.bufCharge > 0 && this.chargeCd <= 0) {
-          this.bufCharge = 0;
-          this.setMode('charge');
-          this.chargePhase = 0;
-          this.chargeHit = false;
-          this.yaw = yawToTarget;
-          this.events.push({ type: 'chargeStart' });
+        // --- charge attack (also the guard) ---
+        if (this.bufCharge > 0 && this.chargeCd <= 0 && !recovering) {
+          this.startCharge(yawToTarget, false);
           break;
         }
         // --- jump / air jump ---
-        if (this.bufJump > 0) {
+        if (this.bufJump > 0 && !recovering) {
           if (grounded || this.coyote > 0) {
             this.bufJump = 0;
-            this.vel.y = this.lo.body.jumpVel * this.lo.legs.jumpMul;
+            this.vel.y = this.st.jumpVel;
             this.grounded = false;
             this.coyote = 0;
             this.setMode('air');
@@ -265,7 +347,7 @@ export class Fighter implements AnimSource {
           } else if (this.airJumps > 0) {
             this.bufJump = 0;
             this.airJumps--;
-            this.vel.y = this.lo.body.airJumpVel * this.lo.legs.jumpMul;
+            this.vel.y = this.st.airJumpVel;
             this.events.push({ type: 'airjump' });
           }
         }
@@ -275,12 +357,31 @@ export class Fighter implements AnimSource {
           this.hoverFuel -= dt;
         }
 
-        // --- weapons ---
-        const gun = this.lo.gun;
-        if (this.bufGun > 0 && this.gunCd <= 0 && this.burstLeft === 0) {
+        // --- gun ---
+        if (gun.holdMax) {
+          // hold-to-charge gun: press starts charging, release fires
+          if (this.holdT < 0 && this.bufGun > 0 && this.gunCd <= 0) {
+            this.bufGun = 0;
+            this.holdT = 0;
+            this.events.push({ type: 'railCharge' });
+          }
+          if (this.holdT >= 0) {
+            this.holdT += dt;
+            this.aimHold = Math.max(this.aimHold, 0.3);
+            this.railCharge = this.holdFrac;
+            const release = !inp.gunHeld && this.holdT >= (gun.holdMin ?? 0);
+            if (release || this.holdT >= gun.holdMax + 0.5) {
+              const power = (gun.holdMinFrac ?? 0.3) + (1 - (gun.holdMinFrac ?? 0.3)) * this.holdFrac;
+              this.fireShot(!grounded, power);
+              this.holdT = -1;
+              this.railCharge = 0;
+              this.gunCd = gun.cooldown;
+            }
+          }
+        } else if (this.bufGun > 0 && this.gunCd <= 0 && this.burstLeft === 0) {
           this.bufGun = 0;
           this.burstLeft = gun.burst;
-          this.shotTimer = gun.windup;
+          this.shotTimer = gun.windup * this.st.gunWindupMul;
           this.shotIndex = 0;
           if (gun.windup > 0) this.events.push({ type: 'railCharge' });
         }
@@ -304,7 +405,9 @@ export class Fighter implements AnimSource {
         let speedMul = 1;
         if (this.fireSlowT > 0 && grounded) speedMul = gun.groundSlow + (1 - gun.groundSlow) * 0.15;
         if (this.burstLeft > 0 && gun.windup > 0 && grounded) speedMul = Math.min(speedMul, 0.25);
+        if (this.holdT >= 0 && grounded) speedMul = Math.min(speedMul, 0.55);
         if (this.bombLockT > 0 && grounded) speedMul = Math.min(speedMul, 0.2);
+        if (recovering) speedMul = Math.min(speedMul, 0.2);
         const max = this.runSpeed * speedMul;
         if (grounded) {
           const accel = moveLen > 0.05 ? 95 : 75;
@@ -314,7 +417,7 @@ export class Fighter implements AnimSource {
           const cur = Math.hypot(this.vel.x, this.vel.z);
           if (moveLen > 0.05) {
             const lim = Math.max(airMax, cur * 0.985);
-            this.approachXZ(mv.x * lim * moveLen, mv.z * lim * moveLen, (this.hovering ? 34 : 26) * dt);
+            this.approachXZ(mv.x * lim * moveLen, mv.z * lim * moveLen, (this.hovering ? 34 : 26) * this.st.airControl * dt);
           } else this.applyFriction(dt, 3);
         }
         // --- facing ---
@@ -328,18 +431,22 @@ export class Fighter implements AnimSource {
       }
       case 'dash':
       case 'airdash': {
-        const dur = this.mode === 'dash' ? 0.26 : 0.24;
-        const sp = this.lo.body.dashSpeed * this.lo.legs.dashMul * PACE;
+        const style = this.st.dashStyle;
+        const dur = this.st.dashTime * (this.mode === 'airdash' ? 0.92 : 1);
+        const sp = this.st.dashSpeed * PACE;
         const t = this.modeTime / dur;
-        // hold speed then ease out at the end of the dash
-        const s = t < 0.65 ? sp : sp * (1 - (t - 0.65) / 0.35 * 0.55);
+        // speed profile per dash style
+        let s: number;
+        if (style === 'step') s = t < 0.5 ? sp * 1.05 : sp * (1 - (t - 0.5) / 0.5 * 0.85);
+        else if (style === 'glide') s = sp * (1 - t * 0.25);
+        else s = t < 0.65 ? sp : sp * (1 - ((t - 0.65) / 0.35) * 0.55);
         this.vel.x = this.dashDir.x * s;
         this.vel.z = this.dashDir.z * s;
-        if (this.mode === 'airdash') this.vel.y = Math.max(this.vel.y, -0.5);
-        // allow guns during dash (fires on exit) — keep buffers alive
+        if (this.mode === 'airdash') this.vel.y = style === 'flight' ? Math.max(this.vel.y, 0.8) : Math.max(this.vel.y, -0.5);
         if (this.modeTime >= dur) {
-          this.vel.x *= 0.5;
-          this.vel.z *= 0.5;
+          const carry = style === 'step' ? 0.2 : style === 'glide' ? 0.6 : 0.5;
+          this.vel.x *= carry;
+          this.vel.z *= carry;
           this.setMode(this.grounded ? 'ground' : 'air');
         }
         break;
@@ -350,7 +457,7 @@ export class Fighter implements AnimSource {
         if (this.chargePhase === 0) {
           this.applyFriction(dt, 60);
           if (!this.grounded) this.vel.y = Math.max(this.vel.y, -2);
-          if (this.modeTime >= ch.windup) {
+          if (this.modeTime >= ch.windup * (this.wakeup ? 0.7 : 1)) {
             this.chargePhase = 1;
             this.modeTime = 0;
             this.events.push({ type: 'chargeLunge' });
@@ -358,8 +465,9 @@ export class Fighter implements AnimSource {
         } else if (this.chargePhase === 1) {
           const fx = Math.sin(this.yaw);
           const fz = Math.cos(this.yaw);
-          this.vel.x = fx * ch.speed;
-          this.vel.z = fz * ch.speed;
+          const reach = this.wakeup ? 0.6 : 1;
+          this.vel.x = fx * ch.speed * reach;
+          this.vel.z = fz * ch.speed * reach;
           if (!this.grounded) this.vel.y = Math.max(this.vel.y, 0);
           if (this.modeTime >= ch.lunge || this.chargeHit) {
             this.chargePhase = 2;
@@ -372,7 +480,8 @@ export class Fighter implements AnimSource {
         } else {
           this.applyFriction(dt, 40);
           if (this.modeTime >= ch.recover) {
-            this.chargeCd = ch.cooldown;
+            this.chargeCd = this.st.chargeCooldown * (this.wakeup ? 1.3 : 1);
+            this.wakeup = false;
             this.setMode(this.grounded ? 'ground' : 'air');
           }
         }
@@ -380,7 +489,7 @@ export class Fighter implements AnimSource {
       }
       case 'stagger': {
         this.applyFriction(dt, this.grounded ? 22 : 2);
-        if (this.modeTime >= (this.mode === 'stagger' ? this.staggerTime : 0)) this.setMode(this.grounded ? 'ground' : 'air');
+        if (this.modeTime >= this.staggerTime) this.setMode(this.grounded ? 'ground' : 'air');
         break;
       }
       case 'down': {
@@ -396,6 +505,13 @@ export class Fighter implements AnimSource {
       }
       case 'getup': {
         this.applyFriction(dt, 40);
+        // wake-up attack: charge out of the get-up (shorter reach, longer cooldown)
+        if (controls && this.modeTime > 0.25 && this.bufCharge > 0 && this.chargeCd <= 0) {
+          this.invuln = 0.3;
+          this.down = 0;
+          this.startCharge(yawToTarget, true);
+          break;
+        }
         if (this.modeTime >= 0.55) {
           this.invuln = 1.0;
           this.down = 0;
@@ -410,36 +526,41 @@ export class Fighter implements AnimSource {
         this.applyFriction(dt, 30);
         break;
     }
+    if (this.mode !== 'ground' && this.mode !== 'air' && this.holdT >= 0) {
+      // interrupted while charging the beam
+      this.holdT = -1;
+      this.railCharge = 0;
+      this.gunCd = gun.cooldown * 0.5;
+    }
 
     // ------------------------------------------------ gun burst
     if (this.burstLeft > 0 && (this.mode === 'ground' || this.mode === 'air' || this.mode === 'dash' || this.mode === 'airdash')) {
-      const gun = this.lo.gun;
       this.shotTimer -= dt;
-      this.railCharge = gun.windup > 0 ? Math.min(1, 1 - this.shotTimer / gun.windup) : 0;
+      const wu = gun.windup * this.st.gunWindupMul;
+      this.railCharge = wu > 0 ? Math.min(1, 1 - this.shotTimer / wu) : 0;
       this.aimHold = Math.max(this.aimHold, 0.45);
       if (this.shotTimer <= 0 && this.mode !== 'dash' && this.mode !== 'airdash') {
-        this.spawns.push({ kind: 'shot', index: this.shotIndex });
-        this.events.push({ type: 'fire', index: this.shotIndex });
-        this.stats.shots++;
-        this.shotIndex++;
+        const air = !this.grounded;
+        this.fireShot(air, 1);
         this.burstLeft--;
-        this.shotTimer = gun.burstInterval;
-        this.fireSlowT = 0.22;
+        // air vs ground trade-off: slower bursts in the air
+        this.shotTimer = gun.burstInterval * (air ? 1.25 : 1);
         this.railCharge = 0;
-        if (this.burstLeft === 0) this.gunCd = gun.cooldown;
+        if (this.burstLeft === 0) this.gunCd = gun.cooldown * (air ? 1.15 : 1);
       }
     } else if (this.burstLeft > 0 && this.mode !== 'ground' && this.mode !== 'air') {
       // interrupted (hit / charge): cancel the burst
       this.burstLeft = 0;
       this.railCharge = 0;
-      this.gunCd = this.lo.gun.cooldown * 0.5;
+      this.gunCd = gun.cooldown * 0.5;
     }
     this.aimWeight = this.aimHold > 0 ? 1 : 0;
 
     // ------------------------------------------------ physics
     const gScale = this.mode === 'airdash' ? 0 : this.hovering ? 0 : this.mode === 'charge' && this.chargePhase < 2 ? 0.25 : 1;
     if (this.hovering) this.vel.y += (-0.9 - this.vel.y) * Math.min(1, dt * 10);
-    this.vel.y -= GRAVITY * gScale * dt;
+    const fall = this.vel.y < 0 ? this.st.fallMul : 1;
+    this.vel.y -= GRAVITY * gScale * fall * dt;
     if (this.mode === 'down' && !this.grounded) this.vel.y -= GRAVITY * 0.2 * dt;
     this.vel.y = Math.max(this.vel.y, -30);
     // ride moving platforms
@@ -453,11 +574,25 @@ export class Fighter implements AnimSource {
     if (r.grounded && !wasGrounded) {
       this.resetAir();
       if (this.mode === 'air') this.setMode('ground');
-      if (this.mode !== 'down' || r.landSpeed > 4) this.events.push({ type: 'land', speed: r.landSpeed });
+      const hard = r.landSpeed > HARD_LANDING && this.mode === 'ground';
+      if (hard) this.landT = this.st.landingLag * Math.min(2, r.landSpeed / 18);
+      if (this.mode !== 'down' || r.landSpeed > 4) this.events.push({ type: 'land', speed: r.landSpeed, hard });
       if (this.mode === 'down') this.downGroundT = 0;
     }
     if (!r.grounded && wasGrounded && this.mode === 'ground') this.setMode('air');
     if (r.grounded) this.hoverFuel = this.maxHover;
+  }
+
+  private dashRecharge() {
+    return this.st.dashCooldown * (this.st.dashCharges > 1 ? 2.1 : 1);
+  }
+
+  private fireShot(air: boolean, power: number) {
+    this.spawns.push({ kind: 'shot', index: this.shotIndex, air, power });
+    this.events.push({ type: 'fire', index: this.shotIndex });
+    this.stats.shots++;
+    this.shotIndex++;
+    this.fireSlowT = 0.22;
   }
 
   private staggerTime = 0.2;
@@ -477,16 +612,29 @@ export class Fighter implements AnimSource {
     if (target.isInvulnerable) return null;
     this.chargeHit = true;
     const ch = this.lo.body.charge;
+    const k = this.wakeup ? 0.5 : 1;
     return {
-      damage: ch.damage, down: ch.down, dir: new THREE.Vector3(fx, 0, fz), knock: 9, heavy: true, source: 'charge',
+      damage: ch.damage * k, down: ch.down * k, dir: new THREE.Vector3(fx, 0, fz), knock: 9, heavy: true, source: 'charge',
     };
   }
 
-  /** Reward for a perfect dodge: guns and dash come straight back. */
+  /** Reward for a perfect dodge: guns and a dash charge come straight back. */
   perfectDodge() {
     this.gunCd = 0;
-    this.dashCd = 0;
+    this.dashGap = 0;
+    this.dashCharges = Math.min(this.st.dashCharges, this.dashCharges + 1);
+    if (this.dashCharges === this.st.dashCharges) this.dashCd = 0;
     this.stats.dodges++;
+  }
+
+  /** Stagger caused by an opponent's parry. */
+  parriedBy() {
+    this.burstLeft = 0;
+    this.holdT = -1;
+    this.railCharge = 0;
+    this.staggerTime = 0.6;
+    this.setMode('stagger');
+    this.vel.multiplyScalar(-0.3);
   }
 
   /** Hazard cooldown so a zone hits at most once per eruption. */
@@ -501,40 +649,63 @@ export class Fighter implements AnimSource {
     const out: HitResult = { applied: false, knockdown: false, ko: false, damage: 0 };
     if (this.isInvulnerable || !this.alive) return out;
     out.applied = true;
-    const guard = this.guarding && h.source !== 'charge' && h.source !== 'hazard';
-    if (guard) {
-      h = { ...h, damage: h.damage * 0.3, down: h.down * 0.25 };
+    const guardable = h.source !== 'charge' && h.source !== 'hazard' && h.source !== 'fire';
+    if (this.guarding && guardable && h.guardBreak) {
+      // direct bomb hit on a guard: the guard shatters
+      out.guardBroken = true;
+      h = { ...h, down: h.down + 30 };
+      this.events.push({ type: 'guardBreak' });
+    } else if (this.parrying && guardable) {
+      out.parried = true;
+      out.applied = true;
+      this.stats.parries++;
+      this.events.push({ type: 'parry' });
+      return out;
+    } else if (this.guarding && guardable) {
+      h = { ...h, damage: h.damage * 0.3 * this.st.guardChipMul, down: h.down * 0.25 };
       out.blocked = true;
     }
-    const dmg = Math.round(h.damage);
+    // pick-up shield absorbs damage first
+    let dmgIn = h.damage;
+    if (this.buffs.shield > 0) {
+      const a = Math.min(this.buffs.shield, dmgIn);
+      this.buffs.shield -= a;
+      dmgIn -= a;
+    }
+    const willKnock = !out.blocked && this.down + h.down >= this.endurance;
+    if (willKnock) dmgIn *= KNOCKDOWN_BONUS;
+    const dmg = Math.round(dmgIn);
     this.hp = Math.max(0, this.hp - dmg);
     out.damage = dmg;
     this.down += h.down;
     this.sinceHit = 0;
     const armored = this.mode === 'charge' && this.chargePhase === 1 && this.lo.body.charge.armor && h.source !== 'charge' && !h.heavy;
-    const weight = this.lo.body.weight;
     if (this.hp <= 0) {
       out.ko = true;
       this.knockdown(h, 1.4);
       return out;
     }
-    if (this.down >= DOWN_MAX) {
+    if (this.down >= this.endurance) {
       out.knockdown = true;
       this.stats.knockdowns++;
       this.knockdown(h, 1);
       return out;
     }
+    if (h.tick) return out;
     this.hitstop = h.heavy ? 0.07 : 0.035;
-    if (armored || guard) return out;
+    if ((armored || out.blocked) && !out.guardBroken) return out;
     // flinch
-    const k = h.knock * weight;
+    const k = h.knock * this.st.knockMul;
     this.vel.x = h.dir.x * k + this.vel.x * 0.2;
     this.vel.z = h.dir.z * k + this.vel.z * 0.2;
     if (h.launch) {
       this.vel.y = h.launch;
       this.grounded = false;
     } else if (!this.grounded) this.vel.y = Math.max(this.vel.y, h.heavy ? 3 : 1);
-    if (h.heavy || h.launch) {
+    if (out.guardBroken) {
+      this.staggerTime = 0.7;
+      this.setMode('stagger');
+    } else if (h.heavy || h.launch) {
       this.staggerTime = h.launch ? 0.5 : 0.34;
       this.setMode('stagger');
     } else if (this.mode === 'ground' || this.mode === 'air') {
@@ -546,13 +717,14 @@ export class Fighter implements AnimSource {
 
   private knockdown(h: HitInfo, mul: number) {
     this.burstLeft = 0;
+    this.holdT = -1;
     this.railCharge = 0;
     this.hovering = false;
     this.hitstop = 0.09;
     this.setMode('down');
     this.downGroundT = 0;
     this.grounded = false;
-    const w = this.lo.body.weight;
+    const w = this.st.knockMul;
     this.vel.set(h.dir.x * 7.5 * w * mul, (h.launch ? Math.max(h.launch, 9) : 9.5) * mul, h.dir.z * 7.5 * w * mul);
     this.pos.y += 0.05;
     this.down = 0;

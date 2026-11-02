@@ -1,11 +1,11 @@
-// End-to-end smoke test. Requires the dev server (npm run dev) on http://localhost:5173
+// End-to-end smoke test. Requires the dev server (npm run dev) on http://127.0.0.1:5317
 // (override with BASE_URL). Fails on any console error/warning or page error.
 //  1. Boots the full game (title → menus) and checks the menu layer and 3D backdrop render.
 //  2. Starts a match, fires gun / bomb / pod / charge, dashes, jumps and hovers as the player.
 //  3. Lets an AI pilot finish the fight and checks a MatchResult comes back.
 import { chromium } from 'playwright';
 
-const BASE = process.env.BASE_URL ?? 'http://localhost:5173';
+const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:5317';
 const browser = await chromium.launch({ args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const problems = [];
@@ -57,11 +57,14 @@ if (!ev.dash || !ev.jump || !ev.airjump) await fail('movement actions missing');
 // 3) Finish the fight with the autopilot
 step('autoplay to the end');
 await page.goto(`${BASE}/index.html?quick=mira&arena=garden&time=45&autoplay`);
+// sample frame rate mid-fight (not at the end, when the next match is loading)
+await page.waitForFunction(() => window.__game?.match?.phase === 'fight', null, { timeout: 20000 });
+await page.waitForTimeout(8000);
+const fightFps = await page.evaluate(() => window.__fps);
 await page.waitForFunction(() => !!window.__lastResult, null, { timeout: 90000 }).catch(() => fail('match did not finish'));
 const res = await page.evaluate(() => window.__lastResult);
 step(`result ${res.outcome} by ${res.finish} in ${res.time.toFixed(1)}s`);
-const fps = await page.evaluate(() => window.__fps);
-step(`fps ${fps}`);
+step(`mid-fight fps ${fightFps}`);
 
 await browser.close();
 if (problems.length) { console.error(problems.join('\n')); console.error(`FAIL: ${problems.length} console problems`); process.exit(1); }

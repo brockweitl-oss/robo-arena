@@ -4,7 +4,6 @@ import { PartBuilder, makeMaterials, type MatSet } from './kit';
 import { buildFrame, FRAME_PROPS } from './frames';
 import { buildLegs, legLengths } from './legs';
 import { buildGun, buildBomb, buildPodDock } from './weapons';
-import { DamageVisuals } from './damage';
 import { Thruster } from '../vfx/thruster';
 import { decalTexture } from '../render/textures';
 import type { ResolvedLoadout } from '../data/parts';
@@ -74,7 +73,6 @@ export class RobotModel {
   readonly launcher: THREE.Group;
   readonly podDock: THREE.Group;
   readonly meshes: THREE.Mesh[] = [];
-  private damageVisuals: DamageVisuals | null = null;
   private flashAmt = 0;
   private flashColor = new THREE.Color(1, 1, 1);
   private podShown = 1;
@@ -139,13 +137,6 @@ export class RobotModel {
     return this.rig.spec;
   }
 
-  /** Remaining HP fraction: 1 = healthy, 0 = destroyed. Visual effects only. */
-  setDamage(fraction: number) {
-    const hp = Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : 1;
-    if (hp < 0.5 && !this.damageVisuals) this.damageVisuals = new DamageVisuals(this);
-    this.damageVisuals?.setFraction(hp);
-  }
-
   setThrust(back: number, foot: number) {
     for (const t of this.backThrusters) t.intensity = back;
     for (const t of this.footThrusters) t.intensity = foot;
@@ -181,7 +172,6 @@ export class RobotModel {
     (this.mats.glow as THREE.MeshStandardMaterial).emissiveIntensity = 3.2 * pw;
     (this.mats.glowHot as THREE.MeshStandardMaterial).emissiveIntensity = 6 * pw;
     (this.mats.visor as THREE.MeshPhysicalMaterial).emissiveIntensity = 0.18 * pw;
-    this.damageVisuals?.update(time, dt);
     // pod dock pop-in
     this.podShown += (this.podTarget - this.podShown) * Math.min(1, dt * (this.podTarget > this.podShown ? 10 : 30));
     const s = this.podShown < 0.02 ? 0.0001 : this.podShown * (1 + Math.sin(Math.min(1, this.podShown) * Math.PI) * 0.25);
@@ -190,7 +180,6 @@ export class RobotModel {
   }
 
   dispose() {
-    this.damageVisuals?.dispose();
     for (const m of this.meshes) m.geometry.dispose();
     for (const m of Object.values(this.mats)) m.dispose();
     this.weaponGlow.dispose();

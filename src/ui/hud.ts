@@ -60,6 +60,17 @@ const CSS = /* css */ `
 .hud-pop.tag { font-size:20px; letter-spacing:.18em; color:#37e8ff; }
 .hud-hint { position:absolute; bottom:120px; left:50%; transform:translateX(-50%); font-size:14px; font-weight:700; letter-spacing:.06em; padding:8px 18px; background:#0b0d12bb; border-left:3px solid #ff6a1f; opacity:0; transition:opacity .5s; white-space:nowrap; }
 .hud-hint.on { opacity:.9; }
+.hud-pips { display:flex; gap:4px; justify-content:center; margin-top:4px; }
+.hud-pips i { width:12px; height:5px; background:#ffffff22; transform:skewX(-20deg); }
+.hud-pips i.on { background:#37e8ff; box-shadow:0 0 6px #37e8ff; }
+.hud-buffs { position:absolute; bottom:120px; left:28px; display:flex; flex-direction:column; gap:6px; }
+.hud-buff { font:700 13px 'Chakra Petch'; letter-spacing:.14em; padding:4px 10px; background:#0b0d12cc; border-left:3px solid var(--c); }
+.hud-lock.confirm svg { animation: hudSpin 4s linear infinite, hudConfirm .18s ease-out; }
+.hud-lock.confirm path { stroke:#ffffff !important; }
+@keyframes hudConfirm { 0%{transform:scale(1.35)} 100%{transform:scale(1)} }
+.hud-threat { position:absolute; width:0; height:0; border-left:11px solid transparent; border-right:11px solid transparent; border-bottom:20px solid var(--c); filter:drop-shadow(0 0 6px var(--c)); opacity:0; transition:opacity .1s; }
+.hud-downlbl2 { font:700 10px 'Chakra Petch'; letter-spacing:.2em; opacity:.65; margin-top:2px; }
+.hud-pan.r .hud-downlbl2 { text-align:right; }
 .hud-vign { position:absolute; inset:0; box-shadow:inset 0 0 160px #ff1a1a; opacity:0; transition:opacity .2s; }
 @keyframes hudPulse { from{filter:brightness(1)} to{filter:brightness(1.6)} }
 @keyframes hudSpin { to { transform:rotate(360deg) } }
@@ -91,6 +102,9 @@ export class HUD {
   private fuel: HTMLElement;
   private hint: HTMLElement;
   private vign: HTMLElement;
+  private pips: HTMLElement | null = null;
+  private buffsEl!: HTMLElement;
+  private threatEls: HTMLElement[] = [];
   damageNumbers = true;
 
   constructor(parent: HTMLElement) {
@@ -110,13 +124,15 @@ export class HUD {
           <div class="hud-name"></div>
           <div class="hud-hpnum">1000<span>HP</span></div>
           <div class="hud-bar"><i class="chip"></i><i class="fill"></i>${[1, 2, 3].map((k) => `<span class="tick" style="left:${k * 25}%"></span>`).join('')}</div>
-          <div class="hud-down"><i></i></div>
+          <div class="hud-down"><i></i></div><div class="hud-downlbl2">DOWN</div>
         </div>`).join('<div class="hud-timer">90</div>')}
       </div>
       <div class="hud-lock"><svg viewBox="-35 -35 70 70"><path d="M-30 -12 V-30 H-12 M12 -30 H30 V-12 M30 12 V30 H12 M-12 30 H-30 V12"/></svg></div>
       <div class="hud-off"></div>
       <div class="hud-fuel"><i></i></div>
       <div class="hud-weap"></div>
+      <div class="hud-buffs"></div>
+      ${[0, 1, 2, 3].map(() => '<div class="hud-threat"></div>').join('')}
       <div class="hud-hint"></div>
       <div class="hud-ann"></div>`;
     parent.appendChild(this.el);
@@ -139,6 +155,8 @@ export class HUD {
     this.fuel = this.el.querySelector('.hud-fuel')!;
     this.hint = this.el.querySelector('.hud-hint')!;
     this.vign = this.el.querySelector('.hud-vign')!;
+    this.buffsEl = this.el.querySelector('.hud-buffs')!;
+    this.threatEls = Array.from(this.el.querySelectorAll<HTMLElement>('.hud-threat'));
   }
 
   setup(p: Fighter, e: Fighter, names: [string, string, string, string], pad: boolean) {
@@ -156,6 +174,7 @@ export class HUD {
       ['POD', '#' + new THREE.Color(p.lo.pod.color).getHexString(), 'podCd', p.lo.pod.cooldown, pad ? 'RB' : 'E', p.lo.pod.name],
       ['DASH', '#ffffff', 'chargeCd', p.lo.body.charge.cooldown, pad ? 'X' : 'Q', p.lo.body.chargeName],
     ];
+    this.pips = null;
     wrap.innerHTML = defs
       .map(([lbl, c, , , k, name], i) => `<div class="hud-w" title="${name}"><div class="hud-dial" style="--c:${c};--p:100"><b>${i === 3 ? '✦' : lbl[0]}</b></div><label>${i === 3 ? 'CHARGE' : lbl}</label><kbd>${k}</kbd></div>`)
       .join('');
@@ -197,12 +216,35 @@ export class HUD {
     setTimeout(() => d.remove(), 950);
   }
 
+  /** Reticle flash when the player's attack lands. */
+  confirm(heavy: boolean) {
+    this.lockEl.classList.remove('confirm');
+    void this.lockEl.offsetWidth;
+    this.lockEl.classList.add('confirm');
+    if (heavy) this.lockEl.style.setProperty('scale', '1.15');
+    setTimeout(() => this.lockEl.style.removeProperty('scale'), 160);
+  }
+
+  private placeEdge(el: HTMLElement, x: number, y: number, behind: boolean, W: number, H: number, pad: number) {
+    let dx = x - W / 2;
+    let dy = y - H / 2;
+    if (behind) {
+      dx = -dx;
+      dy = Math.abs(dy) + H;
+    }
+    const a = Math.atan2(dy, dx);
+    const rx = W / 2 - pad;
+    const ry = H / 2 - pad;
+    const k = Math.min(Math.abs(rx / Math.cos(a)), Math.abs(ry / Math.sin(a)));
+    el.style.transform = `translate(${W / 2 + Math.cos(a) * k - 11}px, ${H / 2 + Math.sin(a) * k - 10}px) rotate(${a + Math.PI / 2}rad)`;
+  }
+
   hurtFlash(v: number) {
     this.vign.style.opacity = String(v);
     setTimeout(() => (this.vign.style.opacity = '0'), 120);
   }
 
-  update(dt: number, fighters: [Fighter, Fighter], timeLeft: number, lockScreen: { x: number; y: number; on: boolean; behind: boolean }, hardLock: boolean) {
+  update(dt: number, fighters: [Fighter, Fighter], timeLeft: number, lockScreen: { x: number; y: number; on: boolean; behind: boolean }, hardLock: boolean, threats: { x: number; y: number; behind: boolean; color: string }[] = []) {
     fighters.forEach((f, i) => {
       const s = this.sides[i];
       const frac = f.hp / f.maxHp;
@@ -217,7 +259,7 @@ export class HUD {
       if (s.chipDelay <= 0) s.chipV = Math.max(frac, s.chipV - dt * 0.6);
       if (s.chipV < frac) s.chipV = frac;
       s.chip.style.transform = `scaleX(${s.chipV})`;
-      const dn = Math.min(1, f.down / 100);
+      const dn = Math.min(1, f.down / f.endurance);
       (s.down.firstElementChild as HTMLElement).style.transform = `scaleX(${dn})`;
       s.down.classList.toggle('hot', dn > 0.7);
     });
@@ -237,6 +279,40 @@ export class HUD {
       }
       w.ready = ready;
       w.el.classList.toggle('ready', ready);
+    }
+    // dash charge pips (rendered under the charge dial)
+    if (!this.pips) {
+      this.pips = document.createElement('div');
+      this.pips.className = 'hud-pips';
+      this.weaps[3]?.el.appendChild(this.pips);
+    }
+    const pipKey = `${p.dashCharges}/${p.st.dashCharges}`;
+    if (this.pips.dataset.k !== pipKey) {
+      this.pips.dataset.k = pipKey;
+      this.pips.innerHTML = Array.from({ length: p.st.dashCharges }, (_, i) => `<i class="${i < p.dashCharges ? 'on' : ''}"></i>`).join('');
+    }
+    // buffs
+    const buffs: string[] = [];
+    if (p.buffs.shield > 0) buffs.push(`<div class="hud-buff" style="--c:#37e8ff">SHIELD ${Math.ceil(p.buffs.shield)}</div>`);
+    if (p.buffs.overdrive > 0) buffs.push(`<div class="hud-buff" style="--c:#ff3b5c">OVERDRIVE ${p.buffs.overdrive.toFixed(1)}s</div>`);
+    if (p.buffs.speed > 0) buffs.push(`<div class="hud-buff" style="--c:#9dff4a">SPEED ${p.buffs.speed.toFixed(1)}s</div>`);
+    if (p.lowHp) buffs.push(`<div class="hud-buff" style="--c:#ffd23a">COMEBACK: FAST RELOAD</div>`);
+    const bh = buffs.join('');
+    if (this.buffsEl.dataset.h !== bh) {
+      this.buffsEl.dataset.h = bh;
+      this.buffsEl.innerHTML = bh;
+    }
+    // off-screen threat arrows
+    const tEls = this.threatEls;
+    for (let i = 0; i < tEls.length; i++) {
+      const t = threats[i];
+      if (!t) {
+        tEls[i].style.opacity = '0';
+        continue;
+      }
+      tEls[i].style.opacity = '0.95';
+      tEls[i].style.setProperty('--c', t.color);
+      this.placeEdge(tEls[i], t.x, t.y, t.behind, this.el.clientWidth, this.el.clientHeight, 70);
     }
     const fuel = p.hoverFuel / p.maxHover;
     this.fuel.classList.toggle('on', !p.grounded && fuel < 0.999);

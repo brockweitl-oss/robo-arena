@@ -6,7 +6,7 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 let errs = 0;
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') { errs++; console.log(`[${m.type()}]`, m.text()); } });
 page.on('pageerror', (e) => { errs++; console.log('[pageerror]', e.message); });
-await page.goto('http://localhost:5173/index.html?autoplay');
+await page.goto('http://127.0.0.1:5317/index.html?autoplay');
 const shot = async (n) => page.screenshot({ path: `${outDir}/flow_${n}.png` });
 await page.waitForTimeout(2500);
 await page.keyboard.press('Enter'); await page.waitForTimeout(1200); await shot('1_main');

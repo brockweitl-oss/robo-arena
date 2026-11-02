@@ -7,7 +7,7 @@ import { ARENA_FACTORIES } from '../arena';
 import { robotView } from './robotview';
 
 const params = new URLSearchParams(location.search);
-if (params.get('robot') || params.get('paint') || params.get('anim')) {
+if (['robot', 'paint', 'anim', 'gun', 'bomb', 'pod', 'legs'].some((k) => params.get(k))) {
   robotView(params);
 } else arenaView();
 
