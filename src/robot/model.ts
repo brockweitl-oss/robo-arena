@@ -186,6 +186,7 @@ export class RobotModel {
     this.podShown += (this.podTarget - this.podShown) * Math.min(1, dt * (this.podTarget > this.podShown ? 10 : 30));
     const s = this.podShown < 0.02 ? 0.0001 : this.podShown * (1 + Math.sin(Math.min(1, this.podShown) * Math.PI) * 0.25);
     this.podDock.scale.setScalar(s);
+    this.podDock.position.y = this.loadout.pod.model === 'interceptor' ? this.podShown * (0.08 + Math.sin(time * 2.3) * 0.012) : 0;
     this.podDock.visible = this.podShown > 0.02;
   }
 

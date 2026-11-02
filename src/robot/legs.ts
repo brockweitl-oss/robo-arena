@@ -14,6 +14,9 @@ export interface LegLengths {
 type VisualLeg = LegsDef['model'] | 'sprint' | 'anchor' | 'feather';
 
 export function legLengths(model: VisualLeg, len: number): LegLengths {
+  if (model === 'anchor') return { thigh: 0.38 * len, shin: 0.40 * len, ankleH: 0.11, meta: 0, footLen: 0.42 };
+  if (model === 'feather') return { thigh: 0.4 * len, shin: 0.41 * len, ankleH: 0.11, meta: 0, footLen: 0.23 };
+  if (model === 'sprint') return { thigh: 0.41 * len, shin: 0.4 * len, ankleH: 0.11, meta: 0, footLen: 0.30 };
   if (model === 'hopper') return { thigh: 0.3 * len, shin: 0.38 * len, ankleH: 0.11, meta: 0.26 * len, footLen: 0.36 };
   return { thigh: 0.4 * len, shin: 0.41 * len, ankleH: 0.11, meta: 0, footLen: 0.34 };
 }
@@ -121,16 +124,27 @@ export function buildLegs(model: VisualLeg, rig: Rig, b: PartBuilder, bulk: numb
     const k = bulk * (model === 'sprint' ? 0.76 : model === 'anchor' ? 1.22 : model === 'feather' ? 0.72 : 1);
     (model === 'hopper' ? hopper : stride)(rig, b, side, k);
     if (model === 'sprint') {
+      b.add(rig.knee[side], 'secondary', xf(armorShell([[-0.05,0.08],[0,0.13],[0.05,0.08],[0.028,-0.22],[0,-0.3],[-0.028,-0.22]],0.035,0.022),[0,-0.12,0.13*k]));
+      b.add(rig.ankle[side], 'chrome', xf(plate([[-0.035,-0.08],[0.035,-0.08],[0.022,0.16],[0,0.2],[-0.022,0.16]],0.025,0.004),[0,-0.08,0.05],[-Math.PI/2,0,0]));
+      footNozzle(rig,b,rig.ankle[side],[0,-0.025,-0.12],0.055);
       b.add(rig.knee[side], 'secondary', xf(plate([[0, 0.1], [0.055, -0.14], [0.02, -0.3], [-0.02, -0.1]], 0.025, 0.005), [sx * 0.11 * k, -0.1, -0.02], [0, sx * Math.PI / 2, 0]));
     } else if (model === 'anchor') {
-      // Stabilizer teeth are carried above the sole so they never clip the ground.
+      // Wide stabilizer skids and exposed hydraulic braces; teeth end at the sole.
       for (const dx of [-1, 1]) {
-        b.add(rig.ankle[side], 'dark', xf(chamferBox(0.05, 0.12, 0.09, 0.012), [dx * 0.15 * k, -0.03, 0.05]));
-        b.add(rig.ankle[side], 'chrome', xf(plate([[-0.025, 0.04], [0.025, 0.04], [0.012, -0.04], [-0.012, -0.04]], 0.06, 0.004), [dx * 0.15 * k, -0.065, 0.05]));
+        const x = dx * 0.2 * k;
+        b.add(rig.ankle[side], 'primary', xf(chamferBox(0.12, 0.065, 0.31, 0.025), [x, -0.075, 0.025]));
+        b.add(rig.ankle[side], 'dark', xf(chamferBox(0.28*k,0.05,0.08,0.015),[dx*0.1*k,-0.035,0.02]));
+        for (const z of [-0.08,0.13]) b.add(rig.ankle[side], 'chrome', xf(plate([[-0.035,0.04],[0.035,0.04],[0.018,-0.035],[-0.018,-0.035]],0.05,0.004),[x,-0.07,z]));
+        const hydraulic=piston(new THREE.Vector3(dx*0.105*k,-0.05,-0.03),new THREE.Vector3(dx*0.13*k,-rig.spec.shin+0.05,-0.03),0.024);
+        b.add(rig.knee[side],'dark',hydraulic.body);b.add(rig.knee[side],'chrome',hydraulic.rod);
       }
-      b.add(rig.knee[side], 'secondary', xf(chamferBox(0.16 * k, 0.045, 0.025, 0.012), [0, -0.12, 0.13 * k]));
+      b.add(rig.knee[side], 'secondary', xf(armorShell([[-0.13,0.08],[0.13,0.08],[0.11,-0.16],[0,-0.23],[-0.11,-0.16]],0.065,0.025),[0,-0.13,0.14*k]));
     } else if (model === 'feather') {
-      for (let i = 0; i < 3; i++) b.add(rig.knee[side], i === 0 ? 'secondary' : 'primary', xf(plate([[0, 0.04], [0.16, 0.1], [0.12, -0.04], [0, -0.06]], 0.018, 0.004), [sx * 0.075, -0.15 - i * 0.07, -0.05], [0, -sx * 0.6, 0], [sx, 1, 1]));
+      for (let i = 0; i < 3; i++) {
+        const parent=rig.knee[side], at: [number,number,number]=[sx*0.075,-0.13-i*0.085,-0.05];
+        b.add(parent, 'primary', xf(plate([[0,0.04],[0.24,0.14],[0.19,-0.025],[0,-0.06]],0.018,0.004),at,[0,-sx*0.6,0],[sx,1,1]));
+        b.add(parent, 'glow', xf(plate([[0.05,0.04],[0.22,0.11],[0.18,0.055],[0.06,0.015]],0.006,0.002),[at[0],at[1],at[2]+0.015],[0,-sx*0.6,0],[sx,1,1]));
+      }
       footNozzle(rig, b, rig.knee[side], [sx * 0.1, -0.32, -0.08], 0.035);
     }
   }
