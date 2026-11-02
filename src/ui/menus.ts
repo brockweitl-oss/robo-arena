@@ -879,7 +879,8 @@ export class Menus implements MenuLayer {
   /* ---------------- match & results */
 
   private async runMatch(cfg: MatchConfig) {
-    cfg = { ...cfg, playerLoadout: { ...this.host.save.loadout } };
+    // replays must keep the recorded build; everything else uses the current garage loadout
+    cfg = { ...cfg, playerLoadout: cfg.mode === 'replay' ? { ...cfg.playerLoadout } : { ...this.host.save.loadout } };
     this.hideAll();
     this.musicNow = null;
     let res: MatchResult = await this.host.startMatch(cfg);
@@ -942,7 +943,8 @@ export class Menus implements MenuLayer {
       s.plusLadder = Math.max(s.plusLadder, pidx + 1);
     }
     const survival = cfg.mode === 'survival' ? cfg.survival : undefined;
-    if (survival && !win) s.survivalBest = Math.max(s.survivalBest, survival.round - 1);
+    // best run counts completed rounds, saved after every round (a run abandoned mid-way still counts)
+    if (survival) s.survivalBest = Math.max(s.survivalBest, win ? survival.round : survival.round - 1);
     s.totals.knockdowns += res.player?.knockdowns ?? 0;
     this.host.persist();
     const rewards = this.meta.matchEnd(res);

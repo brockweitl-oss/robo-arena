@@ -10,6 +10,8 @@ const endHp = async () => { await p.waitForFunction(() => ['timeup', 'ko'].inclu
 const orig = await endHp();
 await p.waitForFunction(() => !window.__game.match, null, { timeout: 60000 });
 await p.waitForTimeout(1500);
+// change the garage build and aim assist before watching: playback must ignore both
+await p.evaluate(() => { const g = window.__game; g.save.loadout = { ...g.save.loadout, gun: 'beam', legs: 'anchor' }; g.save.settings.aimAssist = 0.5; });
 await p.evaluate(() => window.__game.menus.watchReplay(JSON.parse(localStorage.getItem('robo-arena-replays'))[0]));
 const rep = await endHp();
 console.log(`original ${orig} | replay ${rep} | ${orig === rep ? 'MATCH' : 'MISMATCH'}`);

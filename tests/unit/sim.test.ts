@@ -347,3 +347,21 @@ describe('G5 replays + grades', () => {
     expect(loss.grade).toBe('C');
   });
 });
+
+describe('G5 review regressions (Codex, PR #20)', () => {
+  it('rejects malformed or tampered replays', async () => {
+    const { validateReplay, InputRecorder } = await import('../../src/game/replay');
+    const rec = new InputRecorder();
+    for (let i = 0; i < 120; i++) rec.push({ ...emptyInput(), moveX: i % 2 ? 1 : 0 });
+    const good = { v: 1, config: { mode: 'free', playerLoadout: { ...DEFAULT_LOADOUT }, rivalId: 'dex', arenaId: 'foundry' }, worldSeed: 5, aiSeed: 9, streams: [rec.encode()], frames: 120, date: new Date().toISOString(), aimAssist: 1 };
+    expect(validateReplay(good)).toBe(true);
+    expect(validateReplay({ v: 1, config: {}, streams: [] })).toBe(false);
+    expect(validateReplay({ ...good, streams: ['!!notbase64'] })).toBe(false);
+    expect(validateReplay({ ...good, frames: 999999 })).toBe(false);
+    expect(validateReplay({ ...good, frames: 500 })).toBe(false); // stream shorter than claimed
+    expect(validateReplay({ ...good, config: { ...good.config, rivalId: 'nobody' } })).toBe(false);
+    expect(validateReplay({ ...good, config: { ...good.config, playerLoadout: { ...DEFAULT_LOADOUT, gun: 'laser9000' } } })).toBe(false);
+    expect(validateReplay({ ...good, worldSeed: -1 })).toBe(false);
+    expect(validateReplay({ ...good, aimAssist: 5 })).toBe(false);
+  });
+});

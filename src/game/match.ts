@@ -140,6 +140,7 @@ export class Match {
   private disposed = false;
   private worldSeed: number;
   private readySteps = 0;
+  private aimAssist = 1;
   private aiSeed: number;
   private recorders: InputRecorder[] | null = null;
   private players: InputPlayer[] | null = null;
@@ -200,7 +201,9 @@ export class Match {
       rf.maxHp = rf.hp = 9999;
       this.practiceMode = practice;
     }
-    pf.homingMul = host.settings.aimAssist ?? 1;
+    // replays use the assist recorded with them, never the current setting (determinism)
+    this.aimAssist = cfg.replay ? cfg.replay.aimAssist ?? 1 : host.settings.aimAssist ?? 1;
+    pf.homingMul = this.aimAssist;
     // AI handicaps: softer tracking and range-based aim error keep shots dodgeable (not for a human player 2)
     if (!vs) {
       rf.homingMul = 0.5;
@@ -818,6 +821,7 @@ export class Match {
       streams: this.recorders!.map((r) => r.encode()),
       frames: this.recorders![0].frames,
       date: new Date().toISOString(),
+      aimAssist: this.aimAssist,
       summary: { outcome: this.winner < 0 ? 'draw' : this.winner === 0 ? 'win' : 'lose', finish: this.finish, time: +this.fightTime.toFixed(1), playerHp: Math.round(php), rivalHp: Math.round(rhp) },
     };
   }

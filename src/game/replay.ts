@@ -1,5 +1,8 @@
 import { emptyInput, type FighterInput } from './fighter';
 import type { MatchConfig } from './types';
+import { ALL_PARTS, type Slot } from '../data/parts';
+import { RIVALS, RIVALS_PLUS } from '../data/characters';
+import { ARENA_INFO } from '../arena/index';
 
 /**
  * Replays: the sim is deterministic, so a replay is just the match config, the
@@ -15,6 +18,8 @@ export interface Replay {
   streams: string[];
   frames: number;
   date: string;
+  /** The player's aim-assist (homing multiplier) at record time; replays must not read current settings. */
+  aimAssist: number;
   summary?: { outcome: string; finish: string; time: number; playerHp: number; rivalHp: number };
 }
 
@@ -124,10 +129,59 @@ export function saveReplay(r: Replay) {
 
 export function loadReplays(): Replay[] {
   try {
-    return JSON.parse(localStorage.getItem(KEY) || '[]');
+    const list = JSON.parse(localStorage.getItem(KEY) || '[]');
+    return Array.isArray(list) ? list.filter((r) => validateReplay(r)) : [];
   } catch {
     return [];
   }
+}
+
+const MAX_FRAMES = 60 * 60 * 10;
+
+/** Decode a stream and check it is well-formed RLE covering at least `frames` frames. */
+function streamOk(enc: unknown, frames: number): boolean {
+  if (typeof enc !== 'string' || enc.length === 0 || enc.length > 4_000_000) return false;
+  let s: string;
+  try {
+    s = atob(enc);
+  } catch {
+    return false;
+  }
+  if (s.length % 5 !== 0) return false;
+  let total = 0;
+  for (let i = 0; i < s.length; i += 5) {
+    const n = s.charCodeAt(i);
+    if (n < 1) return false;
+    total += n;
+  }
+  return total >= frames;
+}
+
+/** Full structural validation: anything that could crash or desync playback is rejected. */
+export function validateReplay(r: unknown): r is Replay {
+  if (!r || typeof r !== 'object') return false;
+  const x = r as Partial<Replay>;
+  if (x.v !== 1) return false;
+  const c = x.config;
+  if (!c || typeof c !== 'object') return false;
+  if (![...RIVALS, ...RIVALS_PLUS].some((rv) => rv.id === c.rivalId)) return false;
+  if (!(c.arenaId in ARENA_INFO)) return false;
+  const lo = c.playerLoadout as unknown as Record<Slot, string> | undefined;
+  if (!lo) return false;
+  for (const slot of ['gun', 'bomb', 'pod', 'body', 'legs'] as Slot[]) if (typeof lo[slot] !== 'string' || !ALL_PARTS[slot][lo[slot]]) return false;
+  if (c.versus) {
+    const p2 = c.versus.p2Loadout as unknown as Record<Slot, string>;
+    for (const slot of ['gun', 'bomb', 'pod', 'body', 'legs'] as Slot[]) if (!p2 || !ALL_PARTS[slot][p2[slot]]) return false;
+  }
+  const int = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v > 0 && v < 2 ** 31;
+  if (!int(x.worldSeed) || !int(x.aiSeed)) return false;
+  if (typeof x.frames !== 'number' || !Number.isInteger(x.frames) || x.frames < 1 || x.frames > MAX_FRAMES) return false;
+  if (!Array.isArray(x.streams) || x.streams.length < 1 || x.streams.length > 2) return false;
+  if (c.versus ? x.streams.length !== 2 : x.streams.length !== 1) return false;
+  if (!x.streams.every((st) => streamOk(st, x.frames!))) return false;
+  if (typeof x.date !== 'string' || Number.isNaN(Date.parse(x.date))) return false;
+  if (x.aimAssist !== undefined && (typeof x.aimAssist !== 'number' || !(x.aimAssist >= 0.5 && x.aimAssist <= 1))) return false;
+  return true;
 }
 
 export function downloadReplay(r: Replay) {
@@ -141,9 +195,8 @@ export function downloadReplay(r: Replay) {
 
 export function parseReplay(text: string): Replay | null {
   try {
-    const r = JSON.parse(text) as Replay;
-    if (r.v !== 1 || !r.config || !Array.isArray(r.streams)) return null;
-    return r;
+    const r = JSON.parse(text);
+    return validateReplay(r) ? r : null;
   } catch {
     return null;
   }
