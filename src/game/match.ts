@@ -14,6 +14,7 @@ import { World, SIM_DT, type GameEvent } from './world';
 import { AIPilot } from './ai';
 import { ChaseCamera } from './camera';
 import { ReplayCamera } from '../render/replayCamera';
+import { ReplayBar } from '../ui/replayBar';
 import { Effects } from '../vfx/effects';
 import { TacticsView } from '../vfx/tacticsView';
 import { audio, type LoopHandle } from '../audio/audio';
@@ -120,6 +121,11 @@ export class Match {
   readonly world: World;
   readonly cam: ChaseCamera;
   private replayCamera: ReplayCamera | null = null;
+  private replayBar: ReplayBar | null = null;
+  /** Replay transport: paused, and a fast-forward target (fight seconds, -1 = none). */
+  private replayHold = false;
+  private seekTo = -1;
+  private seekMuted = false;
   readonly fx: Effects;
   private tactics!: TacticsView;
   private sides: [Side, Side];
@@ -172,9 +178,12 @@ export class Match {
   private netDesync = false;
   private netLeft = false;
   private netChecks = 0;
+  /** First-time tactic tips (once per player, single-player modes only). */
+  private tipQ: [string, string][] = [];
+  private tipAt = 0;
   private netLocal = new Map<number, FighterInput>();
   private p2In: FighterInput = emptyInput();
-  private practiceMode: 'idle' | 'move' | 'shoot' | 'full' | null = null;
+  private practiceMode: 'idle' | 'move' | 'shoot' | 'full' | 'evade' | 'tells' | null = null;
   private practiceLog: { t: number; dmg: number }[] = [];
   /** Play-test telemetry accumulators. */
   private tel = {
@@ -215,7 +224,8 @@ export class Match {
     this.aiSeed = cfg.replay ? cfg.replay.aiSeed : 7;
     this.world = new World(this.arena, ...((this.me === 0 ? [pf, rf] : [rf, pf]) as [Fighter, Fighter]), { arenaId: cfg.arenaId, pickups: !!cfg.pickups, seed: this.worldSeed });
     const practice = cfg.practice?.dummy;
-    this.ai = new AIPilot(rival.ai, practice ? 0.5 : rival.skill, this.aiSeed);
+    // training dummies: the evader and skill shooter are top-tier readers so the drills are honest
+    this.ai = practice === 'evade' || practice === 'tells' ? new AIPilot('champion', practice === 'evade' ? 1 : 0.8, this.aiSeed) : new AIPilot(rival.ai, practice ? 0.5 : rival.skill, this.aiSeed);
     if (cfg.replay) {
       this.players = cfg.replay.streams.map((s) => new InputPlayer(s));
     } else if (cfg.mode !== 'practice' && !on) {
@@ -323,6 +333,24 @@ export class Match {
     if (cfg.replay) {
       this.replayCamera = new ReplayCamera(host.gr.camera, this.arena.colliders);
       this.replayCamera.attach(host.hud.el.parentElement!, host.gr.renderer.domElement);
+      const total = cfg.replay.summary?.time ?? Math.max(1, cfg.replay.frames / 60 - 1.1);
+      this.seekTo = cfg.replaySeek ?? -1;
+      this.replayHold = !!cfg.replayPaused;
+      cfg.replaySeek = undefined;
+      this.replayBar = new ReplayBar(host.hud.el.parentElement!, total, {
+        now: () => this.fightTime,
+        toggle: () => { this.replayHold = !this.replayHold; },
+        seek: (t) => {
+          t = Math.max(0, Math.min(total, t));
+          if (t >= this.fightTime) this.seekTo = t;
+          else {
+            // back: replay from the start and fast-forward (deterministic, lands on the same state)
+            this.cfg.replaySeek = t;
+            this.cfg.replayPaused = this.replayHold;
+            this.end({ restart: true });
+          }
+        },
+      });
     }
   }
 
@@ -370,17 +398,29 @@ export class Match {
     this.updateBombAim(look);
     // Competitive combat always advances in real time.
     const dt = dtReal;
-    this.phaseT += dtReal;
+    this.phaseT += dtReal + (this.seekTo >= 0 && this.phase === 'intro' ? 0.25 : 0);
     this.renderTime += dt;
     this.updatePhase(dtReal);
 
     // --- simulation ---
     const simming = this.phase !== 'intro';
-    if (simming) {
-      this.acc += dt;
+    const seeking = this.seekTo >= 0;
+    if (seeking !== this.seekMuted) {
+      // fast-forward silently
+      this.seekMuted = seeking;
+      const st = host.settings;
+      audio.setVolumes(seeking ? 0 : st.master, st.sfx, st.music);
+    }
+    if (simming && !(this.replayHold && !seeking)) {
+      this.acc += seeking ? SIM_DT * 600 : dt;
       let steps = 0;
       let netRemote: FighterInput | null = null;
-      while (this.acc >= SIM_DT && steps < 5) {
+      while (this.acc >= SIM_DT && steps < (seeking ? 600 : 5)) {
+        if (this.seekTo >= 0 && this.phase !== 'ready' && (this.fightTime >= this.seekTo || this.phase !== 'fight')) {
+          this.seekTo = -1;
+          this.acc = 0;
+          break;
+        }
         if (this.net) {
           netRemote = this.netGather();
           if (!netRemote) break;
@@ -412,6 +452,8 @@ export class Match {
           aiIn = this.ai.think(this.world, rf, pf);
           if (this.practiceMode === 'move') aiIn = { ...aiIn, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, chargePressed: false, skillPressed: false };
           else if (this.practiceMode === 'shoot') aiIn = { ...aiIn, moveX: 0, moveZ: 0, dashPressed: false, jumpPressed: false, chargePressed: false };
+          else if (this.practiceMode === 'evade') aiIn = { ...aiIn, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, skillPressed: false };
+          else if (this.practiceMode === 'tells') aiIn = { ...aiIn, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, chargePressed: false };
         }
         if (this.recorders) {
           // the sim must see exactly what the replay stores
@@ -438,7 +480,7 @@ export class Match {
         this.acc -= SIM_DT;
         steps++;
       }
-      if (steps === 5) this.acc = 0;
+      if (steps === 5 || seeking) this.acc = 0;
       if (this.net) {
         // never bank more than a couple of ticks while waiting on the opponent
         this.acc = Math.min(this.acc, SIM_DT * 2);
@@ -446,6 +488,17 @@ export class Match {
       }
     }
     const alpha = simming ? this.acc / SIM_DT : 1;
+
+    // --- tips ---
+    if (this.phase === 'fight') {
+      const pk = this.host.input.lastDevice === 'pad';
+      this.tip('skill', `Skill shot: hold ${pk ? 'Y' : 'R'} to aim the lane, release to fire. Your gun auto-aims; your skill does not.`);
+      if (this.fightTime > 25) this.tip('chips', "Under the enemy's health bar: their skill, bomb, pod and guard cooldowns. Push in when they're spent.");
+      if (this.fightTime > 45) this.tip('dashjump', 'Jump at the end of a dash to keep its speed (dash-jump). Heavier builds start and stop slower.');
+      this.showTips();
+    }
+
+    this.replayBar?.update(this.fightTime, !this.replayHold, this.seekTo >= 0);
 
     // --- presentation ---
     this.arena.update(this.renderTime, dt);
@@ -509,7 +562,9 @@ export class Match {
       const recent = this.practiceLog.filter((h) => now - h.t < 2.0);
       const last = this.practiceLog[this.practiceLog.length - 1];
       const dps = this.practiceLog.filter((h) => now - h.t < 5).reduce((a, h) => a + h.dmg, 0) / 5;
-      host.hud.practiceInfo({ last: last ? last.dmg : 0, combo: recent.reduce((a, h) => a + h.dmg, 0), dps, down: Math.round((rf.down / rf.endurance) * 100) });
+      const ps = pf.stats;
+      host.hud.practiceInfo({ last: last ? last.dmg : 0, combo: recent.reduce((a, h) => a + h.dmg, 0), dps, down: Math.round((rf.down / rf.endurance) * 100),
+        skill: `${ps.skillHits}/${ps.skillCasts}`, sweet: ps.sweetSpots, feints: ps.feints, dodged: `${rf.stats.skillCasts - rf.stats.skillHits}/${rf.stats.skillCasts}`, perfect: this.tel.perfect });
     }
     if (this.cfg.versus && !this.replayCamera && this.phase !== 'intro') this.versusCamera(pPos, rPos);
     if (this.phase === 'fight' && pf.hp / pf.maxHp < 0.25) {
@@ -904,6 +959,25 @@ export class Match {
   /** Online: whether the result can count (no desync, no disconnect). */
   get netClean() { return !this.netDesync && !this.netLeft; }
 
+  private tip(id: string, text: string) {
+    if (this.cfg.online || this.players || this.autoPilot || this.cfg.versus) return;
+    if (this.tipQ.some(([k]) => k === id)) return;
+    try { if ((JSON.parse(localStorage.getItem('ra-tips') ?? '[]') as string[]).includes(id)) return; } catch { return; }
+    this.tipQ.push([id, text]);
+  }
+
+  /** Show queued tips one at a time, after the opening controls hint has cleared. */
+  private showTips() {
+    if (!this.tipQ.length || this.phase !== 'fight' || this.fightTime < 6 || this.renderTime < this.tipAt) return;
+    const [id, text] = this.tipQ.shift()!;
+    try {
+      const seen = JSON.parse(localStorage.getItem('ra-tips') ?? '[]') as string[];
+      localStorage.setItem('ra-tips', JSON.stringify([...seen, id]));
+    } catch { /* storage blocked: show it anyway */ }
+    this.host.hud.showHint(`TIP · ${text}`, 5);
+    this.tipAt = this.renderTime + 7;
+  }
+
   private onKO(loser: number) {
     if (this.phase !== 'fight' || this.practiceMode) return;
     this.winner = 1 - loser;
@@ -1096,7 +1170,7 @@ export class Match {
     for (const e of events) {
       switch (e.type) {
         case 'fighter': {
-          const s = this.sides[e.who];
+          const s = this.sideOf(e.who);
           const f = s.fighter;
           const isP = e.who === this.me;
           const ev = e.ev;
@@ -1136,7 +1210,7 @@ export class Match {
               s.anim.event({ type: 'fire' });
               s.model.root.updateMatrixWorld(true);
               const mp = s.model.rig.muzzle.getWorldPosition(new THREE.Vector3());
-              const dir = f.chestPoint().sub(this.sides[1 - e.who].fighter.chestPoint()).negate().normalize();
+              const dir = f.chestPoint().sub(this.sideOf(1 - e.who).fighter.chestPoint()).negate().normalize();
               fx.muzzle(mp, dir, gun.color, gun.model === 'rail');
               if (gun.model === 'rail') {
               }
@@ -1169,6 +1243,8 @@ export class Match {
               this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1.2, 0))), 'FEINT', 'tag', '#' + new THREE.Color(f.lo.skill.color).getHexString());
               break;
             case 'skillCast': {
+              if (!isP) this.tip('tell', 'Red lane on the ground = the enemy is winding up a skill shot. Dash sideways to dodge it.');
+              else if (f.stats.skillCasts >= 2 && !f.lo.skill.blink) this.tip('feint', 'Feint: press dash during your skill wind-up to cancel it. Half the cooldown comes back. Bait their dodge.');
               // telegraph: charge sound + glint (the enemy's lane shows on the ground during the cast)
               audio.play('gun_rail_charge', { pos: f.pos, volume: 0.8, pitch: 1.3 });
               s.model.root.updateMatrixWorld(true);
@@ -1177,6 +1253,7 @@ export class Match {
             }
             case 'skill': {
               const sk = f.lo.skill;
+              if (sk.blink) { s.anim.event({ type: 'skill' }); break; }
               audio.play(sk.model === 'wave' ? 'gun_scatter' : 'gun_rail', { pos: f.pos, volume: 1, pitch: sk.model === 'hook' ? 0.7 : sk.model === 'frost' ? 1.3 : 1 });
               s.anim.event({ type: 'skill' });
               s.model.root.updateMatrixWorld(true);
@@ -1201,7 +1278,7 @@ export class Match {
 
               if (isP) this.tel.parries++;
               this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1.2, 0))), 'PARRY!', 'tag');
-              this.sides[e.who].shieldPulse = 1.5;
+              this.sideOf(e.who).shieldPulse = 1.5;
               break;
             case 'guardBreak':
               audio.play('knockdown', { pos: f.pos, volume: 0.7, pitch: 1.3 });
@@ -1233,7 +1310,27 @@ export class Match {
           this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 1, 0))), 'PRIMED', 'tag', '#5adfff');
           audio.play('pod_seeker_ping', { pos: e.pos, volume: .45, pitch: 1.4 });
           break;
+        case 'blink': {
+          // snap (no interpolated slide), implode at the start, streak, burst at the arrival
+          const bs = this.sideOf(e.who);
+          bs.prevPos.copy(e.to);
+          const col = bs.fighter.lo.skill.color;
+          const up = new THREE.Vector3(0, 1, 0);
+          const c0 = e.from.clone().add(new THREE.Vector3(0, 1.1, 0)), c1 = e.to.clone().add(new THREE.Vector3(0, 1.1, 0));
+          fx.ring(c0, up, col, 1.4, 0.2, 0.22, 0.9);
+          fx.burst(c1, col, 0.8);
+          fx.ring(e.to.clone().add(new THREE.Vector3(0, 0.08, 0)), up, col, 0.3, 2.2, 0.3, 0.8);
+          const n = Math.max(3, Math.round(e.from.distanceTo(e.to) * 2));
+          for (let i = 0; i <= n; i++) fx.sparks.emit({ pos: c0.clone().lerp(c1, i / n), count: 2, spread: 0.25, size: [0.5, 0.8], life: [0.12, 0.25], color: col, intensity: 2 });
+          audio.play('dash', { pos: e.to, volume: 0.9, pitch: 1.4 });
+          if (e.who === this.me) this.cam.addTrauma(0.05);
+          break;
+        }
         case 'sweetSpot': {
+          if (e.attacker === this.me) {
+            const m = this.sideOf(this.me).fighter.lo.skill.model;
+            this.tip('sweet', m === 'wave' ? 'Ion Wave hits 30% harder at point blank.' : 'Breaker Lance hits 30% harder at long range: the far third of its reach.');
+          }
           fx.burst(e.pos, 0xffe27a, 0.5);
           this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 1.4, 0))), 'SWEET SPOT!', 'big', '#ffe27a');
           audio.play('hit_heavy', { pos: e.pos, volume: 0.7, pitch: 1.5 });
@@ -1241,8 +1338,8 @@ export class Match {
         }
         case 'combo': {
           fx.comboBurst(e.pos, 0xffd36a);
-          this.sides[e.attacker].anim.event({ type: 'combo', role: 'trigger' });
-          this.sides[e.victim].anim.event({ type: 'combo', role: 'target' });
+          this.sideOf(e.attacker).anim.event({ type: 'combo', role: 'trigger' });
+          this.sideOf(e.victim).anim.event({ type: 'combo', role: 'target' });
           const at = this.worldToScreen(e.pos);
           at.y -= 82;
           this.host.hud.popup(at, `DETONATE +${Math.round(e.bonus)}`, 'big', '#ffd36a');
@@ -1309,8 +1406,13 @@ export class Match {
           break;
         }
         case 'hit': {
-          const v = this.sides[e.victim];
-          if (e.source === 'skill' && e.damage > 0 && !e.blocked && !e.parried && this.sides[e.attacker]) {
+          const v = this.sideOf(e.victim);
+          if (this.replayBar && e.damage > 0) {
+            const src = e.source === 'skill' ? 'skill' : e.source;
+            this.replayBar.mark({ t: this.fightTime, side: e.attacker === this.me ? 0 : 1, big: e.knockdown || e.ko,
+              text: `${e.attacker === this.me ? 'P1' : 'P2'} ${src} ${Math.round(e.damage)}${e.ko ? ' K.O.' : e.knockdown ? ' DOWN' : e.blocked ? ' (blocked)' : ''}` });
+          }
+          if (e.source === 'skill' && e.damage > 0 && !e.blocked && !e.parried && this.sideOf(e.attacker)) {
             fx.skillImpact(e.skillLook ?? '', e.attacker, e.victim, e.pos, !!e.skillReflected || e.ko || e.knockdown);
           }
           if (e.victim === this.me) {
@@ -1353,7 +1455,7 @@ export class Match {
           break;
         case 'deflect': {
           fx.hitSpark(e.pos, new THREE.Vector3(0, 1, 0), e.color, false);
-          fx.ring(e.pos, this.sides[e.who].model.root.getWorldDirection(new THREE.Vector3()), 0xffffff, 0.3, 1.8, 0.25, 1);
+          fx.ring(e.pos, this.sideOf(e.who).model.root.getWorldDirection(new THREE.Vector3()), 0xffffff, 0.3, 1.8, 0.25, 1);
           audio.play('shield_block', { pos: e.pos });
           if (e.who === this.me) {
             this.tel.deflects++;
@@ -1361,7 +1463,7 @@ export class Match {
             this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 0.8, 0))), e.parry ? 'PARRY!' : 'DEFLECT!', 'tag');
 
           }
-          this.sides[e.who].shieldPulse = 1;
+          this.sideOf(e.who).shieldPulse = 1;
           break;
         }
         case 'clash':
@@ -1392,6 +1494,8 @@ export class Match {
   dispose() {
     this.disposed = true;
     this.replayCamera?.dispose();
+    this.replayBar?.dispose();
+    if (this.seekMuted) audio.setVolumes(this.host.settings.master, this.host.settings.sfx, this.host.settings.music);
     for (const s of this.sides) {
       s.thruster.stop();
       s.model.dispose();

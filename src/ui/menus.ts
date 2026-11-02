@@ -1337,7 +1337,7 @@ export class Menus implements MenuLayer {
       arenaBtn.querySelector('span')!.textContent = `Arena: ${ARENA_INFO[arena as ArenaId].name}`;
       this.host.sfx('ui_move');
     }, 'big');
-    const go = (dummy: 'idle' | 'move' | 'shoot' | 'full') => () => {
+    const go = (dummy: 'idle' | 'move' | 'shoot' | 'full' | 'evade' | 'tells') => () => {
       this.host.sfx('ui_select');
       this.runMatch({ mode: 'practice', playerLoadout: { ...this.host.save.loadout }, rivalId: 'dex', arenaId: arena, practice: { dummy } });
     };
@@ -1346,6 +1346,8 @@ export class Menus implements MenuLayer {
       btn('Dummy: Move Only', go('move'), 'big'),
       btn('Dummy: Shoot Only', go('shoot'), 'big'),
       btn('Dummy: Full AI', go('full'), 'big'),
+      btn('Drill: Evader (land skill shots, practice feints)', go('evade'), 'big'),
+      btn('Drill: Skill Shooter (dodge the tells)', go('tells'), 'big'),
     ];
     const note = h('div', 'md-desc', 'Hold the bomb mouse button, move the landing marker, then release to throw. Clean bomb/pod blasts prime a target for 2 seconds; follow with rail or a charged beam after the marker closes. A perfect dodge, parry or frontal block clears the primer. Both robots refill automatically. Esc → Quit leaves practice.');
     const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', ...opts, arenaBtn, note), h('div', 'ra-actions', btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big')));

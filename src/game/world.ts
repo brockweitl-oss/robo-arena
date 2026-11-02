@@ -134,6 +134,7 @@ export type GameEvent =
   | { type: 'prime'; victim: number; attacker: number; pos: THREE.Vector3; duration: number }
   | { type: 'combo'; victim: number; attacker: number; primerOwner: number; pos: THREE.Vector3; bonus: number }
   | { type: 'sweetSpot'; attacker: number; pos: THREE.Vector3 }
+  | { type: 'blink'; who: number; from: THREE.Vector3; to: THREE.Vector3 }
   | { type: 'primerClear'; victim: number; attacker: number; pos: THREE.Vector3; reason: PrimerClearReason }
   | { type: 'fighter'; who: number; ev: Fighter['events'][number]; pos: THREE.Vector3 }
   | { type: 'shot'; who: number; proj: Projectile; index: number }
@@ -327,6 +328,7 @@ export class World {
   private spawnSkill(f: Fighter, aim: readonly [number, number, number] | null) {
     const sk = f.lo.skill;
     const foe = this.fighters[1 - f.id];
+    if (sk.blink) return this.blink(f, foe, aim);
     const from = f.muzzlePoint();
     const chest = foe.chestPoint();
     const dir = aim ? new THREE.Vector3(aim[0] - from.x, chest.y - from.y, aim[2] - from.z) : chest.sub(from);
@@ -341,11 +343,49 @@ export class World {
     const spec: ShotSpec = {
       damage: sk.damage * f.damageMul, down: sk.down, speed: sk.speed, homing: 0, homingTime: 0, homingDelay: 0,
       life: sk.range / sk.speed, radius: sk.radius, color: sk.color, coreColor: sk.coreColor, knockback: sk.knockback,
-      pierce: !!sk.pierce, comboDetonator: !!sk.detonator, look: sk.model, skill: true, pull: sk.pull, slow: sk.slow,
+      pierce: !!sk.pierce, comboDetonator: !!sk.detonator, look: sk.model as Exclude<typeof sk.model, 'blink'>, skill: true, pull: sk.pull, slow: sk.slow,
       sweet: sk.sweet ? { ...sk.sweet, range: sk.range } : undefined,
     };
     const p = this.makeProjectile(f.id, spec, from, dir.multiplyScalar(sk.speed), 0);
     this.events.push({ type: 'shot', who: f.id, proj: p, index: 0 });
+  }
+
+  /**
+   * Phase Blink: march toward the aim in small steps and stop before any wall or the arena edge.
+   * Quick-cast (no aim) steps along the current movement, or straight away from the opponent.
+   */
+  private blink(f: Fighter, foe: Fighter, aim: readonly [number, number, number] | null) {
+    const sk = f.lo.skill;
+    const dir = new THREE.Vector3();
+    let dist = sk.range;
+    if (aim) {
+      dir.set(aim[0] - f.pos.x, 0, aim[2] - f.pos.z);
+      dist = Math.min(sk.range, dir.length());
+    } else if (Math.hypot(f.vel.x, f.vel.z) > 1.5) dir.set(f.vel.x, 0, f.vel.z);
+    else dir.set(f.pos.x - foe.pos.x, 0, f.pos.z - foe.pos.z);
+    if (dir.lengthSq() < 1e-6) dir.set(-Math.sin(f.yaw), 0, -Math.cos(f.yaw));
+    dir.normalize();
+    const from = f.pos.clone();
+    const at = from.clone();
+    const a = new THREE.Vector3(), b = new THREE.Vector3();
+    const STEP = 0.25, M = 0.6;
+    for (let d = STEP; d <= dist + 1e-6; d += STEP) {
+      const nx = from.x + dir.x * d, nz = from.z + dir.z * d;
+      if (Math.abs(nx) > this.arena.halfX - M || Math.abs(nz) > this.arena.halfZ - M) break;
+      let blocked = false;
+      for (const h of [0.35, 1.5]) {
+        a.set(at.x, at.y + h, at.z); b.set(nx + dir.x * M, at.y + h, nz + dir.z * M);
+        if (segmentHit(a, b, this.colliders)) { blocked = true; break; }
+      }
+      if (blocked) break;
+      at.set(nx, at.y, nz);
+    }
+    f.pos.copy(at);
+    // arrive moving: a little of the blink's momentum carries into normal control
+    const carry = f.runSpeed * 0.6;
+    f.vel.x = dir.x * carry;
+    f.vel.z = dir.z * carry;
+    this.events.push({ type: 'blink', who: f.id, from, to: at.clone() });
   }
 
   private spawnBomb(f: Fighter) {

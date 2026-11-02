@@ -39,6 +39,13 @@ export function buildSkill(def: SkillDef, rig: Rig, b: PartBuilder) {
     add('dark',tube([new THREE.Vector3(.08,.02,-.09),new THREE.Vector3(.105,-.03,.04),new THREE.Vector3(.04,.01,.15)],.009,12));
     add('glowHot',chamferBox(.035,.014,.055,.003),[0,.07,.1]);
     rig.skillMuzzle.position.set(0,.035,.5);
+  } else if (def.model === 'blink') {
+    // phase coil: stacked emitter rings around a glowing core (Codex owns the final look)
+    add('dark',cyl(.06,.07,.16,14),[0,.025,.08],[Math.PI/2,0,0]);
+    for (let i=0;i<3;i++) add('chrome',torus(.075-i*.01,.009,16,5),[0,.025,.03+i*.06]);
+    for (const x of [-1,1]) add('primary',plate([[0,-.06],[x*.09,0],[x*.07,.16],[0,.2]],.02,.005),[0,.025,.06],[Math.PI/2,0,0]);
+    add('glowHot',cyl(.03,.03,.17,10),[0,.025,.09],[Math.PI/2,0,0]);
+    rig.skillMuzzle.position.set(0,.025,.22);
   } else {
     for (const x of [-.064,.064]) {
       add('secondary',cyl(.035,.035,.2,12),[x,.025,-.02],[Math.PI/2,0,0]);

@@ -99,7 +99,7 @@ export interface BombDef extends PartBase {
  */
 export interface SkillDef extends PartBase {
   slot: 'skill';
-  model: 'lance' | 'wave' | 'hook' | 'frost';
+  model: 'lance' | 'wave' | 'hook' | 'frost' | 'blink';
   cooldown: number;
   /** Cast time after release before the shot leaves (telegraph). */
   cast: number;
@@ -119,6 +119,8 @@ export interface SkillDef extends PartBase {
   pull?: number;
   /** Slow the victim (seconds). */
   slow?: number;
+  /** Mobility skill: teleport-dash up to `range` metres toward the aim (no projectile). */
+  blink?: boolean;
   /** Spacing reward: hits travelling between these fractions of range deal `mul` damage. */
   sweet?: { from: number; to: number; mul: number };
   color: number;
@@ -441,6 +443,14 @@ export const SKILLS: Record<string, SkillDef> = {
     cooldown: 4, cast: 0.08, recovery: 0.22, damage: 62, down: 22, speed: 50, range: 24, radius: 0.5, knockback: 4, slow: 1.5,
     color: 0x9ff0ff, coreColor: 0xffffff,
   },
+  blink: {
+    id: 'blink', slot: 'skill', name: 'Phase Blink', model: 'blink', family: 'strider', mass: 0,
+    desc: 'Phase-step up to 8 m toward the aim point. Quick-cast steps away along your movement, or straight back.',
+    pro: 'Dodges anything; repositions', con: 'No damage: you trade your skill for safety',
+    ratings: { Power: 0, Speed: 5, Width: 0, Reload: 4 },
+    cooldown: 5, cast: 0.1, recovery: 0.12, damage: 0, down: 0, speed: 0, range: 8, radius: 0.45, knockback: 0, blink: true,
+    color: 0xc79bff, coreColor: 0xffffff,
+  },
 };
 
 export const ALL_PARTS: Record<Slot, Record<string, AnyPart>> = {
@@ -464,7 +474,7 @@ export interface Loadout {
 export const DEFAULT_LOADOUT: Loadout = { gun: 'pulse', bomb: 'mortar', pod: 'seeker', body: 'striker', legs: 'stride', skill: 'lance' };
 
 /** Parts the player owns from the start. */
-export const STARTER_PARTS = ['gun:pulse', 'bomb:mortar', 'pod:seeker', 'body:striker', 'legs:stride', 'skill:lance', 'skill:wave', 'skill:hook', 'skill:frost'];
+export const STARTER_PARTS = ['gun:pulse', 'bomb:mortar', 'pod:seeker', 'body:striker', 'legs:stride', 'skill:lance', 'skill:wave', 'skill:hook', 'skill:frost', 'skill:blink'];
 
 export function resolveLoadout(l: Loadout) {
   return {
