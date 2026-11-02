@@ -36,6 +36,8 @@ export interface ShotSpec {
   pull?: number;
   /** Chill the victim for this long (seconds). */
   slow?: number;
+  /** Spacing reward (fractions of max travel) for skill shots. */
+  sweet?: { from: number; to: number; mul: number; range: number };
 }
 
 export interface Projectile {
@@ -131,6 +133,7 @@ export interface WorldOptions {
 export type GameEvent =
   | { type: 'prime'; victim: number; attacker: number; pos: THREE.Vector3; duration: number }
   | { type: 'combo'; victim: number; attacker: number; primerOwner: number; pos: THREE.Vector3; bonus: number }
+  | { type: 'sweetSpot'; attacker: number; pos: THREE.Vector3 }
   | { type: 'primerClear'; victim: number; attacker: number; pos: THREE.Vector3; reason: PrimerClearReason }
   | { type: 'fighter'; who: number; ev: Fighter['events'][number]; pos: THREE.Vector3 }
   | { type: 'shot'; who: number; proj: Projectile; index: number }
@@ -339,6 +342,7 @@ export class World {
       damage: sk.damage * f.damageMul, down: sk.down, speed: sk.speed, homing: 0, homingTime: 0, homingDelay: 0,
       life: sk.range / sk.speed, radius: sk.radius, color: sk.color, coreColor: sk.coreColor, knockback: sk.knockback,
       pierce: !!sk.pierce, comboDetonator: !!sk.detonator, look: sk.model, skill: true, pull: sk.pull, slow: sk.slow,
+      sweet: sk.sweet ? { ...sk.sweet, range: sk.range } : undefined,
     };
     const p = this.makeProjectile(f.id, spec, from, dir.multiplyScalar(sk.speed), 0);
     this.events.push({ type: 'shot', who: f.id, proj: p, index: 0 });
@@ -451,8 +455,11 @@ export class World {
       if (hit) {
         if (!target.isInvulnerable) {
           const dir = p.vel.clone().normalize();
-          const result = this.applyHit(target, p.owner, { damage: s.damage, down: s.down, dir, knock: s.knockback, heavy: s.down >= 40 || !!s.pull, source: s.skill ? 'skill' : 'gun', comboBonus: !p.deflected && s.comboDetonator ? comboBonus(s.damage * DAMAGE_SCALE) : undefined }, hit, s.color, false, s.skill ? { look: s.look, reflected: p.deflected } : undefined);
+          const travel = p.age * s.speed;
+          const sweet = !!s.sweet && !p.deflected && travel >= s.sweet.from * s.sweet.range && travel <= s.sweet.to * s.sweet.range + 0.5;
+          const result = this.applyHit(target, p.owner, { damage: s.damage * (sweet ? s.sweet!.mul : 1), down: s.down, dir, knock: s.knockback, heavy: s.down >= 40 || !!s.pull, source: s.skill ? 'skill' : 'gun', comboBonus: !p.deflected && s.comboDetonator ? comboBonus(s.damage * DAMAGE_SCALE) : undefined }, hit, s.color, false, s.skill ? { look: s.look, reflected: p.deflected } : undefined);
           const landed = !!result && !result.blocked && !result.parried;
+          if (sweet && landed) { this.fighters[p.owner].stats.sweetSpots++; this.events.push({ type: 'sweetSpot', attacker: p.owner, pos: hit.clone() }); }
           if (landed && !p.deflected && s.pull && target.alive && !result.knockdown) {
             // harpoon: reel the target in (staggered by the heavy hit)
             const owner = this.fighters[p.owner];

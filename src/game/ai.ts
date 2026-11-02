@@ -34,6 +34,12 @@ export class AIPilot {
   private gunAt = 0;
   private utilityAt = 0;
   private skillAt = 0;
+  /** When the opponent's current skill wind-up was first visible (-1 = none) and whether we already reacted. */
+  private castSeenAt = -1;
+  private castDodged = false;
+  /** Our own casts, and whether this cast is a planned feint (deterministic rhythm, top pilots only). */
+  private casts = 0;
+  private feintPlan = false;
   private mobilityAt = 0;
   private holdGunUntil = 0;
   private jumpUntil = 0;
@@ -65,7 +71,10 @@ export class AIPilot {
     // Deliberate sweeps rather than random left/right input on every tick.
     if (t >= this.strafeAt) { this.strafeDir *= -1; this.strafeAt = t + 2.4 + (1 - this.p.aggression); }
     const band = g === 'scatter' ? 0.8 : 2;
+    // Cooldown reads (the same readout the player sees): skill and dash both spent = a window to press.
+    const foeSpent = this.skill >= 0.45 && foe.skillCd > 1.5 && foe.dashCharges === 0;
     let fwd = dist > range + band ? 1 : dist < range - band ? -0.8 : vulnerable && this.p.aggression > 0.5 ? 0.3 : 0;
+    if (foeSpent && this.p.aggression >= 0.4 && dist > 4) fwd = Math.max(fwd, 0.6);
     const move = toN.clone().multiplyScalar(fwd).addScaledVector(side, this.strafeDir * this.p.strafe);
     if (me.pos.distanceTo(this.lastPos) < 0.035 && move.lengthSq() > 0.2 && me.mode === 'ground' && !me.attackCommitted) this.stuckT += dt;
     else this.stuckT = Math.max(0, this.stuckT - dt);
@@ -121,6 +130,27 @@ export class AIPilot {
       inp.dashPressed = true; inp.moveX = side.x * this.strafeDir; inp.moveZ = side.z * this.strafeDir;
       this.mobilityAt = t + 1.8;
     }
+    // Skill wind-ups are a visible tell. Pilots dodge one aimed at them once their reaction time has passed;
+    // a feint (dash-cancelled cast) can bait that dodge.
+    if (foe.castT >= 0) { if (this.castSeenAt < 0) { this.castSeenAt = t; this.castDodged = false; } } else this.castSeenAt = -1;
+    if (this.castSeenAt >= 0 && !this.castDodged && t - this.castSeenAt >= this.reaction && this.skill >= 0.5 && (me.canAct || me.castT >= 0) && me.canDash && t >= this.mobilityAt) {
+      const ct = foe.castTarget;
+      const ax = ct ? ct[0] - foe.pos.x : me.pos.x - foe.pos.x, az = ct ? ct[2] - foe.pos.z : me.pos.z - foe.pos.z;
+      const mx = me.pos.x - foe.pos.x, mz = me.pos.z - foe.pos.z;
+      const al = Math.hypot(ax, az) || 1, along = (mx * ax + mz * az) / al;
+      const off = Math.abs(mx * az - mz * ax) / al;
+      if (along > 0 && along < foe.lo.skill.range && off < foe.lo.skill.radius + 1.2) {
+        inp.dashPressed = true; inp.moveX = side.x * this.strafeDir; inp.moveZ = side.z * this.strafeDir;
+        this.mobilityAt = t + 1.2; this.castDodged = true;
+      }
+    }
+    // a pilot who has seen the tell stops starting attacks so the dash is free when it decides
+    const readingTell = this.castSeenAt >= 0 && !this.castDodged && this.skill >= 0.5;
+    if (readingTell) { this.holdGunUntil = 0; this.decideAt = Math.max(this.decideAt, t + 1 / 60); }
+    if (this.feintPlan && me.castT >= 0 && me.castT <= me.lo.skill.cast * 0.6 && me.canDash) {
+      inp.dashPressed = true; inp.moveX = side.x * this.strafeDir; inp.moveZ = side.z * this.strafeDir;
+      this.feintPlan = false;
+    }
     const los = !segmentHit(me.chestPoint(), seen.pos.clone().add(new THREE.Vector3(0, 1.15, 0)), world.colliders);
     const canHit = !foe.isInvulnerable && foe.alive;
     const precision = g === 'rail' || g === 'beam';
@@ -145,12 +175,16 @@ export class AIPilot {
       const sk = me.lo.skill;
       const steady = seen.vel.lengthSq() < 9;
       const skillOpening = me.skillCd <= 0 && t >= this.skillAt && los && !seen.guard && dist > 2.5 && dist < sk.range * 0.9 &&
-        (sk.model === 'hook' ? dist > 6 && (vulnerable || steady) : sk.detonator ? comboReady || vulnerable || steady : vulnerable || steady || dist < 10);
+        (sk.model === 'hook' ? dist > 6 && (vulnerable || steady || foeSpent) : sk.detonator ? comboReady || vulnerable || steady || foeSpent : vulnerable || steady || foeSpent || dist < 10);
       if (skillOpening) {
         const lead = (dist / sk.speed + sk.cast) * THREE.MathUtils.lerp(0.4, 0.9, this.skill);
         inp.skillPressed = true;
         inp.skillTarget = [seen.pos.x + seen.vel.x * lead, seen.pos.y, seen.pos.z + seen.vel.z * lead];
         this.skillAt = t + 1 + this.p.utilityCadence * 0.25;
+        // every third cast, a top trickster/champion fakes it while the opponent is holding a dash
+        this.casts++;
+        this.feintPlan = this.skill >= 0.7 && (this.personality === 'trickster' || this.personality === 'champion') &&
+          this.casts % 3 === 0 && foe.dashCharges > 0 && !foeSpent;
       } else if (!preferSetup && los && inRange && !seen.guard && me.gunCd <= 0 && t >= this.gunAt && precisionOpening) {
         this.holdGunUntil = t + (me.lo.gun.holdMax ? (comboReady ? Math.max(.6, me.lo.gun.holdMin ?? 0) : vulnerable ? 0.45 : me.lo.gun.holdMax) : 0.12);
         this.gunAt = t + Math.max(0.1, this.p.gunCadence - 0.3) + me.lo.gun.cooldown + me.lo.gun.windup;

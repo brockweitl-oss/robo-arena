@@ -866,7 +866,7 @@ export class Match {
       outcome: o.quit ? 'quit' : o.restart ? 'restart' : this.winner < 0 ? 'draw' : this.winner === 0 ? 'win' : 'lose',
       finish: this.finish, fightTime: r1(this.fightTime), playerHp: Math.round(p.hp), playerMaxHp: p.maxHp, rivalHp: Math.round(r.hp), rivalMaxHp: r.maxHp,
       used: T.used, dmgDealtBy: T.dmgDealt, dmgTakenBy: T.dmgTaken, hitsDealt: T.hitsDealt, hitsTaken: T.hitsTaken,
-      kdDealt: p.stats.knockdowns, kdTaken: p.stats.knockdownsTaken, hazardHits: T.hazardHits, dodges: T.dodges, deflects: T.deflects, parries: p.stats.parries, skills: p.stats.skillCasts, skillHits: p.stats.skillHits, skillDamage: p.stats.skillDamage, pauses: T.pauses,
+      kdDealt: p.stats.knockdowns, kdTaken: p.stats.knockdownsTaken, hazardHits: T.hazardHits, dodges: T.dodges, deflects: T.deflects, parries: p.stats.parries, skills: p.stats.skillCasts, skillHits: p.stats.skillHits, skillDamage: p.stats.skillDamage, feints: p.stats.feints, sweetSpots: p.stats.sweetSpots, pauses: T.pauses,
       airPct: T.fightT ? r1((T.airT / T.fightT) * 100) : 0, hoverS: r1(T.hoverT), hardLockPct: T.fightT ? r1((T.lockT / T.fightT) * 100) : 0,
       avgDist: T.distN ? r1(T.distSum / T.distN) : 0, distSec: { '<5m': r1(T.dist[0]), '5-10m': r1(T.dist[1]), '10-16m': r1(T.dist[2]), '>16m': r1(T.dist[3]) },
       fpsAvg: T.fpsN ? r1(T.fpsSum / T.fpsN) : null, fpsMin: T.fpsN ? r1(T.fpsMin) : null, device: T.device,
@@ -1051,6 +1051,10 @@ export class Match {
               audio.play('pod_launch', { pos: f.pos });
               s.anim.event({ type: 'pod' });
               break;
+            case 'feint':
+              fx.dodgeFlash(f.chestPoint(), f.lo.skill.color);
+              this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1.2, 0))), 'FEINT', 'tag', '#' + new THREE.Color(f.lo.skill.color).getHexString());
+              break;
             case 'skillCast': {
               // telegraph: charge sound + glint (the enemy's lane shows on the ground during the cast)
               audio.play('gun_rail_charge', { pos: f.pos, volume: 0.8, pitch: 1.3 });
@@ -1116,6 +1120,12 @@ export class Match {
           this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 1, 0))), 'PRIMED', 'tag', '#5adfff');
           audio.play('pod_seeker_ping', { pos: e.pos, volume: .45, pitch: 1.4 });
           break;
+        case 'sweetSpot': {
+          fx.burst(e.pos, 0xffe27a, 0.5);
+          this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 1.4, 0))), 'SWEET SPOT!', 'big', '#ffe27a');
+          audio.play('hit_heavy', { pos: e.pos, volume: 0.7, pitch: 1.5 });
+          break;
+        }
         case 'combo': {
           fx.comboBurst(e.pos, 0xffd36a);
           this.sides[e.attacker].anim.event({ type: 'combo', role: 'trigger' });

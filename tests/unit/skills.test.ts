@@ -27,7 +27,7 @@ describe('skill shots (aimed abilities vs the auto-aimed gun)', () => {
     step(w, 1, { skillPressed: true });
     expect(a.castT).toBeGreaterThan(0);
     expect(skillShot(w)).toBeUndefined();
-    step(w, 10);
+    step(w, 20);
     const p = skillShot(w)!;
     expect(p).toBeTruthy();
     expect(p.spec.homing).toBe(0);
@@ -38,7 +38,7 @@ describe('skill shots (aimed abilities vs the auto-aimed gun)', () => {
   it('an aimed release fires toward the aim point, not the target', () => {
     const { w } = setup();
     step(w, 1, { skillPressed: true, skillTarget: [12, 0, -8] });
-    step(w, 10);
+    step(w, 20);
     const p = skillShot(w)!;
     expect(p.vel.x).toBeGreaterThan(Math.abs(p.vel.z) * 5);
     expect(p.vel.y).toBeCloseTo(0, 5);
@@ -113,5 +113,50 @@ describe('skill shots (aimed abilities vs the auto-aimed gun)', () => {
     const first = run();
     expect(first.length).toBeGreaterThan(0);
     expect(run()).toEqual(first);
+  });
+
+  it('a dash during the wind-up feints: no shot, half the cooldown refunded, dash spent', () => {
+    const { w, a } = setup();
+    step(w, 1, { skillPressed: true });
+    expect(a.castT).toBeGreaterThan(0);
+    const charges = a.dashCharges;
+    step(w, 2, { dashPressed: true, moveX: 1 });
+    step(w, 30);
+    expect(skillShot(w)).toBeUndefined();
+    expect(a.stats.feints).toBe(1);
+    expect(a.dashCharges).toBe(charges - 1);
+    expect(a.skillCd).toBeLessThan(SKILLS.lance.cooldown * 0.5);
+    expect(a.skillCd).toBeGreaterThan(SKILLS.lance.cooldown * 0.5 - 1);
+  });
+
+  it('the Breaker Lance rewards spacing: a tip hit deals more than a point-blank hit', () => {
+    const near = setup();
+    near.b.pos.set(0, 0, -2);
+    for (let i = 0; i < 3; i++) near.w.step([emptyInput(), emptyInput()]);
+    near.b.hp = 1e6; near.b.maxHp = 1e6;
+    step(near.w, 1, { skillPressed: true }); step(near.w, 40);
+    const far = setup();
+    far.b.pos.set(0, 0, 14);
+    for (let i = 0; i < 3; i++) far.w.step([emptyInput(), emptyInput()]);
+    far.b.hp = 1e6; far.b.maxHp = 1e6;
+    step(far.w, 1, { skillPressed: true }); step(far.w, 40);
+    expect(far.a.stats.sweetSpots).toBe(1);
+    expect(near.a.stats.sweetSpots).toBe(0);
+    expect(far.a.stats.skillDamage).toBeGreaterThan(near.a.stats.skillDamage * 1.2);
+  });
+
+  it('a skilled AI dodges a lance tell aimed at it; a rookie does not', () => {
+    const run = (personality: 'champion' | 'rookie', skill: number) => {
+      const { w, a, b } = setup();
+      const ai = new AIPilot(personality, skill, 3);
+      for (let i = 0; i < 70; i++) w.step([emptyInput(), { ...ai.think(w, b, a), skillPressed: false, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, chargePressed: false }]);
+      // the tell starts while the AI is not mid-attack (a committed burst can't be dodge-cancelled)
+      w.step([{ ...emptyInput(), skillPressed: true }, { ...ai.think(w, b, a), skillPressed: false, gunPressed: false, gunHeld: false, chargePressed: false }]);
+      let dashed = false;
+      for (let i = 0; i < 20; i++) { w.step([emptyInput(), ai.think(w, b, a)]); dashed ||= b.mode === 'dash' || b.mode === 'airdash'; }
+      return dashed;
+    };
+    expect(run('champion', 1)).toBe(true);
+    expect(run('rookie', 0)).toBe(false);
   });
 });

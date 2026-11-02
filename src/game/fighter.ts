@@ -56,7 +56,7 @@ export type FighterEvent =
   | { type: 'chargeStart'; wakeup: boolean } | { type: 'chargeLunge' } | { type: 'knockdown' } | { type: 'getup' }
   | { type: 'parry' } | { type: 'guardBreak' } | { type: 'hover'; on: boolean }
   | { type: 'primerClear'; owner: number; reason: PrimerClearReason }
-  | { type: 'skillCast' } | { type: 'skill' };
+  | { type: 'skillCast' } | { type: 'skill' } | { type: 'feint' };
 
 export interface HitInfo {
   damage: number;
@@ -188,7 +188,7 @@ export class Fighter implements AnimSource {
   readonly spawns: SpawnReq[] = [];
 
   // stats
-  stats = { damageDealt: 0, hits: 0, knockdowns: 0, knockdownsTaken: 0, shots: 0, dodges: 0, parries: 0, gunProjectiles: 0, gunHits: 0, gunDamage: 0, gunDeflected: 0, primes: 0, combos: 0, comboDamage: 0, skillCasts: 0, skillHits: 0, skillDamage: 0 };
+  stats = { damageDealt: 0, hits: 0, knockdowns: 0, knockdownsTaken: 0, shots: 0, dodges: 0, parries: 0, gunProjectiles: 0, gunHits: 0, gunDamage: 0, gunDeflected: 0, primes: 0, combos: 0, comboDamage: 0, skillCasts: 0, skillHits: 0, skillDamage: 0, feints: 0, sweetSpots: 0 };
 
   constructor(readonly id: number, readonly lo: ResolvedLoadout) {
     this.st = deriveStats(lo);
@@ -227,8 +227,12 @@ export class Fighter implements AnimSource {
   get remainingAirDashes() { return this.airDashes; }
 
   get canDash() {
-    return this.dashCharges > 0 && this.dashGap <= 0 && !this.attackCommitted;
+    // a skill wind-up can be feinted with a dash; other commitments cannot
+    const feintable = this.castT >= 0 && this.recoveryTime <= 0 && this.holdT < 0 && this.burstLeft === 0;
+    return this.dashCharges > 0 && this.dashGap <= 0 && (!this.attackCommitted || feintable);
   }
+  /** Dashing out of a skill wind-up: the shot is cancelled and half the cooldown is refunded. */
+  static readonly FEINT_REFUND = 0.5;
   /** Incoming travel direction must point into our forward guard, not our back. */
   facesIncoming(dir: THREE.Vector3) {
     const length = dir.length();
@@ -385,6 +389,12 @@ export class Fighter implements AnimSource {
         // --- dash ---
         if (!recovering && this.bufDash > 0 && this.canDash && (grounded || this.airDashes > 0)) {
           this.bufDash = 0;
+          if (this.castT >= 0) {
+            this.castT = -1;
+            this.skillCd = this.lo.skill.cooldown * (1 - Fighter.FEINT_REFUND);
+            this.stats.feints++;
+            this.events.push({ type: 'feint' });
+          }
           const dir = moveLen > 0.2 ? mv.clone() : new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
           this.dashDir.copy(dir);
           const air = !grounded;
