@@ -1,0 +1,323 @@
+{
+  "results": [
+    {
+      "body": "striker",
+      "pose": "front",
+      "fps": 60.41996829571796,
+      "meshes": 146,
+      "tris": 16512,
+      "calls": 1
+    },
+    {
+      "body": "striker",
+      "pose": "side",
+      "fps": 59.50609937800008,
+      "meshes": 146,
+      "tris": 16512,
+      "calls": 1
+    },
+    {
+      "body": "striker",
+      "pose": "back",
+      "fps": 59.814574823750746,
+      "meshes": 146,
+      "tris": 16512,
+      "calls": 1
+    },
+    {
+      "body": "striker",
+      "pose": "run",
+      "fps": 60.00983767830793,
+      "meshes": 146,
+      "tris": 16512,
+      "calls": 1
+    },
+    {
+      "body": "striker",
+      "pose": "fire",
+      "fps": 59.88023952095806,
+      "meshes": 146,
+      "tris": 16512,
+      "calls": 1
+    },
+    {
+      "body": "wisp",
+      "pose": "front",
+      "fps": 60.336300692383794,
+      "meshes": 170,
+      "tris": 18716,
+      "calls": 1
+    },
+    {
+      "body": "wisp",
+      "pose": "side",
+      "fps": 59.749053970474925,
+      "meshes": 170,
+      "tris": 18716,
+      "calls": 1
+    },
+    {
+      "body": "wisp",
+      "pose": "back",
+      "fps": 60.139998031024064,
+      "meshes": 170,
+      "tris": 18716,
+      "calls": 1
+    },
+    {
+      "body": "wisp",
+      "pose": "run",
+      "fps": 60.11036657751902,
+      "meshes": 170,
+      "tris": 18716,
+      "calls": 1
+    },
+    {
+      "body": "wisp",
+      "pose": "fire",
+      "fps": 59.976009590444065,
+      "meshes": 170,
+      "tris": 18716,
+      "calls": 1
+    },
+    {
+      "body": "regent",
+      "pose": "front",
+      "fps": 60.43193976048818,
+      "meshes": 147,
+      "tris": 16124,
+      "calls": 1
+    },
+    {
+      "body": "regent",
+      "pose": "side",
+      "fps": 59.8086124231346,
+      "meshes": 147,
+      "tris": 16124,
+      "calls": 1
+    },
+    {
+      "body": "regent",
+      "pose": "back",
+      "fps": 60.348239021446,
+      "meshes": 147,
+      "tris": 16124,
+      "calls": 1
+    },
+    {
+      "body": "regent",
+      "pose": "run",
+      "fps": 59.70743358397971,
+      "meshes": 147,
+      "tris": 16124,
+      "calls": 1
+    },
+    {
+      "body": "regent",
+      "pose": "fire",
+      "fps": 59.68367651730424,
+      "meshes": 147,
+      "tris": 16124,
+      "calls": 1
+    },
+    {
+      "body": "ironclad",
+      "pose": "front",
+      "fps": 59.75500448730075,
+      "meshes": 144,
+      "tris": 19112,
+      "calls": 1
+    },
+    {
+      "body": "ironclad",
+      "pose": "side",
+      "fps": 59.68961400433127,
+      "meshes": 144,
+      "tris": 19112,
+      "calls": 1
+    },
+    {
+      "body": "ironclad",
+      "pose": "back",
+      "fps": 60.01574184237046,
+      "meshes": 144,
+      "tris": 19112,
+      "calls": 1
+    },
+    {
+      "body": "ironclad",
+      "pose": "run",
+      "fps": 60.33033330605632,
+      "meshes": 144,
+      "tris": 19112,
+      "calls": 1
+    },
+    {
+      "body": "ironclad",
+      "pose": "fire",
+      "fps": 59.725263792251496,
+      "meshes": 144,
+      "tris": 19112,
+      "calls": 1
+    },
+    {
+      "pose": "match",
+      "fps": 58
+    }
+  ],
+  "errors": [],
+  "viewport": [
+    1600,
+    1000
+  ],
+  "quality": "medium",
+  "notes": [
+    "Before images are committed main armor from docs/visuals/unified-update/after.",
+    "All after/ images refreshed after the final rear torso and leg armor pass.",
+    "Generated concepts are design references; runtime screenshots show simplified models rather than equivalent rendering fidelity.",
+    "Presentation uses distinct existing rival paints and role-specific legs; settings in presentation/report.json.",
+    "Viewer FPS is a short sample; aggregate1080p benchmark stored in performance-1080p.txt. Viewer calls is final postprocessing pass only."
+  ],
+  "presentation": {
+    "results": [
+      {
+        "name": "striker-front",
+        "url": "robot=striker&paint=dex&legs=stride&skill=frost&anim=idle&cam=1.8,1.7,2.6",
+        "fps": 59.68367650314956,
+        "meshes": 146,
+        "tris": 16512,
+        "calls": 1
+      },
+      {
+        "name": "striker-back",
+        "url": "robot=striker&paint=dex&legs=stride&skill=frost&anim=idle&cam=-1.8,1.7,-2.6",
+        "fps": 59.36479668677446,
+        "meshes": 146,
+        "tris": 16512,
+        "calls": 1
+      },
+      {
+        "name": "wisp-front",
+        "url": "robot=wisp&paint=mira&legs=feather&skill=wave&anim=idle&cam=1.8,1.7,2.6",
+        "fps": 60.34823903568042,
+        "meshes": 196,
+        "tris": 20360,
+        "calls": 1
+      },
+      {
+        "name": "wisp-back",
+        "url": "robot=wisp&paint=mira&legs=feather&skill=wave&anim=idle&cam=-1.8,1.7,-2.6",
+        "fps": 60.52187716462763,
+        "meshes": 196,
+        "tris": 20360,
+        "calls": 1
+      },
+      {
+        "name": "regent-front",
+        "url": "robot=regent&paint=sable&legs=stride&skill=lance&anim=idle&cam=1.8,1.7,2.6",
+        "fps": 60.03937007874017,
+        "meshes": 142,
+        "tris": 16948,
+        "calls": 1
+      },
+      {
+        "name": "regent-back",
+        "url": "robot=regent&paint=sable&legs=stride&skill=lance&anim=idle&cam=-1.8,1.7,-2.6",
+        "fps": 59.910134797803295,
+        "meshes": 142,
+        "tris": 16948,
+        "calls": 1
+      },
+      {
+        "name": "ironclad-front",
+        "url": "robot=ironclad&paint=vance&legs=anchor&skill=hook&anim=idle&cam=1.8,1.7,2.6",
+        "fps": 59.976009590444065,
+        "meshes": 142,
+        "tris": 20184,
+        "calls": 1
+      },
+      {
+        "name": "ironclad-back",
+        "url": "robot=ironclad&paint=vance&legs=anchor&skill=hook&anim=idle&cam=-1.8,1.7,-2.6",
+        "fps": 60.187469166255546,
+        "meshes": 142,
+        "tris": 20184,
+        "calls": 1
+      },
+      {
+        "name": "hopper-front",
+        "url": "robot=wisp&paint=mira&legs=hopper&skill=wave&anim=idle&cam=1.8,1.7,2.6",
+        "fps": 60.624130388699285,
+        "meshes": 190,
+        "tris": 24464,
+        "calls": 1
+      },
+      {
+        "name": "hopper-side",
+        "url": "robot=wisp&paint=mira&legs=hopper&skill=wave&anim=idle&cam=3,1.6,.1",
+        "fps": 59.9940006056609,
+        "meshes": 190,
+        "tris": 24464,
+        "calls": 1
+      },
+      {
+        "name": "hopper-back",
+        "url": "robot=wisp&paint=mira&legs=hopper&skill=wave&anim=idle&cam=-1.8,1.7,-2.6",
+        "fps": 59.838436219354435,
+        "meshes": 190,
+        "tris": 24464,
+        "calls": 1
+      },
+      {
+        "name": "hopper-run",
+        "url": "robot=wisp&paint=mira&legs=hopper&skill=wave&anim=run&cam=1.8,1.7,2.6",
+        "fps": 59.74310465284155,
+        "meshes": 190,
+        "tris": 24464,
+        "calls": 1
+      }
+    ],
+    "errors": []
+  },
+  "screenshots": [
+    "after/ironclad-back.jpg",
+    "after/ironclad-fire.jpg",
+    "after/ironclad-front.jpg",
+    "after/ironclad-run.jpg",
+    "after/ironclad-side.jpg",
+    "after/match.jpg",
+    "after/regent-back.jpg",
+    "after/regent-fire.jpg",
+    "after/regent-front.jpg",
+    "after/regent-run.jpg",
+    "after/regent-side.jpg",
+    "after/striker-back.jpg",
+    "after/striker-fire.jpg",
+    "after/striker-front.jpg",
+    "after/striker-run.jpg",
+    "after/striker-side.jpg",
+    "after/wisp-back.jpg",
+    "after/wisp-fire.jpg",
+    "after/wisp-front.jpg",
+    "after/wisp-run.jpg",
+    "after/wisp-side.jpg",
+    "before/ironclad-front.jpg",
+    "before/regent-front.jpg",
+    "before/striker-front.jpg",
+    "before/wisp-front.jpg",
+    "presentation/hopper-back.jpg",
+    "presentation/hopper-front.jpg",
+    "presentation/hopper-run.jpg",
+    "presentation/hopper-side.jpg",
+    "presentation/ironclad-back.jpg",
+    "presentation/ironclad-front.jpg",
+    "presentation/regent-back.jpg",
+    "presentation/regent-front.jpg",
+    "presentation/striker-back.jpg",
+    "presentation/striker-front.jpg",
+    "presentation/wisp-back.jpg",
+    "presentation/wisp-front.jpg"
+  ],
+  "sourceCommit": "7db1a31",
+  "captureNote": "Final rear armor, aligned nozzle trim and rebased main grade; generated references are aspirational, not runtime images."
+}

@@ -1,0 +1,101 @@
+{
+  "results": [
+    {
+      "name": "striker-front",
+      "url": "robot=striker&paint=dex&legs=stride&skill=frost&anim=idle&cam=1.8,1.7,2.6",
+      "fps": 59.68367650314956,
+      "meshes": 146,
+      "tris": 16512,
+      "calls": 1
+    },
+    {
+      "name": "striker-back",
+      "url": "robot=striker&paint=dex&legs=stride&skill=frost&anim=idle&cam=-1.8,1.7,-2.6",
+      "fps": 59.36479668677446,
+      "meshes": 146,
+      "tris": 16512,
+      "calls": 1
+    },
+    {
+      "name": "wisp-front",
+      "url": "robot=wisp&paint=mira&legs=feather&skill=wave&anim=idle&cam=1.8,1.7,2.6",
+      "fps": 60.34823903568042,
+      "meshes": 196,
+      "tris": 20360,
+      "calls": 1
+    },
+    {
+      "name": "wisp-back",
+      "url": "robot=wisp&paint=mira&legs=feather&skill=wave&anim=idle&cam=-1.8,1.7,-2.6",
+      "fps": 60.52187716462763,
+      "meshes": 196,
+      "tris": 20360,
+      "calls": 1
+    },
+    {
+      "name": "regent-front",
+      "url": "robot=regent&paint=sable&legs=stride&skill=lance&anim=idle&cam=1.8,1.7,2.6",
+      "fps": 60.03937007874017,
+      "meshes": 142,
+      "tris": 16948,
+      "calls": 1
+    },
+    {
+      "name": "regent-back",
+      "url": "robot=regent&paint=sable&legs=stride&skill=lance&anim=idle&cam=-1.8,1.7,-2.6",
+      "fps": 59.910134797803295,
+      "meshes": 142,
+      "tris": 16948,
+      "calls": 1
+    },
+    {
+      "name": "ironclad-front",
+      "url": "robot=ironclad&paint=vance&legs=anchor&skill=hook&anim=idle&cam=1.8,1.7,2.6",
+      "fps": 59.976009590444065,
+      "meshes": 142,
+      "tris": 20184,
+      "calls": 1
+    },
+    {
+      "name": "ironclad-back",
+      "url": "robot=ironclad&paint=vance&legs=anchor&skill=hook&anim=idle&cam=-1.8,1.7,-2.6",
+      "fps": 60.187469166255546,
+      "meshes": 142,
+      "tris": 20184,
+      "calls": 1
+    },
+    {
+      "name": "hopper-front",
+      "url": "robot=wisp&paint=mira&legs=hopper&skill=wave&anim=idle&cam=1.8,1.7,2.6",
+      "fps": 60.624130388699285,
+      "meshes": 190,
+      "tris": 24464,
+      "calls": 1
+    },
+    {
+      "name": "hopper-side",
+      "url": "robot=wisp&paint=mira&legs=hopper&skill=wave&anim=idle&cam=3,1.6,.1",
+      "fps": 59.9940006056609,
+      "meshes": 190,
+      "tris": 24464,
+      "calls": 1
+    },
+    {
+      "name": "hopper-back",
+      "url": "robot=wisp&paint=mira&legs=hopper&skill=wave&anim=idle&cam=-1.8,1.7,-2.6",
+      "fps": 59.838436219354435,
+      "meshes": 190,
+      "tris": 24464,
+      "calls": 1
+    },
+    {
+      "name": "hopper-run",
+      "url": "robot=wisp&paint=mira&legs=hopper&skill=wave&anim=run&cam=1.8,1.7,2.6",
+      "fps": 59.74310465284155,
+      "meshes": 190,
+      "tris": 24464,
+      "calls": 1
+    }
+  ],
+  "errors": []
+}
