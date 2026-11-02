@@ -365,3 +365,19 @@ describe('G5 review regressions (Codex, PR #20)', () => {
     expect(validateReplay({ ...good, aimAssist: 5 })).toBe(false);
   });
 });
+
+describe('replay validation hardening (Codex, PR #20 final)', () => {
+  it('rejects inherited keys and invalid versus paint', async () => {
+    const { validateReplay, InputRecorder } = await import('../../src/game/replay');
+    const mk = () => { const r = new InputRecorder(); for (let i = 0; i < 60; i++) r.push(emptyInput()); return r.encode(); };
+    const good = { v: 1, config: { mode: 'free', playerLoadout: { ...DEFAULT_LOADOUT }, rivalId: 'dex', arenaId: 'foundry' }, worldSeed: 5, aiSeed: 9, streams: [mk()], frames: 60, date: new Date().toISOString(), aimAssist: 1 };
+    expect(validateReplay(good)).toBe(true);
+    expect(validateReplay({ ...good, config: { ...good.config, arenaId: 'constructor' } })).toBe(false);
+    expect(validateReplay({ ...good, config: { ...good.config, playerLoadout: { ...DEFAULT_LOADOUT, gun: 'constructor' } } })).toBe(false);
+    const paint = { primary: 1, secondary: 2, trim: 3, dark: 4, glow: 5, emblem: '01' };
+    const vs = { ...good, streams: [mk(), mk()], config: { ...good.config, mode: 'versus', versus: { p2Loadout: { ...DEFAULT_LOADOUT }, p2Paint: paint, p2Name: 'P2' } } };
+    expect(validateReplay(vs)).toBe(true);
+    expect(validateReplay({ ...vs, config: { ...vs.config, versus: { ...vs.config.versus, p2Paint: undefined } } })).toBe(false);
+    expect(validateReplay({ ...vs, config: { ...vs.config, versus: { ...vs.config.versus, p2Paint: { ...paint, glow: 'red' } } } })).toBe(false);
+  });
+});

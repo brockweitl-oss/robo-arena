@@ -165,13 +165,19 @@ export function validateReplay(r: unknown): r is Replay {
   const c = x.config;
   if (!c || typeof c !== 'object') return false;
   if (![...RIVALS, ...RIVALS_PLUS].some((rv) => rv.id === c.rivalId)) return false;
-  if (!(c.arenaId in ARENA_INFO)) return false;
+  if (typeof c.arenaId !== 'string' || !Object.hasOwn(ARENA_INFO, c.arenaId)) return false;
   const lo = c.playerLoadout as unknown as Record<Slot, string> | undefined;
   if (!lo) return false;
-  for (const slot of ['gun', 'bomb', 'pod', 'body', 'legs'] as Slot[]) if (typeof lo[slot] !== 'string' || !ALL_PARTS[slot][lo[slot]]) return false;
+  const partOk = (slot: Slot, id: unknown) => typeof id === 'string' && Object.hasOwn(ALL_PARTS[slot], id);
+  for (const slot of ['gun', 'bomb', 'pod', 'body', 'legs'] as Slot[]) if (!partOk(slot, lo[slot])) return false;
   if (c.versus) {
     const p2 = c.versus.p2Loadout as unknown as Record<Slot, string>;
-    for (const slot of ['gun', 'bomb', 'pod', 'body', 'legs'] as Slot[]) if (!p2 || !ALL_PARTS[slot][p2[slot]]) return false;
+    if (!p2) return false;
+    for (const slot of ['gun', 'bomb', 'pod', 'body', 'legs'] as Slot[]) if (!partOk(slot, p2[slot])) return false;
+    const pp = c.versus.p2Paint as unknown as Record<string, unknown> | undefined;
+    const col = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffffff;
+    if (!pp || !['primary', 'secondary', 'trim', 'dark', 'glow'].every((k) => col(pp[k])) || typeof pp.emblem !== 'string') return false;
+    if (typeof c.versus.p2Name !== 'string') return false;
   }
   const int = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v > 0 && v < 2 ** 31;
   if (!int(x.worldSeed) || !int(x.aiSeed)) return false;
