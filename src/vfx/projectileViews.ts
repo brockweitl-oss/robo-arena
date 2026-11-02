@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Projectile } from '../game/world';
 import type { ParticleSystem } from './particles';
 import { glowSprite } from '../render/textures';
+import { isSkillLook } from './skillEffects';
 
 /**
  * Per-weapon projectile visuals: a shaped head per `spec.look` plus a camera-facing
@@ -162,6 +163,10 @@ interface View {
   cable: THREE.Mesh | null;
   style: Style;
   dying: number;
+  /** Head, halo and cable already went back to their pools (dying views keep only the ribbon). */
+  released: boolean;
+  /** Skill shots: head transverse size follows `spec.radius` exactly (diameter 2r). */
+  skill: boolean;
   color: number;
   owner: number;
   spin: number;
@@ -174,6 +179,29 @@ const _b = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const Z = new THREE.Vector3(0, 0, 1);
 
+/** Unit-scale transverse bounds of a head group in its own frame (travel along +Z). */
+export interface HeadBounds { halfX: number; halfY: number; radial: number }
+export function headBounds(head: THREE.Object3D): HeadBounds {
+  const out = { halfX: 0, halfY: 0, radial: 0 };
+  const v = new THREE.Vector3();
+  head.updateMatrixWorld(true);
+  const inv = head.matrixWorld.clone().invert();
+  const m = new THREE.Matrix4();
+  head.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const pos = mesh.geometry.getAttribute('position');
+    m.multiplyMatrices(inv, mesh.matrixWorld);
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m);
+      out.halfX = Math.max(out.halfX, Math.abs(v.x));
+      out.halfY = Math.max(out.halfY, Math.abs(v.y));
+      out.radial = Math.max(out.radial, Math.hypot(v.x, v.y));
+    }
+  });
+  return out;
+}
+
 export class ProjectileViews {
   readonly group = new THREE.Group();
   private views = new Map<number, View>();
@@ -185,6 +213,7 @@ export class ProjectileViews {
   private mats = new Map<string, THREE.Material>();
   private haloTex = glowSprite(64, 0.2);
   private wallMat: THREE.ShaderMaterial;
+  private bounds = new Map<Style['head'], HeadBounds>();
   private t = 0;
 
   constructor(private sparks: ParticleSystem, private smoke: ParticleSystem) {
@@ -265,6 +294,7 @@ export class ProjectileViews {
       case 'wall': g.add(new THREE.Mesh(G.wall, this.wallMat)); break;
     }
     g.traverse((o) => { o.frustumCulled = false; });
+    if (!this.bounds.has(kind)) this.bounds.set(kind, headBounds(g));
     return g;
   }
 
@@ -298,16 +328,18 @@ export class ProjectileViews {
         const halo = this.take(this.halos, () => new THREE.Sprite(new THREE.SpriteMaterial({ map: this.haloTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })));
         halo.material.color.set(p.spec.color).multiplyScalar(1.3);
         let cable: THREE.Mesh | null = null;
-        if (style.head === 'harpoon') {
+        if (style.head === 'harpoon' && !p.deflected) {
           cable = this.take(this.cables, () => new THREE.Mesh(this.geo.cable, this.glow(0xff9a4a, 3)));
           cable.frustumCulled = false;
           this.group.add(cable);
         }
         head.visible = halo.visible = true;
         this.group.add(ribbon.mesh, head, halo);
-        const anchor = p.spec.skill ? anchors[p.owner] : undefined;
+        // A fast shot may reflect during several simulation ticks before its
+        // first rendered frame. It must start at that bounce, not at a shoulder.
+        const anchor = p.spec.skill && !p.deflected ? anchors[p.owner] : undefined;
         const offset = anchor ? anchor.clone().sub(p.pos).addScaledVector(p.vel, p.age) : null;
-        v = { ribbon, head, headKind: style.head, halo, cable, style, dying: 0, color: p.spec.color, owner: p.owner, spin: 0, offset };
+        v = { ribbon, head, headKind: style.head, halo, cable, style, dying: 0, released: false, skill: isSkillLook(p.spec.look), color: p.spec.color, owner: p.owner, spin: 0, offset };
         if (offset) ribbon.reset(_p.copy(p.pos).add(offset));
         this.views.set(p.id, v);
         // re-tint pooled head glow for this shot (bolts/pellets/spears share cached materials by color)
@@ -317,6 +349,15 @@ export class ProjectileViews {
           if (meshes[1]) meshes[1].material = this.glow(p.spec.color, 5);
         }
         if (style.head === 'wall') this.wallMat.uniforms.uColor.value.set(p.spec.color);
+      } else if (p.owner !== v.owner) {
+        // Reflected: the sim restarts the shot at the shield bounce with a new owner and
+        // age 0. The original emitter offset no longer applies, so restart the ribbon at the
+        // actual bounce point instead of re-blending from either robot's mount. A reflected
+        // harpoon is no longer tethered to the original muzzle, so its cable is pooled.
+        v.owner = p.owner;
+        v.offset = null;
+        v.ribbon.reset(p.pos);
+        if (v.cable) { this.group.remove(v.cable); this.cables.push(v.cable); v.cable = null; }
       }
       _p.copy(p.pos);
       if (v.offset) _p.addScaledVector(v.offset, Math.max(0, 1 - p.age / 0.08));
@@ -327,16 +368,21 @@ export class ProjectileViews {
       _a.copy(p.vel).normalize();
       if (_a.lengthSq() > 0.5) v.head.quaternion.setFromUnitVectors(Z, _a);
       const r = p.spec.radius;
+      const hb = this.bounds.get(v.headKind)!;
       if (v.headKind === 'wall') {
-        // the wall stands upright, centred on the shot, as wide as its hitbox
+        // the wall stands upright, centred on the shot, exactly as wide and tall as its hitbox
         _b.set(p.vel.x, 0, p.vel.z).normalize();
         if (_b.lengthSq() > 0.5) v.head.quaternion.setFromUnitVectors(Z, _b);
-        v.head.scale.set(r * 1.15, 1.7, r);
-        v.head.position.y -= 0.15;
+        v.head.scale.set(r / hb.halfX, r / hb.halfY, r);
       } else if (v.headKind === 'shard') {
         v.spin += dt * 14;
         v.head.rotateZ(v.spin);
-        v.head.scale.setScalar(v.style.headLen);
+        // the radial bound is spin-invariant, so the spinning crystal stays exactly 2r across
+        const k = v.skill ? r / hb.radial : v.style.headLen;
+        v.head.scale.set(k, k, v.style.headLen);
+      } else if (v.skill && (v.headKind === 'spear' || v.headKind === 'harpoon')) {
+        const k = r / hb.radial;
+        v.head.scale.set(k, k, v.style.headLen);
       } else if (v.headKind === 'harpoon') v.head.scale.setScalar(v.style.headLen);
       else v.head.scale.set(1, 1, v.style.headLen).multiplyScalar(v.headKind === 'pellet' ? Math.max(0.6, r * 3) : 1);
       v.halo.position.copy(_p);
@@ -365,13 +411,7 @@ export class ProjectileViews {
     for (const [id, v] of this.views) {
       if (seen.has(id)) continue;
       // the head disappears at once; the ribbon collapses and fades over `linger`
-      if (v.dying === 0) {
-        v.head.visible = v.halo.visible = false;
-        this.group.remove(v.head, v.halo);
-        (this.heads.get(v.headKind) ?? []).push(v.head);
-        this.halos.push(v.halo);
-        if (v.cable) { this.group.remove(v.cable); this.cables.push(v.cable); v.cable = null; }
-      }
+      if (!v.released) this.release(v);
       v.dying += dt;
       const k = 1 - v.dying / Math.max(0.05, v.style.linger);
       if (k <= 0) {
@@ -386,11 +426,24 @@ export class ProjectileViews {
     }
   }
 
+  /** Return a view's head, halo and cable to their pools, exactly once per view. */
+  private release(v: View) {
+    v.released = true;
+    v.head.visible = v.halo.visible = false;
+    this.group.remove(v.head, v.halo);
+    const pool = this.heads.get(v.headKind) ?? [];
+    this.heads.set(v.headKind, pool);
+    pool.push(v.head);
+    this.halos.push(v.halo);
+    if (v.cable) { this.group.remove(v.cable); this.cables.push(v.cable); v.cable = null; }
+  }
+
   clear() {
-    for (const [, v] of this.views) {
-      this.group.remove(v.ribbon.mesh, v.head, v.halo);
+    for (const v of this.views.values()) {
+      // dying views already relinquished head/halo, which may now belong to a live view
+      if (!v.released) this.release(v);
+      this.group.remove(v.ribbon.mesh);
       this.ribbons.push(v.ribbon);
-      if (v.cable) this.group.remove(v.cable);
     }
     this.views.clear();
   }
