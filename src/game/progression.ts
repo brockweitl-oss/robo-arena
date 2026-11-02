@@ -390,13 +390,13 @@ export function onMatchEnd(save: SaveData, result: MatchResult, now: Date = new 
   return out;
 }
 
-export const buildKey = (l: Loadout) => `${l.gun}/${l.bomb}/${l.pod}/${l.body}/${l.legs}`;
+export const buildKey = (l: Loadout) => `${l.gun}/${l.bomb}/${l.pod}/${l.body}/${l.legs}/${l.skill}`;
 
 /** Most-played build ("gun/bomb/pod/body/legs") and its match count, or null. */
 export function favoriteBuild(save: SaveData): { loadout: Loadout; count: number } | null {
   let best: string | null = null, n = 0;
   for (const [k, v] of Object.entries(save.stats.builds)) if (v > n) { best = k; n = v; }
   if (!best) return null;
-  const [gun, bomb, pod, body, legs] = best.split('/');
-  return { loadout: { gun, bomb, pod, body, legs }, count: n };
+  const [gun, bomb, pod, body, legs, skill = 'lance'] = best.split('/');
+  return { loadout: { gun, bomb, pod, body, legs, skill }, count: n };
 }

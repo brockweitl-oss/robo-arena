@@ -42,6 +42,9 @@ export class AIPilot {
   private seenProj = new Set<number>();
   private input = emptyInput();
   private wasHolding = false;
+  /** An aimed skill/bomb in progress: held until `until`, aimed with a fixed per-aim error. */
+  private aimAct: { kind: 'skill' | 'bomb'; until: number; err: number; first: boolean } | null = null;
+  private skillAt = 0;
 
   private rngState = 7;
   private rnd() {
@@ -53,6 +56,45 @@ export class AIPilot {
     this.rngState = Math.max(1, Math.floor(_seed) % 2147483646);
     this.p = AI_PROFILES[personality];
     this.reaction = THREE.MathUtils.lerp(0.42, 0.18, skill);
+  }
+
+  private beginAim(kind: 'skill' | 'bomb', t: number) {
+    if (this.aimAct) return;
+    // aim time: better pilots aim faster; error: a lateral miss in meters
+    const hold = THREE.MathUtils.lerp(0.38, 0.22, this.skill);
+    const err = (this.rnd() * 2 - 1) * THREE.MathUtils.lerp(2.2, 0.7, this.skill);
+    this.aimAct = { kind, until: t + hold, err, first: true };
+  }
+
+  /** Hold the aimed button, steer toward a led target point, release on time (same rules as the player). */
+  private driveAim(inp: FighterInput, me: Fighter, seen: { pos: THREE.Vector3; vel: THREE.Vector3 }, t: number) {
+    const a = this.aimAct;
+    if (!a) return;
+    const ready = a.kind === 'skill' ? me.skillCd <= 0 || !a.first : me.bombCd <= 0 || !a.first;
+    if (!ready || (a.first && !me.canAct)) {
+      this.aimAct = null;
+      return;
+    }
+    const releasing = t >= a.until;
+    if (a.kind === 'skill') {
+      inp.skillPressed = a.first;
+      inp.skillHeld = !releasing;
+    } else {
+      inp.bombPressed = a.first;
+      inp.bombHeld = !releasing;
+    }
+    a.first = false;
+    // lead: time to target, scaled by how well this pilot reads movement
+    const to = seen.pos.clone().sub(me.pos).setY(0);
+    const d = to.length();
+    const lead = a.kind === 'skill' ? d / me.lo.skill.speed + me.lo.skill.cast : me.lo.bomb.flightTime;
+    const goal = seen.pos.clone().addScaledVector(seen.vel, lead * THREE.MathUtils.lerp(0.35, 0.9, this.skill));
+    const side = d > 0.01 ? new THREE.Vector3(to.z / d, 0, -to.x / d) : new THREE.Vector3(1, 0, 0);
+    goal.addScaledVector(side, a.err);
+    inp.aimX = goal.x - me.pos.x;
+    inp.aimZ = goal.z - me.pos.z;
+    if (Math.abs(inp.aimX) < 0.25 && Math.abs(inp.aimZ) < 0.25) inp.aimX = 0.25;
+    if (releasing) this.aimAct = null;
   }
 
   think(world: World, me: Fighter, foe: Fighter): FighterInput {
@@ -140,14 +182,30 @@ export class AIPilot {
       const precisionOpening = g !== 'rail' || vulnerable || seen.vel.lengthSq() < 8 || t >= this.gunAt + 0.2;
       // combos: when the foe is primed, cash it in with a trigger
       if (foe.primed && this.rnd() < 0.35 + this.skill * 0.5) {
-        if (me.lo.bomb.trigger && me.bombCd <= 0) {
-          inp.bombPressed = true;
+        if (me.lo.skill.trigger && me.skillCd <= 0 && los && dist < me.lo.skill.range * 0.9) {
+          this.beginAim('skill', t);
+        } else if (me.lo.bomb.trigger && me.bombCd <= 0) {
+          this.beginAim('bomb', t);
           this.utilityAt = t + this.p.utilityCadence;
         } else if (dist < 6 && me.chargeCd <= 0 && Math.abs(seen.pos.y - me.pos.y) < 1.5) inp.chargePressed = true;
       }
+      // skill shots: thrown at predictable moments (punishes, slow targets) or as a probe
+      const sk = me.lo.skill;
+      if (!this.aimAct && me.skillCd <= 0 && t >= this.skillAt && los && dist < sk.range * 0.9 && !seen.guard) {
+        const predictable = vulnerable || seen.vel.lengthSq() < 6 || foe.slowT > 0;
+        const want = sk.model === 'hook' ? dist > 6 && (predictable || this.rnd() < 0.25)
+          : sk.model === 'lance' ? predictable || (foe.primed !== null) || this.rnd() < 0.2
+          : predictable || this.rnd() < 0.45;
+        if (want) {
+          this.beginAim('skill', t);
+          this.skillAt = t + 1.2 + this.p.utilityCadence * 0.3;
+        }
+      }
       // heat discipline: better pilots stop firing earlier
       const heatOk = !me.overheated && me.heat < THREE.MathUtils.lerp(95, 70, this.skill);
-      if (los && inRange && !seen.guard && me.gunCd <= 0 && t >= this.gunAt && precisionOpening && heatOk) {
+      if (this.aimAct) {
+        // committed to an aimed skill/bomb this decision
+      } else if (los && inRange && !seen.guard && me.gunCd <= 0 && t >= this.gunAt && precisionOpening && heatOk) {
         this.holdGunUntil = t + (me.lo.gun.holdMax ? (vulnerable ? 0.45 : me.lo.gun.holdMax) : 0.12);
         this.gunAt = t + Math.max(0.1, this.p.gunCadence - 0.3) + me.lo.gun.cooldown + me.lo.gun.windup;
       } else if (t >= this.utilityAt) {
@@ -155,7 +213,7 @@ export class AIPilot {
         if (me.podCd <= 0 && (this.personality === 'trickster' || me.lo.pod.model === 'turret' || dist < range + 3)) {
           inp.podPressed = true; this.utilityAt = t + this.p.utilityCadence;
         } else if (me.bombCd <= 0 && dist > 4 && (!los || seen.guard || vulnerable || this.personality === 'bomber')) {
-          inp.bombPressed = true; this.utilityAt = t + this.p.utilityCadence;
+          this.beginAim('bomb', t); this.utilityAt = t + this.p.utilityCadence;
         }
       }
       if (me.chargeCd <= 0 && dist < 5 && Math.abs(seen.pos.y - me.pos.y) < 1.5 &&
@@ -164,6 +222,7 @@ export class AIPilot {
       }
     }
     if (me.mode === 'getup' && dist < 3.5 && seen.mode === 'charge' && this.skill > 0.5) inp.chargePressed = true;
+    this.driveAim(inp, me, seen, t);
     inp.gunHeld = t < this.holdGunUntil;
     inp.gunPressed = inp.gunHeld && !this.wasHolding;
     this.wasHolding = inp.gunHeld;

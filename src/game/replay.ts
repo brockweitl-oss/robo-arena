@@ -6,11 +6,15 @@ import { ARENA_INFO } from '../arena/index';
 
 /**
  * Replays: the sim is deterministic, so a replay is just the match config, the
- * RNG seeds and every tick's input. Inputs are packed to 3 bytes per frame per
- * player (quantized stick + button bits) and run-length encoded.
+ * RNG seeds and every tick's input. Inputs are packed to 6 bytes per frame per
+ * player (quantized stick, 11 button bits, quantized aim offset) and run-length encoded.
  */
 /** Reject recordings made against older simulation rules instead of silently desyncing. */
-export const RULESET_VERSION = 3;
+export const RULESET_VERSION = 4;
+/** Bytes per frame (without the faceTarget side channel). */
+const FRAME = 6;
+/** Aim offsets are stored in 0.25 m steps (+-31.75 m). */
+const AIM_STEP = 0.25;
 
 export interface Replay {
   rulesVersion: number;
@@ -27,31 +31,37 @@ export interface Replay {
   summary?: { outcome: string; finish: string; time: number; playerHp: number; rivalHp: number };
 }
 
-const BITS: (keyof FighterInput)[] = ['jumpPressed', 'jumpHeld', 'dashPressed', 'gunPressed', 'gunHeld', 'bombPressed', 'podPressed', 'chargePressed'];
+const BITS: (keyof FighterInput)[] = [
+  'jumpPressed', 'jumpHeld', 'dashPressed', 'gunPressed', 'gunHeld', 'bombPressed', 'podPressed', 'chargePressed',
+  'skillPressed', 'skillHeld', 'bombHeld',
+];
 
-export function packInput(i: FighterInput): [number, number, number] {
+export function packInput(i: FighterInput): number[] {
   const q = (v: number) => Math.max(-127, Math.min(127, Math.round(v * 127))) & 0xff;
+  const qa = (v: number) => Math.max(-127, Math.min(127, Math.round(v / AIM_STEP))) & 0xff;
   let b = 0;
   BITS.forEach((k, n) => {
     if (i[k]) b |= 1 << n;
   });
   // faceTarget is recorded separately by InputRecorder (see encode()).
-  return [q(i.moveX), q(i.moveZ), b];
+  return [q(i.moveX), q(i.moveZ), b & 0xff, b >> 8, qa(i.aimX), qa(i.aimZ)];
 }
 
 /** Round an input to exactly what a replay can store, in place. Apply before the sim sees it. */
 export function quantizeInput(i: FighterInput): FighterInput {
-  const [x, z, b] = packInput(i);
-  return unpackInput(x, z, b, i.faceTarget, i);
+  return unpackInput(packInput(i), i.faceTarget, i);
 }
 
-export function unpackInput(x: number, z: number, b: number, faceTarget: boolean, out = emptyInput()): FighterInput {
-  const s = (v: number) => ((v << 24) >> 24) / 127;
-  out.moveX = s(x);
-  out.moveZ = s(z);
+export function unpackInput(f: ArrayLike<number>, faceTarget: boolean, out = emptyInput()): FighterInput {
+  const s = (v: number) => (v << 24) >> 24;
+  out.moveX = s(f[0]) / 127;
+  out.moveZ = s(f[1]) / 127;
+  const b = f[2] | (f[3] << 8);
   BITS.forEach((k, n) => {
     (out as unknown as Record<string, unknown>)[k] = (b & (1 << n)) !== 0;
   });
+  out.aimX = s(f[4]) * AIM_STEP;
+  out.aimZ = s(f[5]) * AIM_STEP;
   out.faceTarget = faceTarget;
   return out;
 }
@@ -63,24 +73,24 @@ export class InputRecorder {
   frames = 0;
 
   push(i: FighterInput) {
-    const [x, z, b] = packInput(i);
-    this.bytes.push(x, z, b);
+    this.bytes.push(...packInput(i));
     this.face.push(i.faceTarget ? 1 : 0);
     this.frames++;
   }
 
-  /** RLE: [count, x, z, b, face] runs, base64 encoded. */
+  private same(a: number, b: number) {
+    for (let k = 0; k < FRAME; k++) if (this.bytes[a * FRAME + k] !== this.bytes[b * FRAME + k]) return false;
+    return this.face[a] === this.face[b];
+  }
+
+  /** RLE: [count, ...frame bytes, face] runs, base64 encoded. */
   encode(): string {
     const out: number[] = [];
     let i = 0;
     while (i < this.frames) {
       let n = 1;
-      while (
-        i + n < this.frames && n < 255 &&
-        this.bytes[(i + n) * 3] === this.bytes[i * 3] && this.bytes[(i + n) * 3 + 1] === this.bytes[i * 3 + 1] &&
-        this.bytes[(i + n) * 3 + 2] === this.bytes[i * 3 + 2] && this.face[i + n] === this.face[i]
-      ) n++;
-      out.push(n, this.bytes[i * 3], this.bytes[i * 3 + 1], this.bytes[i * 3 + 2], this.face[i]);
+      while (i + n < this.frames && n < 255 && this.same(i + n, i)) n++;
+      out.push(n, ...this.bytes.slice(i * FRAME, i * FRAME + FRAME), this.face[i]);
       i += n;
     }
     let s = '';
@@ -105,19 +115,22 @@ export class InputPlayer {
 
   next(): FighterInput {
     if (this.left <= 0) {
-      if (this.ri + 5 > this.runs.length) {
+      if (this.ri + RUN > this.runs.length) {
         this.done = true;
         return emptyInput();
       }
       const r = this.runs;
       this.left = r[this.ri];
-      unpackInput(r[this.ri + 1], r[this.ri + 2], r[this.ri + 3], r[this.ri + 4] === 1, this.cur);
-      this.ri += 5;
+      unpackInput(r.subarray(this.ri + 1, this.ri + 1 + FRAME), r[this.ri + 1 + FRAME] === 1, this.cur);
+      this.ri += RUN;
     }
     this.left--;
     return { ...this.cur };
   }
 }
+
+/** One RLE run: count + frame + face. */
+const RUN = FRAME + 2;
 
 const KEY = 'robo-arena-replays';
 
@@ -151,9 +164,9 @@ function streamOk(enc: unknown, frames: number): boolean {
   } catch {
     return false;
   }
-  if (s.length % 5 !== 0) return false;
+  if (s.length % RUN !== 0) return false;
   let total = 0;
-  for (let i = 0; i < s.length; i += 5) {
+  for (let i = 0; i < s.length; i += RUN) {
     const n = s.charCodeAt(i);
     if (n < 1) return false;
     total += n;
@@ -173,11 +186,11 @@ export function validateReplay(r: unknown): r is Replay {
   const lo = c.playerLoadout as unknown as Record<Slot, string> | undefined;
   if (!lo) return false;
   const partOk = (slot: Slot, id: unknown) => typeof id === 'string' && Object.hasOwn(ALL_PARTS[slot], id);
-  for (const slot of ['gun', 'bomb', 'pod', 'body', 'legs'] as Slot[]) if (!partOk(slot, lo[slot])) return false;
+  for (const slot of ['gun', 'bomb', 'pod', 'body', 'legs', 'skill'] as Slot[]) if (!partOk(slot, lo[slot])) return false;
   if (c.versus) {
     const p2 = c.versus.p2Loadout as unknown as Record<Slot, string>;
     if (!p2) return false;
-    for (const slot of ['gun', 'bomb', 'pod', 'body', 'legs'] as Slot[]) if (!partOk(slot, p2[slot])) return false;
+    for (const slot of ['gun', 'bomb', 'pod', 'body', 'legs', 'skill'] as Slot[]) if (!partOk(slot, p2[slot])) return false;
     const pp = c.versus.p2Paint as unknown as Record<string, unknown> | undefined;
     const col = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffffff;
     if (!pp || !['primary', 'secondary', 'trim', 'dark', 'glow'].every((k) => col(pp[k])) || typeof pp.emblem !== 'string') return false;

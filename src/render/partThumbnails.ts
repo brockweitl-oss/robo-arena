@@ -16,6 +16,8 @@ export class PartThumbnails {
 
   image(slot: Slot, id: string): HTMLImageElement {
     const image = document.createElement('img'); image.className = 'gp-thumb'; image.alt = `${id} ${slot} model`; image.width = 144; image.height = 96;
+    // skill emitters have no mesh yet; the card shows its icon instead
+    if (slot === 'skill') { image.hidden = true; return image; }
     const key = `${slot}:${id}`;
     if (cache.has(key)) { image.src = cache.get(key)!; return image; }
     const timer = window.setTimeout(() => {

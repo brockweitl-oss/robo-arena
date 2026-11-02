@@ -12,17 +12,17 @@ import type { FighterInput } from '../game/fighter';
  */
 export type Action =
   | 'forward' | 'back' | 'left' | 'right'
-  | 'jump' | 'dash' | 'gun' | 'bomb' | 'pod' | 'charge' | 'lock' | 'pause';
+  | 'jump' | 'dash' | 'gun' | 'bomb' | 'pod' | 'charge' | 'skill' | 'lock' | 'pause';
 
-export const ACTIONS: Action[] = ['forward', 'back', 'left', 'right', 'jump', 'dash', 'gun', 'bomb', 'pod', 'charge', 'lock', 'pause'];
+export const ACTIONS: Action[] = ['forward', 'back', 'left', 'right', 'jump', 'dash', 'gun', 'skill', 'bomb', 'pod', 'charge', 'lock', 'pause'];
 /** Movement actions: the gamepad always uses the left stick for these. */
 export const MOVE_ACTIONS: Action[] = ['forward', 'back', 'left', 'right'];
 type ButtonAction = Exclude<Action, 'forward' | 'back' | 'left' | 'right'>;
-const BUTTON_ACTIONS: ButtonAction[] = ['jump', 'dash', 'gun', 'bomb', 'pod', 'charge', 'lock', 'pause'];
+const BUTTON_ACTIONS: ButtonAction[] = ['jump', 'dash', 'gun', 'skill', 'bomb', 'pod', 'charge', 'lock', 'pause'];
 
 export const ACTION_LABEL: Record<Action, string> = {
   forward: 'Move forward', back: 'Move back', left: 'Move left', right: 'Move right',
-  jump: 'Jump / hover', dash: 'Dash', gun: 'Fire gun', bomb: 'Throw bomb', pod: 'Launch pod',
+  jump: 'Jump / hover', dash: 'Dash', gun: 'Fire gun (auto-aim)', skill: 'Skill shot (hold to aim)', bomb: 'Throw bomb (hold to aim)', pod: 'Launch pod',
   charge: 'Charge / guard', lock: 'Toggle lock-on', pause: 'Pause',
 };
 
@@ -45,6 +45,7 @@ export const DEFAULT_BINDINGS: Bindings = {
     jump: ['Space', ''],
     dash: ['ShiftLeft', 'ShiftRight'],
     gun: ['Mouse0', 'KeyJ'],
+    skill: ['KeyR', 'Mouse3'],
     bomb: ['Mouse2', 'KeyK'],
     pod: ['KeyE', 'Mouse1'],
     charge: ['KeyQ', ''],
@@ -53,7 +54,7 @@ export const DEFAULT_BINDINGS: Bindings = {
   },
   pad: {
     forward: [], back: [], left: [], right: [],
-    jump: [0], dash: [1], charge: [2], pod: [5], gun: [7], bomb: [6], lock: [11], pause: [9],
+    jump: [0], dash: [1], charge: [2], skill: [3], pod: [5], gun: [7], bomb: [6], lock: [11], pause: [9],
   },
 };
 
@@ -119,7 +120,7 @@ export function padName(i: number | undefined): string {
 export class Input {
   /** Held keyboard codes and mouse buttons ('Mouse0'..). */
   private keys = new Set<string>();
-  private held: Record<ButtonAction, boolean> = { jump: false, dash: false, gun: false, bomb: false, pod: false, charge: false, lock: false, pause: false };
+  private held: Record<ButtonAction, boolean> = { jump: false, dash: false, gun: false, skill: false, bomb: false, pod: false, charge: false, lock: false, pause: false };
   private latched: Record<ButtonAction, boolean> = { ...this.held };
   private padPrev: Record<ButtonAction, boolean> = { ...this.held };
   private bind: Bindings = cloneBindings(DEFAULT_BINDINGS);
@@ -328,6 +329,10 @@ export class Input {
     out.bombPressed = on && L.bomb;
     out.podPressed = on && L.pod;
     out.chargePressed = on && L.charge;
+    out.skillPressed = on && L.skill;
+    out.skillHeld = on && H.skill;
+    out.bombHeld = on && H.bomb;
+    out.aimX = out.aimZ = 0;
     out.faceTarget = faceTarget;
     for (const k of BUTTON_ACTIONS) L[k] = false;
     return out;

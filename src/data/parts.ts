@@ -11,7 +11,7 @@
  *  - Balance is verified with the headless tournament in tools/balance.ts.
  */
 
-export type Slot = 'gun' | 'bomb' | 'pod' | 'body' | 'legs';
+export type Slot = 'gun' | 'bomb' | 'pod' | 'body' | 'legs' | 'skill';
 export type Family = 'vanguard' | 'titan' | 'strider' | 'paladin';
 /** Combo elements: a primer marks the target, a trigger detonates the mark for a combo. */
 export type Element = 'shock' | 'burn' | 'cryo';
@@ -104,6 +104,35 @@ export interface BombDef extends PartBase, ComboRole {
   fire?: { radius: number; time: number; tick: number; damage: number; down: number };
 }
 
+/**
+ * Skill shots: manually aimed, high-power abilities on a cooldown (the gun is the
+ * auto-aimed basic attack). Hold to aim a line, release to fire; a quick tap fires
+ * straight at the target's current position (no lead). Skill shots never home.
+ */
+export interface SkillDef extends PartBase, ComboRole {
+  slot: 'skill';
+  model: 'lance' | 'wave' | 'hook' | 'frost';
+  cooldown: number;
+  /** Cast time after release before the shot leaves (telegraph). */
+  cast: number;
+  /** Commitment after the shot leaves. */
+  recovery: number;
+  damage: number;
+  down: number;
+  speed: number;
+  /** Max travel distance (m). */
+  range: number;
+  radius: number;
+  knockback: number;
+  pierce?: boolean;
+  /** Pull the victim this many m/s toward the caster and stagger them. */
+  pull?: number;
+  /** Slow the victim (seconds). */
+  slow?: number;
+  color: number;
+  coreColor: number;
+}
+
 export interface PodDef extends PartBase, ComboRole {
   slot: 'pod';
   model: 'seeker' | 'mine' | 'turret' | 'interceptor';
@@ -180,7 +209,7 @@ export interface LegsDef extends PartBase {
   landingMul: number;
 }
 
-export type AnyPart = GunDef | BombDef | PodDef | BodyDef | LegsDef;
+export type AnyPart = GunDef | BombDef | PodDef | BodyDef | LegsDef | SkillDef;
 
 export const GUNS: Record<string, GunDef> = {
   pulse: {
@@ -207,7 +236,7 @@ export const GUNS: Record<string, GunDef> = {
     pro: 'Fast slug, big knockdown pressure', con: 'Long charge roots you; easy to read',
     ratings: { Power: 5, Speed: 5, Tracking: 1, Reload: 1 },
     burst: 1, burstInterval: 0, pellets: 1, spreadDeg: 0, cooldown: 1.5, windup: 0.5, recovery: 0.3,
-    damage: 98, down: 40, speed: 72, homing: 1.8, homingTime: 0.2, life: 0.6, radius: 0.28,
+    damage: 104, down: 40, speed: 72, homing: 1.8, homingTime: 0.2, life: 0.6, radius: 0.28,
     color: 0xc46bff, coreColor: 0xffffff, groundSlow: 0.1, sfx: 'gun_rail', knockback: 9,
   },
   beam: {
@@ -262,7 +291,7 @@ export const BOMBS: Record<string, BombDef> = {
     desc: 'A low, fast grenade that skips toward the target three times before it blows.',
     pro: 'Chases rolling targets; quick flight', con: 'Low arc gets stopped by tall cover',
     ratings: { Power: 3, Radius: 2, Speed: 4, Reload: 3 },
-    count: 1, flightTime: 0.6, scatter: 0, damage: 82, down: 45, blastRadius: 2.5, cooldown: 3.0,
+    count: 1, flightTime: 0.6, scatter: 0, damage: 76, down: 42, blastRadius: 2.5, cooldown: 3.0,
     bounces: 3, color: 0x4ad8ff, range: 22,
   },
 };
@@ -385,12 +414,48 @@ export const LEGS: Record<string, LegsDef> = {
   },
 };
 
+export const SKILLS: Record<string, SkillDef> = {
+  lance: {
+    id: 'lance', slot: 'skill', trigger: true, name: 'Breaker Lance', model: 'lance', family: 'paladin', mass: 0,
+    desc: 'A piercing hyper-velocity lance. Detonates primed marks for a combo.',
+    pro: 'Highest single-hit damage', con: 'Narrow: you have to aim it',
+    ratings: { Power: 5, Speed: 5, Width: 1, Reload: 2 },
+    cooldown: 6, cast: 0.12, recovery: 0.3, damage: 125, down: 45, speed: 70, range: 30, radius: 0.32, knockback: 9, pierce: true,
+    color: 0xffc53a, coreColor: 0xffffff,
+  },
+  wave: {
+    id: 'wave', slot: 'skill', prime: 'shock', name: 'Ion Wave', model: 'wave', family: 'strider', mass: 0,
+    desc: 'A wide, slow wall of ions that passes through shots and primes shock.',
+    pro: 'Wide and forgiving', con: 'Slow: easy to jump',
+    ratings: { Power: 3, Speed: 2, Width: 5, Reload: 3 },
+    cooldown: 5, cast: 0.1, recovery: 0.25, damage: 70, down: 25, speed: 26, range: 22, radius: 1.15, knockback: 5, pierce: true,
+    color: 0x7ab8ff, coreColor: 0xe8f4ff,
+  },
+  hook: {
+    id: 'hook', slot: 'skill', name: 'Grapple Harpoon', model: 'hook', family: 'titan', mass: 0,
+    desc: 'Harpoons the target and reels it in, staggered, for a punish.',
+    pro: 'Pulls into melee range', con: 'Low damage, long cooldown',
+    ratings: { Power: 2, Speed: 4, Width: 2, Reload: 1 },
+    cooldown: 7, cast: 0.14, recovery: 0.32, damage: 55, down: 20, speed: 48, range: 20, radius: 0.45, knockback: 0, pull: 15,
+    color: 0xff7a3a, coreColor: 0xffe2c8,
+  },
+  frost: {
+    id: 'frost', slot: 'skill', prime: 'cryo', name: 'Frost Spike', model: 'frost', family: 'vanguard', mass: 0,
+    desc: 'A quick cryo spike that slows and primes cryo.',
+    pro: 'Short cooldown, slows', con: 'Moderate damage',
+    ratings: { Power: 3, Speed: 4, Width: 2, Reload: 4 },
+    cooldown: 4, cast: 0.08, recovery: 0.22, damage: 60, down: 22, speed: 50, range: 24, radius: 0.5, knockback: 4, slow: 1.5,
+    color: 0x9ff0ff, coreColor: 0xffffff,
+  },
+};
+
 export const ALL_PARTS: Record<Slot, Record<string, AnyPart>> = {
   gun: GUNS,
   bomb: BOMBS,
   pod: PODS,
   body: BODIES,
   legs: LEGS,
+  skill: SKILLS,
 };
 
 export interface Loadout {
@@ -399,12 +464,13 @@ export interface Loadout {
   pod: string;
   body: string;
   legs: string;
+  skill: string;
 }
 
-export const DEFAULT_LOADOUT: Loadout = { gun: 'pulse', bomb: 'mortar', pod: 'seeker', body: 'striker', legs: 'stride' };
+export const DEFAULT_LOADOUT: Loadout = { gun: 'pulse', bomb: 'mortar', pod: 'seeker', body: 'striker', legs: 'stride', skill: 'lance' };
 
 /** Parts the player owns from the start. */
-export const STARTER_PARTS = ['gun:pulse', 'bomb:mortar', 'pod:seeker', 'body:striker', 'legs:stride'];
+export const STARTER_PARTS = ['gun:pulse', 'bomb:mortar', 'pod:seeker', 'body:striker', 'legs:stride', 'skill:lance', 'skill:wave', 'skill:hook', 'skill:frost'];
 
 export function resolveLoadout(l: Loadout) {
   return {
@@ -413,6 +479,7 @@ export function resolveLoadout(l: Loadout) {
     pod: PODS[l.pod] ?? PODS.seeker,
     body: BODIES[l.body] ?? BODIES.striker,
     legs: LEGS[l.legs] ?? LEGS.stride,
+    skill: SKILLS[l.skill] ?? SKILLS.lance,
   };
 }
 export type ResolvedLoadout = ReturnType<typeof resolveLoadout>;

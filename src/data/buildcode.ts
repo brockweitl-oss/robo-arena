@@ -18,11 +18,13 @@
 import { ALL_PARTS, type Loadout, type Slot } from './parts';
 import type { Paint } from './characters';
 
-export const BUILD_CODE_VERSION = 2;
+export const BUILD_CODE_VERSION = 3;
 const FINISHES = ['gloss', 'matte', 'metal', 'chrome', 'carbon'] as const;
 const DECALS = ['unit', 'chevron', 'cross', 'none'] as const;
 const PREFIX = 'RA-';
-const SLOT_ORDER: Slot[] = ['gun', 'bomb', 'pod', 'body', 'legs'];
+const SLOT_ORDER: Slot[] = ['gun', 'bomb', 'pod', 'body', 'legs', 'skill'];
+/** v1/v2 codes predate the skill slot. */
+const slotsFor = (version: number) => (version >= 3 ? SLOT_ORDER : SLOT_ORDER.slice(0, 5));
 const COLORS = ['primary', 'secondary', 'trim', 'dark', 'glow'] as const;
 
 export interface Build {
@@ -78,7 +80,7 @@ export function encodeBuild(loadout: Loadout, paint: Paint): string {
 
 function encodeVersion(loadout: Loadout, paint: Paint, version: number): string {
   const bytes: number[] = [version];
-  for (const s of SLOT_ORDER) bytes.push(Math.max(0, partIds(s).indexOf(loadout[s])));
+  for (const s of slotsFor(version)) bytes.push(Math.max(0, partIds(s).indexOf(loadout[s])));
   for (const k of COLORS) {
     const c = paint[k] >>> 0;
     bytes.push((c >> 16) & 255, (c >> 8) & 255, c & 255);
@@ -109,10 +111,10 @@ export function decodeBuild(code: string): DecodeResult {
   if (!bytes || bytes.length < 25) return { ok: false, error: 'Code is too short or has invalid characters.' };
   const crc = (bytes[bytes.length - 2] << 8) | bytes[bytes.length - 1];
   if (crc16(bytes, bytes.length - 2) !== crc) return { ok: false, error: 'Checksum mismatch — the code is damaged.' };
-  if (bytes[0] !== 1 && bytes[0] !== BUILD_CODE_VERSION) return { ok: false, error: `Unsupported code version ${bytes[0]}.` };
+  if (bytes[0] !== 1 && bytes[0] !== 2 && bytes[0] !== BUILD_CODE_VERSION) return { ok: false, error: `Unsupported code version ${bytes[0]}.` };
   let i = 1;
-  const loadout = {} as Loadout;
-  for (const s of SLOT_ORDER) {
+  const loadout = { skill: 'lance' } as Loadout;
+  for (const s of slotsFor(bytes[0])) {
     const id = partIds(s)[bytes[i++]];
     if (!id) return { ok: false, error: `Unknown ${s} part in code.` };
     loadout[s] = id;

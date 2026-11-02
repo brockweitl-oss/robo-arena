@@ -35,7 +35,13 @@ export interface ShotSpec {
   prime?: import('../data/parts').Element;
   trigger?: boolean;
   /** Visual style key for effects. */
-  look: 'blaster' | 'rail' | 'scatter' | 'beam' | 'homer' | 'turret';
+  look: 'blaster' | 'rail' | 'scatter' | 'beam' | 'homer' | 'turret' | 'lance' | 'wave' | 'hook' | 'frost';
+  /** Aimed skill shot (stats/telemetry; never homes). */
+  skill?: boolean;
+  /** Harpoon: pull the victim toward the shooter at this speed (m/s). */
+  pull?: number;
+  /** Chill the victim for this long (seconds). */
+  slow?: number;
 }
 
 export interface Projectile {
@@ -273,7 +279,8 @@ export class World {
 
   private spawn(f: Fighter, s: SpawnReq) {
     if (s.kind === 'shot') this.spawnShot(f, s.index, s.air, s.power);
-    else if (s.kind === 'bomb') this.spawnBomb(f);
+    else if (s.kind === 'bomb') this.spawnBomb(f, s.target);
+    else if (s.kind === 'skill') this.spawnSkill(f, s.target);
     else this.spawnPod(f);
   }
 
@@ -330,13 +337,41 @@ export class World {
     }
   }
 
-  private spawnBomb(f: Fighter) {
+  /**
+   * Skill shot: a straight, non-homing projectile toward the aim point (or, on a quick-cast,
+   * the target's current position: no lead). Vertical aim follows the target's chest height.
+   */
+  private spawnSkill(f: Fighter, aim: THREE.Vector3 | null) {
+    const sk = f.lo.skill;
+    const foe = this.fighters[1 - f.id];
+    const from = f.muzzlePoint();
+    const chest = foe.chestPoint();
+    const dir = aim ? new THREE.Vector3(aim.x - from.x, chest.y - from.y, aim.z - from.z) : chest.sub(from);
+    if (aim) {
+      // aiming away from the target: keep the shot level instead of diving toward its height
+      const flat = Math.hypot(dir.x, dir.z);
+      const toFoe = new THREE.Vector3(foe.pos.x - f.pos.x, 0, foe.pos.z - f.pos.z).normalize();
+      if (flat > 1e-3 && (dir.x * toFoe.x + dir.z * toFoe.z) / flat < 0.8) dir.y = 0;
+    }
+    if (dir.lengthSq() < 1e-6) dir.set(Math.sin(f.yaw), 0, Math.cos(f.yaw));
+    dir.normalize();
+    const spec: ShotSpec = {
+      damage: sk.damage * f.damageMul, down: sk.down, speed: sk.speed, homing: 0, homingTime: 0, homingDelay: 0,
+      life: sk.range / sk.speed, radius: sk.radius, color: sk.color, coreColor: sk.coreColor, knockback: sk.knockback,
+      pierce: !!sk.pierce, prime: sk.prime, trigger: sk.trigger, look: sk.model, skill: true, pull: sk.pull, slow: sk.slow,
+    };
+    const p = this.makeProjectile(f.id, spec, from, dir.multiplyScalar(sk.speed), 0);
+    this.events.push({ type: 'shot', who: f.id, proj: p, index: 0 });
+  }
+
+  private spawnBomb(f: Fighter, aim: THREE.Vector3 | null = null) {
     const def = f.lo.bomb;
     const target = this.fighters[1 - f.id];
     const from = f.pos.clone().add(new THREE.Vector3(Math.sin(f.yaw) * 0.1 + Math.cos(f.yaw) * 0.3, 1.9, Math.cos(f.yaw) * 0.1 - Math.sin(f.yaw) * 0.3));
     for (let i = 0; i < def.count; i++) {
-      const goal = target.pos.clone().addScaledVector(target.vel, def.flightTime * 0.45);
-      goal.y = groundHeightBelow(goal.x, goal.z, target.pos.y + 0.1, this.colliders);
+      // manual aim lands where the pilot pointed; a quick throw lands where the target stands now (no lead)
+      const goal = aim ? aim.clone() : target.pos.clone();
+      goal.y = groundHeightBelow(goal.x, goal.z, Math.max(f.pos.y, target.pos.y, goal.y) + (aim ? 4 : 0.1), this.colliders);
       if (def.count > 1) {
         const a = (i / def.count) * Math.PI * 2 + f.yaw;
         goal.x += Math.cos(a) * def.scatter * (i === 0 ? 0.15 : 1);
@@ -450,10 +485,25 @@ export class World {
       if (hit) {
         if (!target.isInvulnerable) {
           const dir = p.vel.clone().normalize();
-          const result = this.applyHit(target, p.owner, { damage: s.damage, down: s.down, dir, knock: s.knockback, heavy: s.down >= 40, source: 'gun', prime: s.prime, trigger: s.trigger }, hit, s.color);
+          const result = this.applyHit(target, p.owner, { damage: s.damage, down: s.down, dir, knock: s.knockback, heavy: s.down >= 40 || !!s.pull, source: s.skill ? 'skill' : 'gun', prime: s.prime, trigger: s.trigger }, hit, s.color);
+          const landed = !!result && !result.blocked && !result.parried;
+          if (landed && s.pull && target.alive && !result.knockdown) {
+            // harpoon: reel the target in (staggered by the heavy hit)
+            const owner = this.fighters[p.owner];
+            const pull = new THREE.Vector3(owner.pos.x - target.pos.x, 0, owner.pos.z - target.pos.z);
+            const d = pull.length();
+            if (d > 2.2) target.vel.copy(pull.multiplyScalar(Math.min(s.pull, (d - 1.8) * 3.2) / d)).setY(Math.max(target.vel.y, 2));
+          }
+          if (landed && s.slow) target.slowT = Math.max(target.slowT, s.slow);
           if (!p.deflected && s.look !== 'turret' && result && result.damage > 0) {
-            this.fighters[p.owner].stats.gunHits++;
-            this.fighters[p.owner].stats.gunDamage += result.damage;
+            const st = this.fighters[p.owner].stats;
+            if (s.skill) {
+              st.skillHits++;
+              st.skillDamage += result.damage;
+            } else {
+              st.gunHits++;
+              st.gunDamage += result.damage;
+            }
           }
         } else {
           this.events.push({ type: 'impact', pos: hit, normal: p.vel.clone().normalize().negate(), color: s.color, proj: p });

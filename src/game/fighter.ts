@@ -16,13 +16,22 @@ export interface FighterInput {
   bombPressed: boolean;
   podPressed: boolean;
   chargePressed: boolean;
+  /** Skill shot: press/hold to aim, release to fire. */
+  skillPressed: boolean;
+  skillHeld: boolean;
+  /** Bomb: hold to aim the landing point, release to throw. */
+  bombHeld: boolean;
+  /** Manual aim point relative to this robot (world XZ meters). 0,0 = no manual aim (auto-target). */
+  aimX: number;
+  aimZ: number;
   /** Face the target even while moving (hard lock / strafing). */
   faceTarget: boolean;
 }
 
 export const emptyInput = (): FighterInput => ({
   moveX: 0, moveZ: 0, jumpPressed: false, jumpHeld: false, dashPressed: false, gunPressed: false,
-  gunHeld: false, bombPressed: false, podPressed: false, chargePressed: false, faceTarget: false,
+  gunHeld: false, bombPressed: false, podPressed: false, chargePressed: false,
+  skillPressed: false, skillHeld: false, bombHeld: false, aimX: 0, aimZ: 0, faceTarget: false,
 });
 
 export const GRAVITY = 34;
@@ -34,6 +43,12 @@ const BUFFER = 0.1;
 const COYOTE = 0.1;
 /** Guard frames at the very start of a charge that count as a parry. */
 export const PARRY_WINDOW = 0.16;
+/** Releasing an aim sooner than this is a quick-cast: it fires at the target's current position. */
+export const AIM_TAP = 0.18;
+/** Aiming longer than this auto-releases. */
+export const AIM_MAX = 2.5;
+/** Movement speed while aiming a skill or bomb. */
+const AIM_SPEED = 0.7;
 /** Guard covers a 100-degree forward arc, shared by deflection and damage resolution. */
 export const GUARD_DOT = Math.cos(50 * Math.PI / 180);
 export const DASH_RECOVERY = 0.22;
@@ -63,7 +78,8 @@ export type FighterEvent =
   | { type: 'fire'; index: number } | { type: 'railCharge' } | { type: 'bomb' } | { type: 'pod' }
   | { type: 'chargeStart'; wakeup: boolean } | { type: 'chargeLunge' } | { type: 'knockdown' } | { type: 'getup' }
   | { type: 'parry' } | { type: 'guardBreak' } | { type: 'hover'; on: boolean }
-  | { type: 'overheat' } | { type: 'stun' } | { type: 'cancel' };
+  | { type: 'overheat' } | { type: 'stun' } | { type: 'cancel' }
+  | { type: 'skillAim' } | { type: 'skillCast' } | { type: 'skill' } | { type: 'bombAim' };
 
 export interface HitInfo {
   damage: number;
@@ -73,7 +89,7 @@ export interface HitInfo {
   heavy: boolean;
   /** Launch upward (m/s), e.g. hazards. */
   launch?: number;
-  source: 'gun' | 'bomb' | 'pod' | 'charge' | 'hazard' | 'fire';
+  source: 'gun' | 'bomb' | 'pod' | 'charge' | 'hazard' | 'fire' | 'skill';
   /** Direct bomb hit: breaks a guard instead of being blocked. */
   guardBreak?: boolean;
   /** Light damage-over-time: no flinch, no hit-stop. */
@@ -95,7 +111,8 @@ export interface HitResult {
   damage: number;
 }
 
-export type SpawnReq = { kind: 'shot'; index: number; air: boolean; power: number } | { kind: 'bomb' } | { kind: 'pod' };
+export type SpawnReq = { kind: 'shot'; index: number; air: boolean; power: number }
+  | { kind: 'bomb'; target: THREE.Vector3 | null } | { kind: 'pod' } | { kind: 'skill'; target: THREE.Vector3 | null };
 
 export class Fighter implements AnimSource {
   readonly pos = new THREE.Vector3();
@@ -126,6 +143,16 @@ export class Fighter implements AnimSource {
   bombCd = 0;
   podCd = 0;
   chargeCd = 0;
+  skillCd = 0;
+  /** Seconds spent aiming the skill / bomb (-1 = not aiming). */
+  skillAimT = -1;
+  bombAimT = -1;
+  /** Skill cast in progress: seconds until the shot leaves (-1 = none) and its aim point (null = auto). */
+  castT = -1;
+  castTarget: THREE.Vector3 | null = null;
+  /** Latest manual aim point (world), for the aim indicator; null = auto-target. */
+  aimPoint: THREE.Vector3 | null = null;
+  private bufSkill = 0;
   /** Time until the next dash charge is restored (0 = full). */
   dashCd = 0;
   dashCharges: number;
@@ -177,7 +204,7 @@ export class Fighter implements AnimSource {
   burnBy = -1;
   slowT = 0;
   private stunned = false;
-  private pressLatch = { jump: false, dash: false, gun: false, bomb: false, pod: false, charge: false };
+  private pressLatch = { jump: false, dash: false, gun: false, bomb: false, pod: false, charge: false, skill: false };
   private stunHit: HitInfo | null = null;
   private jumpCancelUsed = false;
   /** Pick-up buffs (seconds remaining) and shield HP. */
@@ -188,7 +215,7 @@ export class Fighter implements AnimSource {
   readonly spawns: SpawnReq[] = [];
 
   // stats
-  stats = { damageDealt: 0, hits: 0, knockdowns: 0, knockdownsTaken: 0, shots: 0, dodges: 0, parries: 0, combos: 0, gunProjectiles: 0, gunHits: 0, gunDamage: 0, gunDeflected: 0 };
+  stats = { damageDealt: 0, hits: 0, knockdowns: 0, knockdownsTaken: 0, shots: 0, dodges: 0, parries: 0, combos: 0, gunProjectiles: 0, gunHits: 0, gunDamage: 0, gunDeflected: 0, skillCasts: 0, skillHits: 0, skillDamage: 0, bombAimed: 0 };
 
   constructor(readonly id: number, readonly lo: ResolvedLoadout) {
     this.st = deriveStats(lo);
@@ -220,11 +247,15 @@ export class Fighter implements AnimSource {
     return this.mode === 'charge' && this.chargePhase === 0 && this.modeTime < PARRY_WINDOW;
   }
   get attackCommitted() {
-    return this.recoveryTime > 0 || this.holdT >= 0 || this.burstLeft > 0;
+    return this.recoveryTime > 0 || this.holdT >= 0 || this.burstLeft > 0 || this.castT >= 0;
+  }
+  /** Aiming a skill or bomb (movement slowed, other attacks wait). */
+  get aiming() {
+    return this.skillAimT >= 0 || this.bombAimT >= 0;
   }
   get canDash() {
     // dash may cancel attack *recovery* (costs a dash charge), but not a burst or a charge-up in progress
-    return this.dashCharges > 0 && this.dashGap <= 0 && this.burstLeft === 0 && this.holdT < 0;
+    return this.dashCharges > 0 && this.dashGap <= 0 && this.burstLeft === 0 && this.holdT < 0 && this.castT < 0;
   }
   /** Incoming travel direction must point into our forward guard, not our back. */
   facesIncoming(dir: THREE.Vector3) {
@@ -281,6 +312,26 @@ export class Fighter implements AnimSource {
     return out.set(this.pos.x + c * -0.42 + s * 0.55, this.pos.y + 1.3, this.pos.z - s * -0.42 + c * 0.55);
   }
 
+  private throwBomb(target: THREE.Vector3 | null, grounded: boolean) {
+    this.bombCd = this.lo.bomb.cooldown;
+    this.bombLockT = grounded ? 0.32 : 0.26;
+    this.recoveryTime = 0.26;
+    this.aimHold = Math.max(this.aimHold, 0.35);
+    if (target) this.stats.bombAimed++;
+    this.spawns.push({ kind: 'bomb', target });
+    this.events.push({ type: 'bomb' });
+  }
+
+  private castSkill(target: THREE.Vector3 | null, yawToTarget: number) {
+    const sk = this.lo.skill;
+    this.skillCd = sk.cooldown;
+    this.castT = sk.cast;
+    this.castTarget = target;
+    this.yaw = target ? Math.atan2(target.x - this.pos.x, target.z - this.pos.z) : yawToTarget;
+    this.stats.skillCasts++;
+    this.events.push({ type: 'skillCast' });
+  }
+
   private startCharge(yawToTarget: number, wake: boolean) {
     this.bufCharge = 0;
     this.setMode('charge');
@@ -308,12 +359,13 @@ export class Fighter implements AnimSource {
       L.bomb ||= inp.bombPressed;
       L.pod ||= inp.podPressed;
       L.charge ||= inp.chargePressed;
+      L.skill ||= inp.skillPressed;
       return;
     }
-    if (this.pressLatch.jump || this.pressLatch.dash || this.pressLatch.gun || this.pressLatch.bomb || this.pressLatch.pod || this.pressLatch.charge) {
+    if (this.pressLatch.jump || this.pressLatch.dash || this.pressLatch.gun || this.pressLatch.bomb || this.pressLatch.pod || this.pressLatch.charge || this.pressLatch.skill) {
       const L = this.pressLatch;
-      inp = { ...inp, jumpPressed: inp.jumpPressed || L.jump, dashPressed: inp.dashPressed || L.dash, gunPressed: inp.gunPressed || L.gun, bombPressed: inp.bombPressed || L.bomb, podPressed: inp.podPressed || L.pod, chargePressed: inp.chargePressed || L.charge };
-      L.jump = L.dash = L.gun = L.bomb = L.pod = L.charge = false;
+      inp = { ...inp, jumpPressed: inp.jumpPressed || L.jump, dashPressed: inp.dashPressed || L.dash, gunPressed: inp.gunPressed || L.gun, bombPressed: inp.bombPressed || L.bomb, podPressed: inp.podPressed || L.pod, chargePressed: inp.chargePressed || L.charge, skillPressed: inp.skillPressed || L.skill };
+      L.jump = L.dash = L.gun = L.bomb = L.pod = L.charge = L.skill = false;
     }
     this.modeTime += dt;
     this.sinceHit += dt;
@@ -323,6 +375,7 @@ export class Fighter implements AnimSource {
     this.bombCd = Math.max(0, this.bombCd - dt * cdRate);
     this.podCd = Math.max(0, this.podCd - dt * cdRate);
     this.chargeCd = Math.max(0, this.chargeCd - dt);
+    this.skillCd = Math.max(0, this.skillCd - dt);
     this.invuln = Math.max(0, this.invuln - dt);
     this.hazardCd = Math.max(0, this.hazardCd - dt);
     this.dashGap = Math.max(0, this.dashGap - dt);
@@ -364,6 +417,7 @@ export class Fighter implements AnimSource {
     this.bufBomb = buf(this.bufBomb, inp.bombPressed);
     this.bufPod = buf(this.bufPod, inp.podPressed);
     this.bufCharge = buf(this.bufCharge, inp.chargePressed);
+    this.bufSkill = buf(this.bufSkill, inp.skillPressed);
     if (inp.jumpPressed) this.jumpHeldSincePress = true;
     if (!inp.jumpHeld) this.jumpHeldSincePress = false;
 
@@ -377,6 +431,12 @@ export class Fighter implements AnimSource {
     if (moveLen > 0.001) mv.normalize();
     const controls = live && this.alive;
     const gun = this.lo.gun;
+    this.aimPoint = inp.aimX !== 0 || inp.aimZ !== 0 ? new THREE.Vector3(this.pos.x + inp.aimX, this.pos.y, this.pos.z + inp.aimZ) : null;
+    // aims and casts are interrupted by anything that takes control away (hits, dashes, charges)
+    if ((this.mode !== 'ground' && this.mode !== 'air') || !controls) {
+      this.skillAimT = this.bombAimT = -1;
+      this.castT = -1;
+    }
 
     // ------------------------------------------------ state logic
     switch (this.mode) {
@@ -417,7 +477,7 @@ export class Fighter implements AnimSource {
           break;
         }
         // --- charge attack (also the guard) ---
-        if (this.bufCharge > 0 && this.chargeCd <= 0 && !recovering && !this.attackCommitted) {
+        if (this.bufCharge > 0 && this.chargeCd <= 0 && !recovering && !this.attackCommitted && !this.aiming) {
           this.startCharge(yawToTarget, false);
           break;
         }
@@ -451,7 +511,7 @@ export class Fighter implements AnimSource {
         // --- gun ---
         if (gun.holdMax) {
           // hold-to-charge gun: press starts charging, release fires
-          if (this.holdT < 0 && this.bufGun > 0 && this.gunCd <= 0 && !recovering && this.bombLockT <= 0 && !this.overheated) {
+          if (this.holdT < 0 && this.bufGun > 0 && this.gunCd <= 0 && !recovering && this.bombLockT <= 0 && !this.overheated && !this.aiming && this.castT < 0) {
             this.bufGun = 0;
             this.holdT = 0;
             this.events.push({ type: 'railCharge' });
@@ -470,23 +530,58 @@ export class Fighter implements AnimSource {
               this.gunCd = gun.cooldown * (grounded ? 1 : 1.15);
             }
           }
-        } else if (this.bufGun > 0 && this.gunCd <= 0 && this.burstLeft === 0 && !recovering && this.bombLockT <= 0 && !this.overheated) {
+        } else if (this.bufGun > 0 && this.gunCd <= 0 && this.burstLeft === 0 && !recovering && this.bombLockT <= 0 && !this.overheated && !this.aiming && this.castT < 0) {
           this.bufGun = 0;
           this.burstLeft = gun.burst;
           this.shotTimer = gun.windup * this.st.gunWindupMul;
           this.shotIndex = 0;
           if (gun.windup > 0) this.events.push({ type: 'railCharge' });
         }
-        if (this.bufBomb > 0 && this.bombCd <= 0 && !recovering && !this.attackCommitted) {
-          this.bufBomb = 0;
-          this.bombCd = this.lo.bomb.cooldown;
-          this.bombLockT = grounded ? 0.32 : 0.26;
-          this.recoveryTime = 0.26;
-          this.aimHold = Math.max(this.aimHold, 0.35);
-          this.spawns.push({ kind: 'bomb' });
-          this.events.push({ type: 'bomb' });
+        // --- bomb: hold to aim the landing point, release to throw (a tap throws at the target) ---
+        if (this.bombAimT < 0) {
+          if (this.bufBomb > 0 && this.bombCd <= 0 && !recovering && !this.attackCommitted && this.skillAimT < 0) {
+            this.bufBomb = 0;
+            if (inp.bombHeld) {
+              this.bombAimT = 0;
+              this.events.push({ type: 'bombAim' });
+            } else this.throwBomb(null, grounded);
+          }
+        } else {
+          this.bombAimT += dt;
+          if (!inp.bombHeld || this.bombAimT >= AIM_MAX) {
+            const manual = this.bombAimT >= AIM_TAP && this.aimPoint ? this.aimPoint.clone() : null;
+            this.bombAimT = -1;
+            this.throwBomb(manual, grounded);
+          }
         }
-        if (this.bufPod > 0 && this.podCd <= 0 && !recovering && !this.attackCommitted && this.bombLockT <= 0) {
+        // --- skill shot: hold to aim a line, release to fire (a tap fires at the target) ---
+        if (this.skillAimT < 0) {
+          if (this.bufSkill > 0 && this.skillCd <= 0 && this.castT < 0 && !recovering && !this.attackCommitted && this.bombAimT < 0) {
+            this.bufSkill = 0;
+            if (inp.skillHeld) {
+              this.skillAimT = 0;
+              this.events.push({ type: 'skillAim' });
+            } else this.castSkill(null, yawToTarget);
+          }
+        } else {
+          this.skillAimT += dt;
+          if (!inp.skillHeld || this.skillAimT >= AIM_MAX) {
+            const manual = this.skillAimT >= AIM_TAP && this.aimPoint ? this.aimPoint.clone() : null;
+            this.skillAimT = -1;
+            this.castSkill(manual, yawToTarget);
+          }
+        }
+        if (this.castT >= 0) {
+          this.castT -= dt;
+          if (this.castT <= 0) {
+            this.castT = -1;
+            this.recoveryTime = Math.max(this.recoveryTime, this.lo.skill.recovery);
+            this.spawns.push({ kind: 'skill', target: this.castTarget });
+            this.events.push({ type: 'skill' });
+          }
+        }
+        if (this.aiming) this.aimHold = Math.max(this.aimHold, 0.2);
+        if (this.bufPod > 0 && this.podCd <= 0 && !recovering && !this.attackCommitted && this.bombLockT <= 0 && !this.aiming) {
           this.bufPod = 0;
           this.podCd = this.lo.pod.cooldown;
           this.bombLockT = Math.max(this.bombLockT, 0.28);
@@ -501,6 +596,8 @@ export class Fighter implements AnimSource {
         if (this.burstLeft > 0 && gun.windup > 0) speedMul = Math.min(speedMul, 0.12);
         if (this.holdT >= 0) speedMul = Math.min(speedMul, 0.35);
         if (this.bombLockT > 0 && grounded) speedMul = Math.min(speedMul, 0.2);
+        if (this.aiming) speedMul = Math.min(speedMul, AIM_SPEED);
+        if (this.castT >= 0) speedMul = Math.min(speedMul, 0.15);
         if (recovering) speedMul = Math.min(speedMul, this.landT > 0 ? 0.3 : 0.55);
         const max = this.runSpeed * speedMul;
         if (grounded) {
@@ -520,7 +617,9 @@ export class Fighter implements AnimSource {
         // --- facing ---
         let wantYaw = this.yaw;
         const attacking = this.burstLeft > 0 || this.aimHold > 0 || this.bombLockT > 0;
-        if (inp.faceTarget || (attacking && grounded)) wantYaw = yawToTarget;
+        const aimAt = this.castT >= 0 ? this.castTarget : this.aiming ? this.aimPoint : null;
+        if (aimAt) wantYaw = Math.atan2(aimAt.x - this.pos.x, aimAt.z - this.pos.z);
+        else if (inp.faceTarget || (attacking && grounded)) wantYaw = yawToTarget;
         else if (moveLen > 0.1) wantYaw = Math.atan2(mv.x, mv.z);
         else if (attacking) wantYaw = yawToTarget;
         this.turnToward(wantYaw, (grounded ? 22 : 10) * dt);

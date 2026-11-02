@@ -172,3 +172,84 @@ describe('3.0 integration decisions (owner-approved)', () => {
     expect(run()).toEqual(run());
   });
 });
+
+describe('skill shots and aimed bombs (LoL-style abilities)', () => {
+  const settle = (w: World) => step(w, 5);
+  it('a tap fires the skill straight at the target (no homing)', () => {
+    const { w, a } = fixture();
+    settle(w);
+    step(w, 1, { skillPressed: true });
+    step(w, 12);
+    const p = w.projectiles.find((x) => x.spec.skill);
+    expect(p).toBeTruthy();
+    expect(p!.spec.homing).toBe(0);
+    expect(Math.abs(p!.vel.x)).toBeLessThan(3); // muzzle sits on the right arm
+    expect(p!.vel.z).toBeGreaterThan(0);
+    expect(a.skillCd).toBeGreaterThan(0);
+  });
+  it('holding aims: the release fires toward the manual aim point', () => {
+    const { w } = fixture();
+    settle(w);
+    step(w, 1, { skillPressed: true, skillHeld: true, aimX: 10, aimZ: 0 });
+    step(w, 20, { skillHeld: true, aimX: 10, aimZ: 0 });
+    step(w, 1, { aimX: 10, aimZ: 0 });
+    step(w, 12);
+    const p = w.projectiles.find((x) => x.spec.skill)!;
+    expect(p).toBeTruthy();
+    expect(p.vel.x).toBeGreaterThan(Math.abs(p.vel.z) * 3);
+  });
+  it('an aimed bomb lands on the aim point, a quick throw on the target (no lead)', () => {
+    const { w } = fixture();
+    settle(w);
+    step(w, 1, { bombPressed: true, bombHeld: true, aimX: 6, aimZ: 4 });
+    step(w, 20, { bombHeld: true, aimX: 6, aimZ: 4 });
+    step(w, 1, { aimX: 6, aimZ: 4 });
+    const b = w.bombs[0];
+    expect(b).toBeTruthy();
+    expect(b.target.x).toBeCloseTo(6, 0);
+    expect(b.target.z).toBeCloseTo(-8 + 4, 0);
+    const f = fixture();
+    settle(f.w);
+    f.b.vel.set(8, 0, 0);
+    step(f.w, 1, { bombPressed: true });
+    expect(f.w.bombs[0].target.x).toBeCloseTo(f.b.pos.x, 0);
+  });
+  it('a hit aborts an aim without spending the cooldown', () => {
+    const { w, a, b } = fixture();
+    settle(w);
+    step(w, 1, { skillPressed: true, skillHeld: true, aimX: 0, aimZ: 10 });
+    expect(a.skillAimT).toBeGreaterThanOrEqual(0);
+    w.applyHit(a, b.id, { damage: 50, down: 50, dir: v(0, 0, -1), knock: 6, heavy: true, source: 'gun' }, a.chestPoint(), 0);
+    step(w, 8, { skillHeld: true, aimX: 0, aimZ: 10 });
+    expect(a.skillAimT).toBe(-1);
+    expect(a.skillCd).toBe(0);
+  });
+  it('the harpoon reels the target in', () => {
+    const { w, a, b } = fixture({ skill: 'hook' });
+    settle(w);
+    const d0 = a.pos.distanceTo(b.pos);
+    step(w, 1, { skillPressed: true });
+    step(w, 80);
+    expect(b.stats.damageDealt + a.stats.skillHits).toBeGreaterThan(0);
+    expect(a.pos.distanceTo(b.pos)).toBeLessThan(d0 - 4);
+  });
+  it('replays store the aim and the new buttons exactly', async () => {
+    const { InputRecorder, InputPlayer, quantizeInput } = await import('../../src/game/replay');
+    const rec = new InputRecorder();
+    const ins = [
+      { ...emptyInput(), skillPressed: true, skillHeld: true, aimX: 7.3, aimZ: -12.6 },
+      { ...emptyInput(), bombHeld: true, aimX: -3.1, aimZ: 20.2 },
+    ].map((i) => quantizeInput(i));
+    for (const i of ins) rec.push(i);
+    const pl = new InputPlayer(rec.encode());
+    for (const i of ins) expect(pl.next()).toEqual(i);
+    expect(ins[0].aimX).toBeCloseTo(7.25, 5);
+  });
+  it('the AI uses its skill and aims its bombs', () => {
+    const { w, a, b } = fixture();
+    const ai = new AIPilot('champion', 1, 3);
+    for (let i = 0; i < 60 * 40 && b.alive && a.alive; i++) w.step([emptyInput(), ai.think(w, b, a)]);
+    expect(b.stats.skillCasts).toBeGreaterThan(0);
+    expect(b.stats.bombAimed).toBeGreaterThan(0);
+  });
+});

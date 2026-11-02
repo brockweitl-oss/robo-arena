@@ -15,6 +15,8 @@ import { AIPilot } from './ai';
 import { ChaseCamera } from './camera';
 import { Effects } from '../vfx/effects';
 import { TacticsView } from '../vfx/tacticsView';
+import { AimIndicator } from '../vfx/aimIndicator';
+import { AimControl } from './aim';
 import { audio, type LoopHandle } from '../audio/audio';
 import type { MatchConfig, MatchResult } from './types';
 import { groundHeightBelow, segmentHit } from './collision';
@@ -115,6 +117,8 @@ export class Match {
   readonly cam: ChaseCamera;
   readonly fx: Effects;
   private tactics!: TacticsView;
+  private aimView!: AimIndicator;
+  private aim = new AimControl();
   private sides: [Side, Side];
   private ai: AIPilot;
   /** Testing: an AI also drives the player (?autoplay). */
@@ -162,7 +166,7 @@ export class Match {
     used: { jump: 0, airjump: 0, dash: 0, airdash: 0, fire: 0, bomb: 0, pod: 0, charge: 0 } as Record<string, number>,
     dmgTaken: {} as Record<string, number>,
     dmgDealt: {} as Record<string, number>,
-    deflects: 0, parries: 0, combos: 0, confirms: 0, perfect: 0, hitsTaken: 0, hitsDealt: 0, kdTaken: 0, kdDealt: 0, hazardHits: 0, dodges: 0, pauses: 0,
+    deflects: 0, parries: 0, combos: 0, skills: 0, confirms: 0, perfect: 0, hitsTaken: 0, hitsDealt: 0, kdTaken: 0, kdDealt: 0, hazardHits: 0, dodges: 0, pauses: 0,
     airT: 0, hoverT: 0, lockT: 0, fightT: 0,
     distSum: 0, distN: 0, dist: [0, 0, 0, 0] as number[],
     fpsMin: 999, fpsSum: 0, fpsN: 0, fpsAcc: 0, fpsFrames: 0,
@@ -256,6 +260,7 @@ export class Match {
     this.cam.snapBehind(sp0, sp1);
     this.hazardWarned = this.arena.hazards.map(() => false);
     this.tactics = new TacticsView(this.world, this.fx, s);
+    this.aimView = new AimIndicator(s);
 
     const names: [string, string, string, string] = vs
       ? [PLAYER_ROBOT_NAME, 'P1', vs.p2Name, 'P2']
@@ -324,7 +329,9 @@ export class Match {
     const host = this.host;
     host.input.pollPad();
     this.p2?.poll();
-    const look = host.input.consumeLook(dtReal, host.settings.sensitivity);
+    const rawLook = host.input.consumeLook(dtReal, host.settings.sensitivity);
+    // while aiming a skill/bomb, the mouse / right stick steers the aim instead of the camera
+    const look = this.aim.feedLook(rawLook, host.settings.invertY) ? { dx: 0, dy: 0 } : rawLook;
     if (this.paused) {
       host.gr.render(dtReal);
       return;
@@ -353,6 +360,7 @@ export class Match {
         const rf = this.sides[1].fighter;
         host.input.sample(this.cam.moveYaw, false, this.pInput);
         if (this.autoPilot && !pf.locked) Object.assign(this.pInput, this.autoPilot.think(this.world, pf, rf));
+        else this.aim.apply(this.pInput, pf, rf);
         let aiIn: FighterInput;
         if (this.players) {
           // replay playback: recorded inputs; AI re-thinks deterministically from the recorded seed
@@ -364,7 +372,7 @@ export class Match {
           aiIn = emptyInput();
         } else {
           aiIn = this.ai.think(this.world, rf, pf);
-          if (this.practiceMode === 'move') aiIn = { ...aiIn, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, chargePressed: false };
+          if (this.practiceMode === 'move') aiIn = { ...aiIn, gunPressed: false, gunHeld: false, bombPressed: false, bombHeld: false, skillPressed: false, skillHeld: false, podPressed: false, chargePressed: false };
           else if (this.practiceMode === 'shoot') aiIn = { ...aiIn, moveX: 0, moveZ: 0, dashPressed: false, jumpPressed: false, chargePressed: false };
         }
         if (this.recorders) {
@@ -402,6 +410,7 @@ export class Match {
     this.fx.syncBombs(this.world.bombs, dt);
     this.fx.syncPods(this.world.pods, dt);
     this.tactics.update(dt);
+    this.aimView.update(this.player.fighter, this.sides[1].fighter, this.arena.colliders, this.renderTime);
     this.fx.update(dt);
 
     const pf = this.player.fighter;
@@ -765,7 +774,7 @@ export class Match {
     if (p === 'ready') {
       this.host.hud.announce('READY', { color: '#37e8ff' });
       audio.play('announce_ready');
-      this.host.hud.showHint(this.host.input.lastDevice === 'pad' ? 'RT gun · LT bomb · RB pod · A jump · B dash (dodge) · X charge (blocks & deflects shots)' : 'Click to capture mouse · LMB gun · RMB bomb · E pod · Shift dash (dodge) · Q charge (blocks & deflects shots) · Tab free camera', 5);
+      this.host.hud.showHint(this.host.input.lastDevice === 'pad' ? 'RT auto-gun · Y skill shot (hold, aim with R-stick, release) · LT bomb (hold to aim) · RB pod · B dash · X charge' : 'Click to capture mouse · LMB auto-gun · R skill shot (hold, aim with mouse, release) · RMB bomb (hold to aim) · E pod · Shift dash · Q charge', 5);
       this.host.input.enabled = true;
       this.host.input.requestLock();
     }
@@ -846,7 +855,7 @@ export class Match {
       outcome: o.quit ? 'quit' : o.restart ? 'restart' : this.winner < 0 ? 'draw' : this.winner === 0 ? 'win' : 'lose',
       finish: this.finish, fightTime: r1(this.fightTime), playerHp: Math.round(p.hp), playerMaxHp: p.maxHp, rivalHp: Math.round(r.hp), rivalMaxHp: r.maxHp,
       used: T.used, dmgDealtBy: T.dmgDealt, dmgTakenBy: T.dmgTaken, hitsDealt: T.hitsDealt, hitsTaken: T.hitsTaken,
-      kdDealt: p.stats.knockdowns, kdTaken: p.stats.knockdownsTaken, hazardHits: T.hazardHits, dodges: T.dodges, deflects: T.deflects, parries: p.stats.parries, combos: T.combos, pauses: T.pauses,
+      kdDealt: p.stats.knockdowns, kdTaken: p.stats.knockdownsTaken, hazardHits: T.hazardHits, dodges: T.dodges, deflects: T.deflects, parries: p.stats.parries, combos: T.combos, skills: T.skills, skillHits: p.stats.skillHits, skillDamage: p.stats.skillDamage, bombAimed: p.stats.bombAimed, pauses: T.pauses,
       airPct: T.fightT ? r1((T.airT / T.fightT) * 100) : 0, hoverS: r1(T.hoverT), hardLockPct: T.fightT ? r1((T.lockT / T.fightT) * 100) : 0,
       avgDist: T.distN ? r1(T.distSum / T.distN) : 0, distSec: { '<5m': r1(T.dist[0]), '5-10m': r1(T.dist[1]), '10-16m': r1(T.dist[2]), '>16m': r1(T.dist[3]) },
       fpsAvg: T.fpsN ? r1(T.fpsSum / T.fpsN) : null, fpsMin: T.fpsN ? r1(T.fpsMin) : null, device: T.device,
@@ -949,6 +958,23 @@ export class Match {
               audio.play('pod_launch', { pos: f.pos });
               s.anim.event({ type: 'pod' });
               break;
+            case 'skillCast': {
+              // telegraph: charge sound + glint (the enemy's lane shows on the ground during the cast)
+              audio.play('gun_rail_charge', { pos: f.pos, volume: 0.8, pitch: 1.3 });
+              s.model.root.updateMatrixWorld(true);
+              fx.chargeGlint(s.model.rig.muzzle.getWorldPosition(new THREE.Vector3()), f.lo.skill.color);
+              break;
+            }
+            case 'skill': {
+              const sk = f.lo.skill;
+              audio.play(sk.model === 'wave' ? 'gun_scatter' : 'gun_rail', { pos: f.pos, volume: 1, pitch: sk.model === 'hook' ? 0.7 : sk.model === 'frost' ? 1.3 : 1 });
+              s.anim.event({ type: 'fire' });
+              s.model.root.updateMatrixWorld(true);
+              const mp = s.model.rig.muzzle.getWorldPosition(new THREE.Vector3());
+              fx.muzzle(mp, new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)), sk.color, true);
+              if (isP) this.tel.skills++;
+              break;
+            }
             case 'chargeStart':
               audio.play('charge_windup', { pos: f.pos });
               if (!isP) fx.chargeWarning(f.chestPoint(), new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)));
@@ -1163,6 +1189,7 @@ export class Match {
     this.ambience?.stop();
     audio.setTimeScale(1);
     this.tactics.dispose();
+    this.aimView.dispose();
     this.fx.dispose();
     this.arena.dispose();
     this.host.input.enabled = false;
