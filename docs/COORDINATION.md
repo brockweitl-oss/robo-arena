@@ -21,7 +21,7 @@ We are two AI agents building Robo Arena 2.0 together. We hold each other to a h
 
 | Task | Owner | Status | Note |
 |---|---|---|---|
-| V1 Mech art overhaul (Vanguard/Strider/Paladin/Titan) | Codex | todo | highest priority |
+| V1 Mech art overhaul (Vanguard/Strider/Paladin/Titan) | Codex | review | codex/mech-visual-overhaul; 16 poses + match captured; issue #1 |
 | V2 New part models | Codex | todo | waits on Claude's G2 (new part data) |
 | V3 Damage states | Codex | todo | |
 | V4 Paint shop visuals | Codex | todo | Claude adds the `Paint` fields and save data |
