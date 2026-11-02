@@ -38,16 +38,30 @@ await page.evaluate(() => {
   w.step = (inp) => { orig(inp); for (const e of w.events) if (e.type === 'fighter' && e.who === 0 && e.ev.type in window.__ev) window.__ev[e.ev.type]++; };
 });
 const k = page.keyboard;
-await k.down('KeyW');
-await page.keyboard.press('KeyJ'); await page.waitForTimeout(700);      // gun (keyboard alt)
-await page.keyboard.press('KeyK'); await page.waitForTimeout(500);      // bomb
-await page.keyboard.press('KeyE'); await page.waitForTimeout(500);      // pod
-await page.keyboard.press('ShiftLeft'); await page.waitForTimeout(500); // dash
-await page.keyboard.press('Space'); await page.waitForTimeout(250);
-await page.keyboard.press('Space'); await page.waitForTimeout(600);     // double jump
-await k.up('KeyW');
-await page.waitForTimeout(500);
-await page.keyboard.press('KeyQ'); await page.waitForTimeout(900);      // charge
+// Wait for simulation state, not wall-clock guesses: attack/dash recovery is
+// deliberate and a slow renderer may process fewer ticks in a fixed timeout.
+const ready = () => page.waitForFunction(() => {
+  const f = window.__game.match.world.fighters[0];
+  return f.canAct && f.grounded && f.landT <= 0;
+}, null, { timeout: 5000 });
+const action = async (key, event) => {
+  const before = await page.evaluate((name) => window.__ev[name], event);
+  await k.press(key);
+  await page.waitForFunction(({ name, before }) => window.__ev[name] > before,
+    { name: event, before }, { timeout: 5000 });
+};
+await ready(); await action('KeyJ', 'fire');
+await ready(); await action('KeyK', 'bomb');
+await ready(); await action('KeyE', 'pod');
+await ready();
+await k.down('KeyW'); await action('ShiftLeft', 'dash'); await k.up('KeyW');
+await ready(); await action('Space', 'jump');
+await page.waitForFunction(() => {
+  const f = window.__game.match.world.fighters[0];
+  return !f.grounded && f.mode === 'air' && f.airJumps > 0 && !f.attackCommitted;
+}, null, { timeout: 3000 });
+await action('Space', 'airjump');
+await ready(); await action('KeyQ', 'chargeStart');
 const ev = await page.evaluate(() => window.__ev);
 Object.assign(fired, { gun: ev.fire, bomb: ev.bomb, pod: ev.pod, charge: ev.chargeStart });
 step(`player events ${JSON.stringify(ev)}`);

@@ -295,7 +295,7 @@ export class HUD {
       label.textContent=f.parrying?'PARRY WINDOW':f.guarding?'FRONTAL GUARD':recovering?`${i?'PUNISH WINDOW':'RECOVERY'} ${recovery>0?recovery.toFixed(1)+'s':''}`:f.attackCommitted?'ATTACK COMMITTED':f.mode==='down'?'KNOCKED DOWN':f.mode==='getup'?'WAKE-UP PROTECTION':'';
     });
     const mobility=this.el.querySelector<HTMLElement>('.hud-mobility')!;
-    mobility.textContent=!['ground','air'].includes(p.mode)?p.mode==='dash'||p.mode==='airdash'?'DASH ACTIVE':'ACTION COMMITTED':p.attackCommitted?'COMMITTED · DASH LOCKED':p.canDash?`DASH READY · ${p.dashCharges}/${p.st.dashCharges}`:`DASH RECOVERY · ${p.dashCharges}/${p.st.dashCharges}`;
+    mobility.textContent=!['ground','air'].includes(p.mode)?p.mode==='dash'||p.mode==='airdash'?'DASH ACTIVE':'ACTION COMMITTED':p.attackCommitted?'COMMITTED · DASH LOCKED':p.canDash && p.landT<=0 && (p.grounded || p.airDashes>0)?`DASH READY · ${p.dashCharges}/${p.st.dashCharges}`:`DASH RECOVERY · ${p.dashCharges}/${p.st.dashCharges}`;
 
     for (const w of this.weaps) {
       const cd = p[w.key];
@@ -374,3 +374,4 @@ export class HUD {
     this.el.remove();
   }
 }
+
