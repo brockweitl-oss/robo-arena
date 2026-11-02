@@ -127,6 +127,10 @@ export class Input {
   private rev = new Map<string, Action[]>();
   private lookDX = 0;
   private lookDY = 0;
+  private bombAimCode: string | null = null;
+  private aimedBomb = false;
+  bombAimTarget: readonly [number, number, number] | undefined;
+  get bombAiming() { return this.enabled && this.bombAimCode !== null; }
   private padMoveX = 0;
   private padMoveY = 0;
   private padLookX = 0;
@@ -157,6 +161,10 @@ export class Input {
     window.addEventListener('blur', () => {
       this.keys.clear();
       for (const k of BUTTON_ACTIONS) this.held[k] = false;
+      this.cancelBombAim();
+    });
+    document.addEventListener('pointerlockchange', () => {
+      if (document.pointerLockElement !== canvas) this.cancelBombAim();
     });
     window.addEventListener('pointerdown', () => this.gesture());
     canvas.addEventListener('mousedown', (e) => {
@@ -203,11 +211,24 @@ export class Input {
 
   private down(code: string) {
     this.keys.add(code);
-    for (const a of this.rev.get(code) ?? []) if (!MOVE_ACTIONS.includes(a)) this.press(a as ButtonAction);
+    for (const a of this.rev.get(code) ?? []) {
+      if (a === 'bomb' && code.startsWith('Mouse') && this.enabled) {
+        this.bombAimCode = code;
+        this.bombAimTarget = undefined;
+        this.held.bomb = true;
+      } else if (!MOVE_ACTIONS.includes(a)) this.press(a as ButtonAction);
+    }
   }
 
   private up(code: string) {
     this.keys.delete(code);
+    if (code === this.bombAimCode) {
+      this.bombAimCode = null;
+      if (this.enabled) {
+        this.latched.bomb = true;
+        this.aimedBomb = !!this.bombAimTarget;
+      }
+    }
     for (const a of this.rev.get(code) ?? []) if (!MOVE_ACTIONS.includes(a)) this.release(a as ButtonAction);
   }
 
@@ -326,6 +347,8 @@ export class Input {
     out.gunPressed = on && L.gun;
     out.gunHeld = on && H.gun;
     out.bombPressed = on && L.bomb;
+    out.bombTarget = out.bombPressed && this.aimedBomb ? this.bombAimTarget : undefined;
+    this.aimedBomb = false;
     out.podPressed = on && L.pod;
     out.chargePressed = on && L.charge;
     out.faceTarget = faceTarget;
@@ -335,7 +358,16 @@ export class Input {
 
   /** Forget held/latched state (e.g. when pausing). */
   clear() {
+    this.cancelBombAim();
     for (const k of BUTTON_ACTIONS) this.latched[k] = false;
     this.lookDX = this.lookDY = 0;
+  }
+
+  private cancelBombAim() {
+    this.bombAimCode = null;
+    this.bombAimTarget = undefined;
+    this.aimedBomb = false;
+    this.latched.bomb = false;
+    this.held.bomb = false;
   }
 }

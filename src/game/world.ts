@@ -1,9 +1,11 @@
 import * as THREE from 'three';
+import { plannedBomb } from './bombAim';
 import { Fighter, type FighterInput, type HitInfo, type SpawnReq, GRAVITY } from './fighter';
 import type { ArenaBuild, BoxCollider } from '../arena/types';
 import type { BombDef, PodDef } from '../data/parts';
 import { segmentHit, pointInSolid, groundHeightBelow } from './collision';
 import { TACTICS, CRATE, TRAP, PICKUP, PICKUP_KINDS, PICKUP_EFFECT, type PickupKind } from './tactics';
+import { comboBonus, type PrimerClearReason } from './combos';
 
 export const SIM_DT = 1 / 60;
 const BOMB_G = 22;
@@ -25,6 +27,7 @@ export interface ShotSpec {
   coreColor: number;
   knockback: number;
   pierce: boolean;
+  comboDetonator?: boolean;
   /** Visual style key for effects. */
   look: 'blaster' | 'rail' | 'scatter' | 'beam' | 'homer' | 'turret';
 }
@@ -120,6 +123,9 @@ export interface WorldOptions {
 }
 
 export type GameEvent =
+  | { type: 'prime'; victim: number; attacker: number; pos: THREE.Vector3; duration: number }
+  | { type: 'combo'; victim: number; attacker: number; primerOwner: number; pos: THREE.Vector3; bonus: number }
+  | { type: 'primerClear'; victim: number; attacker: number; pos: THREE.Vector3; reason: PrimerClearReason }
   | { type: 'fighter'; who: number; ev: Fighter['events'][number]; pos: THREE.Vector3 }
   | { type: 'shot'; who: number; proj: Projectile; index: number }
   | { type: 'bombLaunch'; who: number; bomb: Bomb }
@@ -160,6 +166,7 @@ export function gunShotSpec(f: Fighter, power = 1): ShotSpec {
     coreColor: g.coreColor,
     knockback: g.knockback * (0.5 + 0.5 * p),
     pierce: !!g.pierce,
+    comboDetonator: (g.id === 'rail' || g.id === 'beam') && p >= 0.75,
     look: g.model,
   };
 }
@@ -189,6 +196,7 @@ export class World {
   private pickupIndex = 0;
   constructor(readonly arena: ArenaBuild, a: Fighter, b: Fighter, opts: WorldOptions = {}) {
     this.fighters = [a, b];
+    for (const f of this.fighters) f.clearPrimer('reset');
     this.pickupsOn = !!opts.pickups;
     this.nextPickupAt = PICKUP.firstAt;
     const lay = TACTICS[opts.arenaId ?? arena.info.id];
@@ -224,7 +232,7 @@ export class World {
     f1.step(dt, inputs[1], f0, this.colliders, this.arena.halfX, this.arena.halfZ);
     const emitted = [f0.events.length, f1.events.length];
     for (const f of this.fighters) {
-      for (const ev of f.events) this.events.push({ type: 'fighter', who: f.id, ev, pos: f.pos.clone() });
+      for (const ev of f.events) this.emitFighterEvent(f, ev);
       if (!this.combatEnabled) continue;
       for (const s of f.spawns) this.spawn(f, s);
     }
@@ -244,7 +252,7 @@ export class World {
       for (const event of this.events) if (event.type === 'ko') event.loser = 2;
     }
     // events raised during combat (e.g. knockdowns) after the per-fighter flush above
-    for (const f of this.fighters) for (let i = emitted[f.id]; i < f.events.length; i++) this.events.push({ type: 'fighter', who: f.id, ev: f.events[i], pos: f.pos.clone() });
+    for (const f of this.fighters) for (let i = emitted[f.id]; i < f.events.length; i++) this.emitFighterEvent(f, f.events[i]);
     this.separate();
     this.time += dt;
   }
@@ -253,6 +261,11 @@ export class World {
     if (s.kind === 'shot') this.spawnShot(f, s.index, s.air, s.power);
     else if (s.kind === 'bomb') this.spawnBomb(f);
     else this.spawnPod(f);
+  }
+
+  private emitFighterEvent(f: Fighter, ev: Fighter['events'][number]) {
+    if (ev.type === 'primerClear') this.events.push({ type: 'primerClear', victim: f.id, attacker: ev.owner, pos: f.chestPoint(), reason: ev.reason });
+    else this.events.push({ type: 'fighter', who: f.id, ev, pos: f.pos.clone() });
   }
 
   /* ------------------------------------------------------------ spawning */
@@ -300,27 +313,16 @@ export class World {
   private spawnBomb(f: Fighter) {
     const def = f.lo.bomb;
     const target = this.fighters[1 - f.id];
-    const from = f.pos.clone().add(new THREE.Vector3(Math.sin(f.yaw) * 0.1 + Math.cos(f.yaw) * 0.3, 1.9, Math.cos(f.yaw) * 0.1 - Math.sin(f.yaw) * 0.3));
-    for (let i = 0; i < def.count; i++) {
-      const goal = target.pos.clone().addScaledVector(target.vel, def.flightTime * 0.45);
+    const goal = f.bombTarget ? new THREE.Vector3(...f.bombTarget) : target.pos.clone().addScaledVector(target.vel, def.flightTime * 0.45);
+    if (!f.bombTarget) {
       goal.y = groundHeightBelow(goal.x, goal.z, target.pos.y + 0.1, this.colliders);
-      if (def.count > 1) {
-        const a = (i / def.count) * Math.PI * 2 + f.yaw;
-        goal.x += Math.cos(a) * def.scatter * (i === 0 ? 0.15 : 1);
-        goal.z += Math.sin(a) * def.scatter * (i === 0 ? 0.15 : 1);
-      }
-      if (def.model === 'bouncer') {
-        // skip grenade: aim short so it skips into the target
-        goal.lerp(from.clone().setY(goal.y), 0.45);
-      }
-      const flat = new THREE.Vector3(goal.x - from.x, 0, goal.z - from.z);
-      if (flat.length() > def.range) flat.setLength(def.range);
-      const T = def.flightTime * (0.85 + Math.min(1, flat.length() / def.range) * 0.3) + i * 0.06;
-      const vy = (goal.y - from.y + 0.5 * BOMB_G * T * T) / T;
+      if (def.model === 'bouncer') goal.lerp(f.pos.clone().setY(goal.y), 0.45);
+    }
+    for (let i = 0; i < def.count; i++) {
+      const plan = plannedBomb(f, goal, this.colliders, i);
       const b: Bomb = {
-        id: this.nextId++, owner: f.id, def, pos: from.clone(), vel: new THREE.Vector3(flat.x / T, vy, flat.z / T), bounces: def.bounces, age: 0, alive: true,
-        spin: new THREE.Vector3(5 + i, 3 - i, 0),
-        target: new THREE.Vector3(from.x + flat.x, goal.y, from.z + flat.z),
+        id: this.nextId++, owner: f.id, def, pos: plan.from, vel: plan.velocity, bounces: def.bounces, age: 0, alive: true,
+        spin: new THREE.Vector3(5 + i, 3 - i, 0), target: plan.target,
       };
       this.bombs.push(b);
       this.events.push({ type: 'bombLaunch', who: f.id, bomb: b });
@@ -395,6 +397,7 @@ export class World {
       }
       if (hit && target.guarding && !p.deflected) {
         if (target.facesIncoming(p.vel)) {
+          target.clearPrimer(target.parrying ? 'parry' : 'guard');
           // deflect back at the shooter; a perfect parry deflects harder
           const parry = target.parrying;
           const shooter = this.fighters[p.owner];
@@ -414,7 +417,7 @@ export class World {
       if (hit) {
         if (!target.isInvulnerable) {
           const dir = p.vel.clone().normalize();
-          const result = this.applyHit(target, p.owner, { damage: s.damage, down: s.down, dir, knock: s.knockback, heavy: s.down >= 40, source: 'gun' }, hit, s.color);
+          const result = this.applyHit(target, p.owner, { damage: s.damage, down: s.down, dir, knock: s.knockback, heavy: s.down >= 40, source: 'gun', comboBonus: !p.deflected && s.comboDetonator ? comboBonus(s.damage * DAMAGE_SCALE) : undefined }, hit, s.color);
           if (!p.deflected && s.look !== 'turret' && result && result.damage > 0) {
             this.fighters[p.owner].stats.gunHits++;
             this.fighters[p.owner].stats.gunDamage += result.damage;
@@ -472,13 +475,15 @@ export class World {
       const def = b.def;
       // direct hit on enemy (breaks guards)
       const target = this.fighters[1 - b.owner];
-      if (this.segmentVsFighter(prev, b.pos, target, 0.65)) {
+      const w = segmentHit(prev, b.pos, this.colliders);
+      const fighterHit = this.segmentVsFighter(prev, b.pos, target, 0.65);
+      if (fighterHit && (!w || fighterHit.distanceToSquared(prev) < w.point.distanceToSquared(prev))) {
+        b.pos.copy(fighterHit);
         this.explode(b.pos, b.owner, def.damage, def.down, def.blastRadius, def.color, def.blastRadius > 3, 'bomb', false, true);
         if (def.fire) this.startFire(b, b.pos.clone().setY(groundHeightBelow(b.pos.x, b.pos.z, b.pos.y, this.colliders)));
         b.alive = false;
         continue;
       }
-      const w = segmentHit(prev, b.pos, this.colliders);
       const outOfBounds = Math.abs(b.pos.x) > this.arena.halfX + 4 || Math.abs(b.pos.z) > this.arena.halfZ + 4 || b.pos.y < -3 || b.age > 6;
       if (w || outOfBounds) {
         if (w && b.bounces > 0 && w.normal.y > 0.5) {
@@ -651,7 +656,7 @@ export class World {
     p.alive = false;
     if (p.def.blastRadius <= 0) return;
     const dmgMul = shotDown ? 0.5 : 1;
-    this.explode(p.pos.clone(), p.owner, p.def.damage * dmgMul, p.def.down * dmgMul, p.def.blastRadius * (shotDown ? 0.7 : 1), p.def.color, false, 'pod');
+    this.explode(p.pos.clone(), p.owner, p.def.damage * dmgMul, p.def.down * dmgMul, p.def.blastRadius * (shotDown ? 0.7 : 1), p.def.color, false, 'pod', true, false, !shotDown);
   }
 
   /* ------------------------------------------------------------ melee */
@@ -680,7 +685,7 @@ export class World {
 
   /* ------------------------------------------------------------ damage */
 
-  explode(pos: THREE.Vector3, owner: number, damage: number, down: number, radius: number, color: number, big: boolean, source: HitInfo['source'], onGround = true, direct = false) {
+  explode(pos: THREE.Vector3, owner: number, damage: number, down: number, radius: number, color: number, big: boolean, source: HitInfo['source'], onGround = true, direct = false, canPrime = true) {
     this.events.push({ type: 'explosion', pos: pos.clone(), radius, color, big, onGround });
     const ownerF = this.fighters[owner];
     const victim = this.fighters[1 - owner];
@@ -694,7 +699,7 @@ export class World {
       const fall = 1 - THREE.MathUtils.clamp((d - 0.6) / radius, 0, 1) * 0.55;
       const dir = c.clone().sub(pos);
       dir.normalize();
-      this.applyHit(victim, owner, { damage: damage * fall * (ownerF ? ownerF.damageMul : 1), down: down * fall, dir, knock: 6, heavy: true, source, guardBreak: direct }, c, color);
+      this.applyHit(victim, owner, { damage: damage * fall * (ownerF ? ownerF.damageMul : 1), down: down * fall, dir, knock: 6, heavy: true, source, guardBreak: direct }, c, color, canPrime && (source === 'bomb' || source === 'pod'));
     }
     // chain-detonate pods caught in blasts; damage crates
     for (const p of this.pods) if (p.alive && p.pos.distanceTo(pos) < radius * 0.8 && p.owner !== owner) this.detonatePod(p, true);
@@ -705,10 +710,19 @@ export class World {
     }
   }
 
-  applyHit(victim: Fighter, attacker: number, h: HitInfo, at: THREE.Vector3, color: number) {
+  applyHit(victim: Fighter, attacker: number, h: HitInfo, at: THREE.Vector3, color: number, canPrime = false) {
+    const primerOwner = victim.primer?.owner;
     const r = victim.takeHit({ ...h, damage: h.damage * DAMAGE_SCALE });
     if (!r.applied) return;
     const att = this.fighters[attacker];
+    if (r.comboDetonated && primerOwner !== undefined) {
+      if (att) { att.stats.combos++; att.stats.comboDamage += r.comboBonus ?? 0; }
+      this.events.push({ type: 'combo', victim: victim.id, attacker, primerOwner, pos: at.clone(), bonus: r.comboBonus ?? 0 });
+    }
+    if (canPrime && att && attacker !== victim.id && r.damage > 0 && !r.blocked && !r.parried && !r.knockdown && !r.ko && victim.prime(attacker)) {
+      att.stats.primes++;
+      this.events.push({ type: 'prime', victim: victim.id, attacker, pos: at.clone(), duration: victim.primer!.duration });
+    }
     if (r.parried && att && h.source === 'charge') att.parriedBy();
     if (att) {
       att.stats.damageDealt += r.damage;

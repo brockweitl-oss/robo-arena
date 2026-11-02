@@ -1,4 +1,5 @@
 import { PanelDebris } from './combatDetails';
+import { ComboEffects } from './comboEffects';
 import * as THREE from 'three';
 import { PoseSnapshot } from './poseSnapshot';
 import { ParticleSystem } from './particles';
@@ -66,6 +67,7 @@ export class Effects {
   readonly sparks: ParticleSystem;
   readonly smoke: ParticleSystem;
   readonly panels = new PanelDebris();
+  private readonly combos: ComboEffects;
   private rings: Ring[] = [];
   private decals: Decal[] = [];
   private flashes: Flash[] = [];
@@ -87,6 +89,8 @@ export class Effects {
   constructor(private scene: THREE.Scene, quality: 'low' | 'medium' | 'high') {
     const q = quality === 'low' ? 0.5 : quality === 'medium' ? 0.8 : 1;
     this.scale = q;
+    this.combos = new ComboEffects(quality);
+    this.group.add(this.combos.group);
     this.sparks = new ParticleSystem(Math.round(4000 * q), 'add');
     this.smoke = new ParticleSystem(Math.round(900 * q), 'smoke');
     this.sparks.scale = q;
@@ -335,6 +339,13 @@ export class Effects {
     this.sparks.emit({ pos, count: 1, size: [0.65, 0.7], life: [0.12, 0.16], color: 0xff5533, intensity: 3, grow: 0.3 });
   }
 
+  /** Compact primer mark and detonation burst; visual only, never changes simulation time. */
+  comboPrime(pos: THREE.Vector3, color: number) { this.combos.prime(pos, color); }
+  comboBurst(pos: THREE.Vector3, color: number) { this.combos.burst(pos, color); }
+  updateComboMarker(id: 0 | 1, pos: THREE.Vector3, remaining: number, duration: number, color: number) {
+    this.combos.updateMarker(id, pos, remaining, duration, color);
+  }
+
   /* --------------------------------------------------------------- live entities */
 
   syncProjectiles(list: Projectile[], dt: number) {
@@ -503,6 +514,7 @@ export class Effects {
   update(dt: number) {
     this.time += dt;
     this.panels.update(dt);
+    this.combos.update(dt);
     this.sparks.update(dt);
     this.smoke.update(dt);
     for (const r of this.rings) {
@@ -583,6 +595,7 @@ export class Effects {
 
   clear() {
     this.panels.clear();
+    this.combos.clear();
     this.sparks.clear();
     this.smoke.clear();
     for (const [, v] of this.projViews) { this.group.remove(v.core, v.halo); this.projPool.push({core:v.core,halo:v.halo}); }
@@ -602,6 +615,7 @@ export class Effects {
     for (const m of this.haloMats.values()) m.dispose();
     for (const list of this.ghosts.values()) for (const g of list) { g.mat.dispose(); g.snapshot.geometry.dispose(); }
     this.panels.dispose();
+    this.combos.dispose();
     this.coreGeo.dispose(); this.ringGeo.dispose();
     Object.values(this.bombGeo).forEach(g => g.dispose());
     this.bombShellMat.dispose(); this.bombBandMats.forEach(m => m.dispose());

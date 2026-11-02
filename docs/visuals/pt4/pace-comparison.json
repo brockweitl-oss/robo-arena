@@ -1,0 +1,1400 @@
+{
+  "baselineRef": "c6a60a1",
+  "scenarios": "6 gun pairs x3 profile/lane combinations x2 mirrored sides;120s cap",
+  "caveat": "Integrated version comparison, not isolated combo causality. Deterministic authored scenarios are not human PvP trials. Timeout durations are censored, not TTK.",
+  "baseline": {
+    "matches": 36,
+    "knockouts": 36,
+    "timeouts": 0,
+    "meanObservedSeconds": 47.774074074072644,
+    "meanFinishedSeconds": 47.774074074072644,
+    "combos": 0,
+    "comboDamage": 0
+  },
+  "current": {
+    "matches": 36,
+    "knockouts": 36,
+    "timeouts": 0,
+    "meanObservedSeconds": 47.11527777777638,
+    "meanFinishedSeconds": 47.11527777777638,
+    "combos": 35,
+    "comboDamage": 474
+  },
+  "pairedKnockouts": 36,
+  "pairedMeanBefore": 47.774074074072644,
+  "pairedMeanAfter": 47.11527777777638,
+  "pairedMeanChangePercent": -1.3789828668888893,
+  "baselineRows": [
+    {
+      "key": "pulse/rail/duelist/false",
+      "guns": [
+        "pulse",
+        "rail"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": false,
+      "seconds": 39.599999999999035,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        230,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/rail/duelist/true",
+      "guns": [
+        "rail",
+        "pulse"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": true,
+      "seconds": 38.88333333333241,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        23,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/rail/champion/false",
+      "guns": [
+        "pulse",
+        "rail"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": false,
+      "seconds": 47.2999999999986,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        162
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/rail/champion/true",
+      "guns": [
+        "rail",
+        "pulse"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": true,
+      "seconds": 48.666666666665186,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        147,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/rail/rusher/false",
+      "guns": [
+        "pulse",
+        "rail"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": false,
+      "seconds": 43.58333333333214,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        134,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/rail/rusher/true",
+      "guns": [
+        "rail",
+        "pulse"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": true,
+      "seconds": 36.53333333333254,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        277,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/beam/duelist/false",
+      "guns": [
+        "pulse",
+        "beam"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": false,
+      "seconds": 70.79999999999727,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        55
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/beam/duelist/true",
+      "guns": [
+        "beam",
+        "pulse"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": true,
+      "seconds": 49.299999999998484,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        88
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/beam/champion/false",
+      "guns": [
+        "pulse",
+        "beam"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": false,
+      "seconds": 47.41666666666526,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        46,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/beam/champion/true",
+      "guns": [
+        "beam",
+        "pulse"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": true,
+      "seconds": 44.99999999999873,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        92
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/beam/rusher/false",
+      "guns": [
+        "pulse",
+        "beam"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": false,
+      "seconds": 83.91666666666319,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        415,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/beam/rusher/true",
+      "guns": [
+        "beam",
+        "pulse"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": true,
+      "seconds": 69.38333333333068,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        19,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "rail/beam/duelist/false",
+      "guns": [
+        "rail",
+        "beam"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": false,
+      "seconds": 50.86666666666506,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        454
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "rail/beam/duelist/true",
+      "guns": [
+        "beam",
+        "rail"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": true,
+      "seconds": 55.449999999998134,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        57,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "rail/beam/champion/false",
+      "guns": [
+        "rail",
+        "beam"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": false,
+      "seconds": 42.866666666665516,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        270
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "rail/beam/champion/true",
+      "guns": [
+        "beam",
+        "rail"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": true,
+      "seconds": 52.39999999999831,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        83
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "rail/beam/rusher/false",
+      "guns": [
+        "rail",
+        "beam"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": false,
+      "seconds": 42.049999999998896,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        463,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "rail/beam/rusher/true",
+      "guns": [
+        "beam",
+        "rail"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": true,
+      "seconds": 40.34999999999899,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        295
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "scatter/rail/duelist/false",
+      "guns": [
+        "scatter",
+        "rail"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": false,
+      "seconds": 30.716666666666203,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        408
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "scatter/rail/duelist/true",
+      "guns": [
+        "rail",
+        "scatter"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": true,
+      "seconds": 32.14999999999946,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        223,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "scatter/rail/champion/false",
+      "guns": [
+        "scatter",
+        "rail"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": false,
+      "seconds": 42.08333333333223,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        22
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "scatter/rail/champion/true",
+      "guns": [
+        "rail",
+        "scatter"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": true,
+      "seconds": 44.199999999998774,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        202
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "scatter/rail/rusher/false",
+      "guns": [
+        "scatter",
+        "rail"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": false,
+      "seconds": 39.949999999999015,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        181
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "scatter/rail/rusher/true",
+      "guns": [
+        "rail",
+        "scatter"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": true,
+      "seconds": 35.083333333332625,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        250,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "homer/beam/duelist/false",
+      "guns": [
+        "homer",
+        "beam"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": false,
+      "seconds": 78.5166666666635,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        199,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "homer/beam/duelist/true",
+      "guns": [
+        "beam",
+        "homer"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": true,
+      "seconds": 83.96666666666319,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        385
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "homer/beam/champion/false",
+      "guns": [
+        "homer",
+        "beam"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": false,
+      "seconds": 52.73333333333162,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        355,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "homer/beam/champion/true",
+      "guns": [
+        "beam",
+        "homer"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": true,
+      "seconds": 47.466666666665255,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        252
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "homer/beam/rusher/false",
+      "guns": [
+        "homer",
+        "beam"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": false,
+      "seconds": 52.099999999998325,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        347,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "homer/beam/rusher/true",
+      "guns": [
+        "beam",
+        "homer"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": true,
+      "seconds": 69.89999999999732,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        196
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/scatter/duelist/false",
+      "guns": [
+        "pulse",
+        "scatter"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": false,
+      "seconds": 31.866666666666138,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        235,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/scatter/duelist/true",
+      "guns": [
+        "scatter",
+        "pulse"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": true,
+      "seconds": 35.73333333333259,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        158
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/scatter/champion/false",
+      "guns": [
+        "pulse",
+        "scatter"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": false,
+      "seconds": 41.53333333333226,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        539,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/scatter/champion/true",
+      "guns": [
+        "scatter",
+        "pulse"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": true,
+      "seconds": 36.89999999999919,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        544
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/scatter/rusher/false",
+      "guns": [
+        "pulse",
+        "scatter"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": false,
+      "seconds": 30.7666666666662,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        414,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/scatter/rusher/true",
+      "guns": [
+        "scatter",
+        "pulse"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": true,
+      "seconds": 29.83333333333292,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        376
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    }
+  ],
+  "currentRows": [
+    {
+      "key": "pulse/rail/duelist/false",
+      "guns": [
+        "pulse",
+        "rail"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": false,
+      "seconds": 52.69999999999829,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        264,
+        0
+      ],
+      "combos": 2,
+      "comboDamage": 36
+    },
+    {
+      "key": "pulse/rail/duelist/true",
+      "guns": [
+        "rail",
+        "pulse"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": true,
+      "seconds": 46.46666666666531,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        172,
+        0
+      ],
+      "combos": 1,
+      "comboDamage": 18
+    },
+    {
+      "key": "pulse/rail/champion/false",
+      "guns": [
+        "pulse",
+        "rail"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": false,
+      "seconds": 46.333333333331986,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        38,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/rail/champion/true",
+      "guns": [
+        "rail",
+        "pulse"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": true,
+      "seconds": 49.19999999999849,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        152,
+        0
+      ],
+      "combos": 1,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/rail/rusher/false",
+      "guns": [
+        "pulse",
+        "rail"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": false,
+      "seconds": 48.399999999998535,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        74,
+        0
+      ],
+      "combos": 3,
+      "comboDamage": 54
+    },
+    {
+      "key": "pulse/rail/rusher/true",
+      "guns": [
+        "rail",
+        "pulse"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": true,
+      "seconds": 39.98333333333235,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        79,
+        0
+      ],
+      "combos": 4,
+      "comboDamage": 54
+    },
+    {
+      "key": "pulse/beam/duelist/false",
+      "guns": [
+        "pulse",
+        "beam"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": false,
+      "seconds": 66.28333333333086,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        363,
+        0
+      ],
+      "combos": 1,
+      "comboDamage": 12
+    },
+    {
+      "key": "pulse/beam/duelist/true",
+      "guns": [
+        "beam",
+        "pulse"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": true,
+      "seconds": 57.06666666666471,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        72
+      ],
+      "combos": 1,
+      "comboDamage": 12
+    },
+    {
+      "key": "pulse/beam/champion/false",
+      "guns": [
+        "pulse",
+        "beam"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": false,
+      "seconds": 54.81666666666484,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        299,
+        0
+      ],
+      "combos": 1,
+      "comboDamage": 12
+    },
+    {
+      "key": "pulse/beam/champion/true",
+      "guns": [
+        "beam",
+        "pulse"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": true,
+      "seconds": 53.88333333333156,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        34
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/beam/rusher/false",
+      "guns": [
+        "pulse",
+        "beam"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": false,
+      "seconds": 66.68333333333084,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        48,
+        0
+      ],
+      "combos": 1,
+      "comboDamage": 12
+    },
+    {
+      "key": "pulse/beam/rusher/true",
+      "guns": [
+        "beam",
+        "pulse"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": true,
+      "seconds": 68.94999999999737,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        111
+      ],
+      "combos": 1,
+      "comboDamage": 12
+    },
+    {
+      "key": "rail/beam/duelist/false",
+      "guns": [
+        "rail",
+        "beam"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": false,
+      "seconds": 35.083333333332625,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        554
+      ],
+      "combos": 2,
+      "comboDamage": 32
+    },
+    {
+      "key": "rail/beam/duelist/true",
+      "guns": [
+        "beam",
+        "rail"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": true,
+      "seconds": 34.09999999999935,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        564,
+        0
+      ],
+      "combos": 1,
+      "comboDamage": 16
+    },
+    {
+      "key": "rail/beam/champion/false",
+      "guns": [
+        "rail",
+        "beam"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": false,
+      "seconds": 41.24999999999894,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        320,
+        0
+      ],
+      "combos": 5,
+      "comboDamage": 78
+    },
+    {
+      "key": "rail/beam/champion/true",
+      "guns": [
+        "beam",
+        "rail"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": true,
+      "seconds": 41.73333333333225,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        279,
+        0
+      ],
+      "combos": 1,
+      "comboDamage": 16
+    },
+    {
+      "key": "rail/beam/rusher/false",
+      "guns": [
+        "rail",
+        "beam"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": false,
+      "seconds": 36.76666666666586,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        353,
+        0
+      ],
+      "combos": 1,
+      "comboDamage": 5
+    },
+    {
+      "key": "rail/beam/rusher/true",
+      "guns": [
+        "beam",
+        "rail"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": true,
+      "seconds": 37.63333333333248,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        419
+      ],
+      "combos": 2,
+      "comboDamage": 15
+    },
+    {
+      "key": "scatter/rail/duelist/false",
+      "guns": [
+        "scatter",
+        "rail"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": false,
+      "seconds": 40.416666666665655,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        123,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "scatter/rail/duelist/true",
+      "guns": [
+        "rail",
+        "scatter"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": true,
+      "seconds": 42.749999999998856,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        90,
+        0
+      ],
+      "combos": 1,
+      "comboDamage": 18
+    },
+    {
+      "key": "scatter/rail/champion/false",
+      "guns": [
+        "scatter",
+        "rail"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": false,
+      "seconds": 47.91666666666523,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        46,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "scatter/rail/champion/true",
+      "guns": [
+        "rail",
+        "scatter"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": true,
+      "seconds": 41.64999999999892,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        388,
+        0
+      ],
+      "combos": 3,
+      "comboDamage": 36
+    },
+    {
+      "key": "scatter/rail/rusher/false",
+      "guns": [
+        "scatter",
+        "rail"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": false,
+      "seconds": 30.41666666666622,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        422,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "scatter/rail/rusher/true",
+      "guns": [
+        "rail",
+        "scatter"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": true,
+      "seconds": 35.56666666666593,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        79
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "homer/beam/duelist/false",
+      "guns": [
+        "homer",
+        "beam"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": false,
+      "seconds": 77.96666666666353,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        136,
+        0
+      ],
+      "combos": 1,
+      "comboDamage": 12
+    },
+    {
+      "key": "homer/beam/duelist/true",
+      "guns": [
+        "beam",
+        "homer"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": true,
+      "seconds": 86.81666666666302,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        480
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "homer/beam/champion/false",
+      "guns": [
+        "homer",
+        "beam"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": false,
+      "seconds": 60.1833333333312,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        155,
+        0
+      ],
+      "combos": 1,
+      "comboDamage": 12
+    },
+    {
+      "key": "homer/beam/champion/true",
+      "guns": [
+        "beam",
+        "homer"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": true,
+      "seconds": 51.59999999999835,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        405
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "homer/beam/rusher/false",
+      "guns": [
+        "homer",
+        "beam"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": false,
+      "seconds": 59.44999999999791,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        35
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "homer/beam/rusher/true",
+      "guns": [
+        "beam",
+        "homer"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": true,
+      "seconds": 60.38333333333119,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        168
+      ],
+      "combos": 1,
+      "comboDamage": 12
+    },
+    {
+      "key": "pulse/scatter/duelist/false",
+      "guns": [
+        "pulse",
+        "scatter"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": false,
+      "seconds": 26.299999999999788,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        388,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/scatter/duelist/true",
+      "guns": [
+        "scatter",
+        "pulse"
+      ],
+      "profile": "duelist",
+      "lane": -7,
+      "swap": true,
+      "seconds": 30.56666666666621,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        400
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/scatter/champion/false",
+      "guns": [
+        "pulse",
+        "scatter"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": false,
+      "seconds": 32.91666666666608,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        360,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/scatter/champion/true",
+      "guns": [
+        "scatter",
+        "pulse"
+      ],
+      "profile": "champion",
+      "lane": 0,
+      "swap": true,
+      "seconds": 33.76666666666603,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        670
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/scatter/rusher/false",
+      "guns": [
+        "pulse",
+        "scatter"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": false,
+      "seconds": 30.316666666666226,
+      "finished": true,
+      "loser": 1,
+      "hp": [
+        308,
+        0
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    },
+    {
+      "key": "pulse/scatter/rusher/true",
+      "guns": [
+        "scatter",
+        "pulse"
+      ],
+      "profile": "rusher",
+      "lane": 7,
+      "swap": true,
+      "seconds": 29.83333333333292,
+      "finished": true,
+      "loser": 0,
+      "hp": [
+        0,
+        376
+      ],
+      "combos": 0,
+      "comboDamage": 0
+    }
+  ],
+  "archive": "C:\\Users\\o\\AppData\\Local\\Temp\\robo-pace-UGGCLi"
+}

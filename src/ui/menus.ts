@@ -1344,7 +1344,7 @@ export class Menus implements MenuLayer {
       btn('Dummy: Shoot Only', go('shoot'), 'big'),
       btn('Dummy: Full AI', go('full'), 'big'),
     ];
-    const note = h('div', 'md-desc', 'Both robots refill automatically. Press Esc and choose Quit to leave.');
+    const note = h('div', 'md-desc', 'Hold the bomb mouse button, move the landing marker, then release to throw. Clean bomb/pod blasts prime a target for 2 seconds; follow with rail or a charged beam after the marker closes. A perfect dodge, parry or frontal block clears the primer. Both robots refill automatically. Esc → Quit leaves practice.');
     const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', ...opts, arenaBtn, note), h('div', 'ra-actions', btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big')));
     el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
     this.setScreen(el, { back: () => this.showModes(), initial: opts[0] });
@@ -1525,6 +1525,7 @@ export class Menus implements MenuLayer {
         h('div', 'gd-top', h('div', 'gd-ico', svg(SLOT_ICON[p.slot])), h('div', '', h('div', 'gd-slot', `${SLOT_LABEL[p.slot]} Part`), h('div', 'gd-name', owned ? p.name : p.name))),
         equipped ? h('div', 'gd-tag eq', svg(CHECK_ICON), 'Equipped') : owned ? h('div', 'gd-tag', 'Owned · press to equip') : h('div', 'gd-tag lk', svg(LOCK_ICON), src ? `Beat ${src.pilot} to unlock` : 'Locked'),
         h('div', 'gd-desc', p.desc),
+        ...(p.slot === 'gun' && ['rail', 'beam'].includes(p.id) ? [h('div', 'gd-desc', p.id === 'rail' ? 'COMBO FINISHER · Hit an armed primer to detonate it.' : 'COMBO FINISHER · Charge to at least 75% and hit an armed primer.')] : p.slot === 'bomb' ? [h('div', 'gd-desc', 'SETUP · Hold the bomb mouse button to aim, release to throw. Clean blast hits prime a precision follow-up.')] : []),
         h('div', 'gd-ratings', ...Object.entries(p.ratings).map(([k, v]) => ratingBar(k, v, equipped ? undefined : eq?.ratings[k]))),
         ...extra,
       );

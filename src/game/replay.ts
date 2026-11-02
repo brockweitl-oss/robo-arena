@@ -10,7 +10,7 @@ import { ARENA_INFO } from '../arena/index';
  * player (quantized stick + button bits) and run-length encoded.
  */
 /** Reject recordings made against older simulation rules instead of silently desyncing. */
-export const RULESET_VERSION = 3;
+export const RULESET_VERSION = 4;
 
 export interface Replay {
   rulesVersion: number;
@@ -29,6 +29,13 @@ export interface Replay {
 
 const BITS: (keyof FighterInput)[] = ['jumpPressed', 'jumpHeld', 'dashPressed', 'gunPressed', 'gunHeld', 'bombPressed', 'podPressed', 'chargePressed'];
 
+/** Signed fixed-point coordinates: 1/64m, bounded to the supported arena envelope. */
+export function quantizeBombTarget(target: readonly number[] | undefined): readonly [number, number, number] | undefined {
+  if (!target || target.length !== 3 || !target.every(Number.isFinite)) return undefined;
+  return target.map(v => Math.round(Math.max(-256, Math.min(256, v)) * 64) / 64) as [number, number, number];
+}
+const RUN_BYTES = 12;
+
 export function packInput(i: FighterInput): [number, number, number] {
   const q = (v: number) => Math.max(-127, Math.min(127, Math.round(v * 127))) & 0xff;
   let b = 0;
@@ -42,6 +49,7 @@ export function packInput(i: FighterInput): [number, number, number] {
 /** Round an input to exactly what a replay can store, in place. Apply before the sim sees it. */
 export function quantizeInput(i: FighterInput): FighterInput {
   const [x, z, b] = packInput(i);
+  i.bombTarget = quantizeBombTarget(i.bombTarget);
   return unpackInput(x, z, b, i.faceTarget, i);
 }
 
@@ -60,16 +68,21 @@ export function unpackInput(x: number, z: number, b: number, faceTarget: boolean
 export class InputRecorder {
   private bytes: number[] = [];
   private face: number[] = [];
+  private targets: number[][] = [];
   frames = 0;
 
   push(i: FighterInput) {
     const [x, z, b] = packInput(i);
     this.bytes.push(x, z, b);
     this.face.push(i.faceTarget ? 1 : 0);
+    const target = quantizeBombTarget(i.bombTarget);
+    const bytes = [target ? 1 : 0];
+    for (const value of target ?? [0, 0, 0]) { const q = Math.round(value * 64) & 0xffff; bytes.push(q & 255, q >>> 8); }
+    this.targets.push(bytes);
     this.frames++;
   }
 
-  /** RLE: [count, x, z, b, face] runs, base64 encoded. */
+  /** RLE: count, stick/buttons, facing, target presence and three signed16 coordinates. */
   encode(): string {
     const out: number[] = [];
     let i = 0;
@@ -78,9 +91,9 @@ export class InputRecorder {
       while (
         i + n < this.frames && n < 255 &&
         this.bytes[(i + n) * 3] === this.bytes[i * 3] && this.bytes[(i + n) * 3 + 1] === this.bytes[i * 3 + 1] &&
-        this.bytes[(i + n) * 3 + 2] === this.bytes[i * 3 + 2] && this.face[i + n] === this.face[i]
+        this.bytes[(i + n) * 3 + 2] === this.bytes[i * 3 + 2] && this.face[i + n] === this.face[i] && this.targets[i + n].every((v, k) => v === this.targets[i][k])
       ) n++;
-      out.push(n, this.bytes[i * 3], this.bytes[i * 3 + 1], this.bytes[i * 3 + 2], this.face[i]);
+      out.push(n, this.bytes[i * 3], this.bytes[i * 3 + 1], this.bytes[i * 3 + 2], this.face[i], ...this.targets[i]);
       i += n;
     }
     let s = '';
@@ -105,14 +118,18 @@ export class InputPlayer {
 
   next(): FighterInput {
     if (this.left <= 0) {
-      if (this.ri + 5 > this.runs.length) {
+      if (this.ri + RUN_BYTES > this.runs.length) {
         this.done = true;
         return emptyInput();
       }
       const r = this.runs;
       this.left = r[this.ri];
       unpackInput(r[this.ri + 1], r[this.ri + 2], r[this.ri + 3], r[this.ri + 4] === 1, this.cur);
-      this.ri += 5;
+      this.cur.bombTarget = r[this.ri + 5] ? [0, 1, 2].map(k => {
+        const n = r[this.ri + 6 + k * 2] | r[this.ri + 7 + k * 2] << 8;
+        return (n << 16 >> 16) / 64;
+      }) as [number, number, number] : undefined;
+      this.ri += RUN_BYTES;
     }
     this.left--;
     return { ...this.cur };
@@ -151,11 +168,15 @@ function streamOk(enc: unknown, frames: number): boolean {
   } catch {
     return false;
   }
-  if (s.length % 5 !== 0) return false;
+  if (s.length % RUN_BYTES !== 0) return false;
   let total = 0;
-  for (let i = 0; i < s.length; i += 5) {
+  for (let i = 0; i < s.length; i += RUN_BYTES) {
     const n = s.charCodeAt(i);
-    if (n < 1) return false;
+    if (n < 1 || s.charCodeAt(i + 4) > 1 || s.charCodeAt(i + 5) > 1) return false;
+    for (let k = 0; k < 3; k++) {
+      const q = s.charCodeAt(i + 6 + k * 2) | s.charCodeAt(i + 7 + k * 2) << 8;
+      if (Math.abs(q << 16 >> 16) > 16384) return false;
+    }
     total += n;
   }
   return total >= frames;

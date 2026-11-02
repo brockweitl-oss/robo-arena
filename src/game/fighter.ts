@@ -3,6 +3,7 @@ import { deriveStats, type DerivedStats, type ResolvedLoadout } from '../data/pa
 import type { AnimMode, AnimSource } from '../robot/animator';
 import { moveAndCollide } from './collision';
 import type { Collider } from '../arena/types';
+import { makePrimer, comboBonus, type PrimerState, type PrimerClearReason } from './combos';
 
 /** Device-independent controls for one sim tick. Move is world-space XZ (length ≤ 1). */
 export interface FighterInput {
@@ -18,6 +19,7 @@ export interface FighterInput {
   chargePressed: boolean;
   /** Face the target even while moving (hard lock / strafing). */
   faceTarget: boolean;
+  bombTarget?: readonly [number, number, number];
 }
 
 export const emptyInput = (): FighterInput => ({
@@ -49,7 +51,8 @@ export type FighterEvent =
   | { type: 'jump' } | { type: 'airjump' } | { type: 'dash'; air: boolean } | { type: 'land'; speed: number; hard: boolean }
   | { type: 'fire'; index: number } | { type: 'railCharge' } | { type: 'bomb' } | { type: 'pod' }
   | { type: 'chargeStart'; wakeup: boolean } | { type: 'chargeLunge' } | { type: 'knockdown' } | { type: 'getup' }
-  | { type: 'parry' } | { type: 'guardBreak' } | { type: 'hover'; on: boolean };
+  | { type: 'parry' } | { type: 'guardBreak' } | { type: 'hover'; on: boolean }
+  | { type: 'primerClear'; owner: number; reason: PrimerClearReason };
 
 export interface HitInfo {
   damage: number;
@@ -64,6 +67,8 @@ export interface HitInfo {
   guardBreak?: boolean;
   /** Light damage-over-time: no flinch, no hit-stop. */
   tick?: boolean;
+  /** Actual HP bonus, admitted only after a clean damaging hit. */
+  comboBonus?: number;
 }
 
 export interface HitResult {
@@ -76,11 +81,27 @@ export interface HitResult {
   knockdown: boolean;
   ko: boolean;
   damage: number;
+  comboDetonated?: boolean;
+  comboBonus?: number;
 }
 
 export type SpawnReq = { kind: 'shot'; index: number; air: boolean; power: number } | { kind: 'bomb' } | { kind: 'pod' };
 
 export class Fighter implements AnimSource {
+  primer: PrimerState | null = null;
+  bombTarget: readonly [number, number, number] | undefined;
+
+  prime(owner: number) {
+    if (this.primer || !this.alive || this.mode === 'down' || this.mode === 'getup') return false;
+    this.primer = makePrimer(owner);
+    return true;
+  }
+
+  clearPrimer(reason: PrimerClearReason) {
+    if (!this.primer) return;
+    this.events.push({ type: 'primerClear', owner: this.primer.owner, reason });
+    this.primer = null;
+  }
   readonly pos = new THREE.Vector3();
   readonly vel = new THREE.Vector3();
   yaw = 0;
@@ -156,7 +177,7 @@ export class Fighter implements AnimSource {
   readonly spawns: SpawnReq[] = [];
 
   // stats
-  stats = { damageDealt: 0, hits: 0, knockdowns: 0, knockdownsTaken: 0, shots: 0, dodges: 0, parries: 0, gunProjectiles: 0, gunHits: 0, gunDamage: 0, gunDeflected: 0 };
+  stats = { damageDealt: 0, hits: 0, knockdowns: 0, knockdownsTaken: 0, shots: 0, dodges: 0, parries: 0, gunProjectiles: 0, gunHits: 0, gunDamage: 0, gunDeflected: 0, primes: 0, combos: 0, comboDamage: 0 };
 
   constructor(readonly id: number, readonly lo: ResolvedLoadout) {
     this.st = deriveStats(lo);
@@ -230,6 +251,7 @@ export class Fighter implements AnimSource {
   }
 
   setMode(m: AnimMode) {
+    if (m === 'down' || m === 'getup') this.clearPrimer(this.alive ? 'down' : 'death');
     this.mode = m;
     this.modeTime = 0;
   }
@@ -264,6 +286,17 @@ export class Fighter implements AnimSource {
   step(dt: number, inp: FighterInput, target: Fighter, colliders: Collider[], halfX: number, halfZ: number) {
     this.events.length = 0;
     this.spawns.length = 0;
+    // A throw can remain buffered through the last recovery ticks. Keep that
+    // press's target until another bomb press replaces it (including auto-aim).
+    if (inp.bombPressed) this.bombTarget = inp.bombTarget ? [...inp.bombTarget] : undefined;
+    if (this.primer) {
+      this.primer.remainingTicks--;
+      this.primer.armTicks = Math.max(0, this.primer.armTicks - 1);
+      this.primer.remaining = Math.max(0, this.primer.remainingTicks / 60);
+      this.primer.armed = this.primer.armTicks === 0;
+      if (!this.alive) this.clearPrimer('death');
+      else if (this.primer.remainingTicks <= 0) this.clearPrimer('expired');
+    }
     // Real-time combat: presentation must never freeze simulation or eat controls.
     this.hitstop = 0;
     this.modeTime += dt;
@@ -648,6 +681,7 @@ export class Fighter implements AnimSource {
 
   /** Once per dash: a small cooldown rebate rewards timing without an infinite reset loop. */
   perfectDodge() {
+    this.clearPrimer('dodge');
     if (this.dodgeAwarded) return false;
     this.dodgeAwarded = true;
     this.gunCd = Math.max(0, this.gunCd - 0.25);
@@ -683,6 +717,7 @@ export class Fighter implements AnimSource {
     // a perfect parry beats everything an opponent throws at you, including their charge attack
     const parryable = frontal && h.source !== 'hazard' && h.source !== 'fire' && !h.guardBreak;
     if (this.parrying && parryable) {
+      this.clearPrimer('parry');
       out.parried = true;
       this.stats.parries++;
       this.events.push({ type: 'parry' });
@@ -694,6 +729,7 @@ export class Fighter implements AnimSource {
       h = { ...h, down: h.down + 30 };
       this.events.push({ type: 'guardBreak' });
     } else if (this.guarding && guardable) {
+      if (h.source === 'gun') this.clearPrimer('guard');
       h = { ...h, damage: h.damage * 0.3 * this.st.guardChipMul, down: h.down * 0.25 };
       out.blocked = true;
     }
@@ -705,7 +741,15 @@ export class Fighter implements AnimSource {
       dmgIn -= a;
     }
     const willKnock = !out.blocked && this.down + h.down >= this.endurance;
-    if (willKnock) dmgIn *= KNOCKDOWN_BONUS;
+    const ordinaryDamage = dmgIn * (willKnock ? KNOCKDOWN_BONUS : 1);
+    if (h.comboBonus && this.primer?.armed && !out.blocked && !out.parried && dmgIn > 0) {
+      // Fixed additive payoff after defense, not another damage multiplier.
+      const total = ordinaryDamage + Math.min(h.comboBonus, comboBonus(dmgIn));
+      out.comboDetonated = true;
+      out.comboBonus = Math.max(0, Math.min(this.hp, Math.round(total)) - Math.min(this.hp, Math.round(ordinaryDamage)));
+      this.clearPrimer('consumed');
+      dmgIn = total;
+    } else dmgIn = ordinaryDamage;
     const dmg = Math.round(dmgIn);
     this.hp = Math.max(0, this.hp - dmg);
     out.damage = dmg;

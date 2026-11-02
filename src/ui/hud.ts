@@ -36,6 +36,9 @@ const CSS = /* css */ `
 .hud-combat-state { margin-top:6px; font-size:12px; font-weight:700; letter-spacing:.12em; color:#9ddfc9; min-height:17px; text-shadow:0 1px 3px #000; }
 .hud-combat-state[data-state="opening"] { color:#ffbd72; }
 .hud-combat-state[data-state="guard"] { color:#86d9ff; }
+.hud-primer { color:#ffd36a; font-size:12px; font-weight:700; letter-spacing:.08em; min-height:16px; text-shadow:0 1px 3px #000; }
+.hud-bomb-aim { position:absolute;left:50%;top:62%;transform:translateX(-50%);padding:7px 12px;color:#ffd36a;background:#09121de8;border:1px solid #ffd36a77;font-size:12px;letter-spacing:.08em; }
+.hud-bomb-aim:empty { display:none; }
 .hud-mobility { position:absolute;left:50%;bottom:145px;transform:translateX(-50%);font-size:12px;font-weight:700;letter-spacing:.12em;background:#09121ddd;padding:6px 12px;border-bottom:2px solid #68c6ca; }
 .hud-weap { position:absolute; bottom:26px; left:50%; transform:translateX(-50%); display:flex; gap:14px; align-items:flex-end; }
 .hud-w { width:64px; text-align:center; }
@@ -132,14 +135,14 @@ export class HUD {
           <div class="hud-name"></div>
           <div class="hud-hpnum">1000<span>HP</span></div>
           <div class="hud-bar"><i class="chip"></i><i class="fill"></i>${[1, 2, 3].map((k) => `<span class="tick" style="left:${k * 25}%"></span>`).join('')}</div>
-          <div class="hud-down"><i></i></div><div class="hud-downlbl2">DOWN</div><div class="hud-combat-state"></div>
+          <div class="hud-down"><i></i></div><div class="hud-downlbl2">DOWN</div><div class="hud-combat-state"></div><div class="hud-primer"></div>
         </div>`).join('<div class="hud-timer">90</div>')}
       </div>
       <div class="hud-lock"><svg viewBox="-35 -35 70 70"><path d="M-30 -12 V-30 H-12 M12 -30 H30 V-12 M30 12 V30 H12 M-12 30 H-30 V12"/></svg></div>
       <div class="hud-off"></div>
       <div class="hud-fuel"><i></i></div>
       <div class="hud-weap"></div>
-      <div class="hud-buffs"></div><div class="hud-mobility"></div>
+      <div class="hud-buffs"></div><div class="hud-mobility"></div><div class="hud-bomb-aim"></div>
       ${[0, 1, 2, 3].map(() => '<div class="hud-threat"></div>').join('')}
       <div class="hud-hint"></div>
       <div class="hud-practice"></div>
@@ -210,6 +213,10 @@ export class HUD {
     this.hint.textContent = text;
     this.hint.classList.add('on');
     setTimeout(() => this.hint.classList.remove('on'), seconds * 1000);
+  }
+
+  bombAimStatus(text: string) {
+    this.el.querySelector<HTMLElement>('.hud-bomb-aim')!.textContent = text;
   }
 
   popup(screen: { x: number; y: number }, text: string, cls = '', color = '#fff') {
@@ -288,6 +295,10 @@ export class HUD {
     this.timer.classList.toggle('warn', tl <= 10);
     const p = fighters[0];
     fighters.forEach((f,i) => {
+      const primerLabel = this.sides[i].root.querySelector<HTMLElement>('.hud-primer')!;
+      const primer = f.primer;
+      const canTrigger = fighters[1-i].lo.gun.model === 'rail' || fighters[1-i].lo.gun.model === 'beam';
+      primerLabel.textContent = primer ? `${primer.armed ? i && canTrigger ? 'DETONATE READY' : 'PRIMED' : 'PRIMER ARMING'} · ${primer.remaining.toFixed(1)}s${i ? canTrigger ? ' · PRECISION HIT' : ' · NEED RAIL / BEAM' : ' · DODGE / GUARD'}` : '';
       const label=this.sides[i].root.querySelector<HTMLElement>('.hud-combat-state')!;
       const recovery=Math.max(f.recoveryTime,f.landT);
       const recovering=recovery>0 || f.mode==='charge' && f.chargePhase===2;

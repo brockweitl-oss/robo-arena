@@ -27,7 +27,7 @@ export const AI_PROFILES: Record<AIPersonality, Profile> = {
 export class AIPilot {
   private p: Profile;
   private reaction: number;
-  private history: { t: number; pos: THREE.Vector3; vel: THREE.Vector3; mode: string; recovery: number; rail: number; guard: boolean }[] = [];
+  private history: { t: number; pos: THREE.Vector3; vel: THREE.Vector3; mode: string; recovery: number; rail: number; guard: boolean; primed: boolean; comboReady: boolean }[] = [];
   private strafeDir = 1;
   private strafeAt = 0;
   private decideAt = 0;
@@ -50,7 +50,7 @@ export class AIPilot {
   think(world: World, me: Fighter, foe: Fighter): FighterInput {
     const inp = this.input, dt = 1 / 60, t = world.time;
     this.history.push({ t, pos: foe.pos.clone(), vel: foe.vel.clone(), mode: foe.mode, recovery: foe.recoveryTime,
-      rail: foe.railCharge, guard: foe.guarding });
+      rail: foe.railCharge, guard: foe.guarding, primed: !!foe.primer, comboReady: !!foe.primer?.armed });
     while (this.history.length > 2 && this.history[1].t <= t - this.reaction) this.history.shift();
     const seen = this.history[0];
     Object.assign(inp, emptyInput());
@@ -122,19 +122,31 @@ export class AIPilot {
     }
     const los = !segmentHit(me.chestPoint(), seen.pos.clone().add(new THREE.Vector3(0, 1.15, 0)), world.colliders);
     const canHit = !foe.isInvulnerable && foe.alive;
+    const precision = g === 'rail' || g === 'beam';
+    const comboReady = this.skill >= 0.45 && seen.comboReady;
+    // This uses the same delayed observation as movement/guard reads. A visible
+    // setup can invite a release, but never bypass charge power or normal CDs.
+    if (g === 'beam' && comboReady && los && !seen.guard && me.holdFrac > 0) {
+      const power = (me.lo.gun.holdMinFrac ?? .3) + (1 - (me.lo.gun.holdMinFrac ?? .3)) * me.holdFrac;
+      if (power >= .75) this.holdGunUntil = Math.min(this.holdGunUntil, t);
+    }
     if (t >= this.decideAt && t > 0.8 + this.reaction && canHit && me.canAct && !inp.dashPressed && !inp.chargePressed) {
       this.decideAt = t + this.reaction;
       const inRange = dist < (g === 'scatter' ? 6.5 : g === 'blaster' ? 27 : 34);
       // Rail waits for a setup when possible, but will probe straight movement at a measured cadence.
-      const precisionOpening = g !== 'rail' || vulnerable || seen.vel.lengthSq() < 8 || t >= this.gunAt + 0.2;
-      if (los && inRange && !seen.guard && me.gunCd <= 0 && t >= this.gunAt && precisionOpening) {
-        this.holdGunUntil = t + (me.lo.gun.holdMax ? (vulnerable ? 0.45 : me.lo.gun.holdMax) : 0.12);
+      const precisionOpening = g !== 'rail' || comboReady || vulnerable || seen.vel.lengthSq() < 8 || t >= this.gunAt + 0.2;
+      const setupPod = me.podCd <= 0 && me.lo.pod.model !== 'turret' && me.lo.pod.model !== 'interceptor' && dist < range + 3;
+      const setupBomb = me.bombCd <= 0 && dist > 4 && dist < me.lo.bomb.range;
+      const setupWindow = me.gunCd > 0 || t < this.gunAt || seen.guard || !los;
+      const preferSetup = precision && this.skill >= .45 && !seen.primed && setupWindow && t >= this.utilityAt && (setupPod || setupBomb);
+      if (!preferSetup && los && inRange && !seen.guard && me.gunCd <= 0 && t >= this.gunAt && precisionOpening) {
+        this.holdGunUntil = t + (me.lo.gun.holdMax ? (comboReady ? Math.max(.6, me.lo.gun.holdMin ?? 0) : vulnerable ? 0.45 : me.lo.gun.holdMax) : 0.12);
         this.gunAt = t + Math.max(0.1, this.p.gunCadence - 0.3) + me.lo.gun.cooldown + me.lo.gun.windup;
       } else if (t >= this.utilityAt) {
         // Bombers flush cover; trap specialists establish a lane before committing a gun shot.
-        if (me.podCd <= 0 && (this.personality === 'trickster' || me.lo.pod.model === 'turret' || dist < range + 3)) {
+        if (me.podCd <= 0 && (preferSetup ? setupPod : this.personality === 'trickster' || me.lo.pod.model === 'turret' || dist < range + 3)) {
           inp.podPressed = true; this.utilityAt = t + this.p.utilityCadence;
-        } else if (me.bombCd <= 0 && dist > 4 && (!los || seen.guard || vulnerable || this.personality === 'bomber')) {
+        } else if (me.bombCd <= 0 && dist > 4 && (preferSetup || !los || seen.guard || vulnerable || this.personality === 'bomber')) {
           inp.bombPressed = true; this.utilityAt = t + this.p.utilityCadence;
         }
       }

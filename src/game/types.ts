@@ -38,6 +38,9 @@ export interface MatchStats {
   gunHits?: number;
   gunDamage?: number;
   gunDeflected?: number;
+  primes?: number;
+  combos?: number;
+  comboDamage?: number;
   dodges: number;
   /* Optional extras read by progression/challenges/achievements (src/game/progression.ts).
      Missing fields are treated as "unknown": challenges that need them make no progress. */
