@@ -920,7 +920,7 @@ export class Match {
                 // telegraph: bright glint at the enemy muzzle
                 s.model.root.updateMatrixWorld(true);
                 const gp = s.model.rig.muzzle.getWorldPosition(new THREE.Vector3());
-                fx.sparks.emit({ pos: gp, count: 1, size: [1.6, 2.0], life: [0.25, 0.3], color: 0xffffff, color2: f.lo.gun.color, intensity: 3 });
+                fx.chargeGlint(gp, f.lo.gun.color);
               }
               break;
             case 'bomb': {
@@ -938,7 +938,7 @@ export class Match {
               break;
             case 'chargeStart':
               audio.play('charge_windup', { pos: f.pos });
-              if (!isP) fx.ring(f.chestPoint(), new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), f.yaw), 0xff3b3b, 0.3, 2.4, 0.3, 1);
+              if (!isP) fx.chargeWarning(f.chestPoint(), new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)));
               if (ev.wakeup) this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1, 0))), 'WAKE-UP!', 'tag');
               fx.sparks.emit({ pos: f.chestPoint(), count: 16, speed: [1, 3], size: [0.1, 0.16], life: [0.2, 0.35], color: s.paint.glow, intensity: 2.6, drag: 2 });
               break;
@@ -949,8 +949,7 @@ export class Match {
             case 'parry':
               audio.play('shield_block', { pos: f.pos, pitch: 1.5 });
               audio.play('hit_heavy', { pos: f.pos, volume: 0.6 });
-              fx.ring(f.chestPoint(), new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), f.yaw), 0xffffff, 0.3, 3, 0.35, 1);
-              fx.sparks.emit({ pos: f.chestPoint(), count: 30, speed: [6, 14], size: [0.06, 0.1], life: [0.2, 0.4], color: 0xffffff, color2: s.paint.glow, intensity: 3.5, stretch: 0.04, drag: 2 });
+              fx.parry(f.chestPoint(), new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)), s.paint.glow);
               this.slowmo(0.3, 0.28);
               if (isP) this.tel.parries++;
               this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1.2, 0))), 'PARRY!', 'tag');
@@ -958,7 +957,7 @@ export class Match {
               break;
             case 'guardBreak':
               audio.play('knockdown', { pos: f.pos, volume: 0.7, pitch: 1.3 });
-              fx.knockdownBurst(f.chestPoint(), 0xff3b3b);
+              fx.guardBreak(f.chestPoint());
               this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1.2, 0))), 'GUARD BREAK', 'tag');
               break;
             case 'knockdown': {
