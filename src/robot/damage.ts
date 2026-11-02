@@ -27,10 +27,11 @@ export class DamageVisuals {
       if (mesh.isMesh && mesh.material === model.mats.glowHot) mesh.material = this.eyeGlow;
     });
     const frame = model.loadout.body.frame;
-    const z = frame === 'ironclad' ? 0.26 : frame === 'wisp' ? 0.175 : 0.21;
+    const z = frame === 'ironclad' ? 0.225 : frame === 'wisp' ? 0.143 : 0.177;
     for (const sx of [-1, 1]) {
-      const scar = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.22), this.scarMat);
-      scar.position.set(sx * 0.12, sx * 0.035, z);
+      const scar = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.15), this.scarMat);
+      scar.position.set(sx * 0.11, sx * 0.035, z);
+      scar.rotation.y = -sx * 0.20;
       scar.rotation.z = sx * 0.6;
       this.scars.add(scar);
     }
@@ -65,7 +66,7 @@ export class DamageVisuals {
   }
 
   update(time: number, dt: number) {
-    this.eyeGlow.emissiveIntensity = 6 * this.model.power;
+    this.eyeGlow.emissiveIntensity = (this.model.mats.glowHot as THREE.MeshStandardMaterial).emissiveIntensity;
     const parent = this.model.root.parent;
     if (this.hp < 0.5 && parent) {
       if (this.fx.parent !== parent) parent.add(this.fx);

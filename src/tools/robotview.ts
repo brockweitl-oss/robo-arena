@@ -13,7 +13,8 @@ export function robotView(params: URLSearchParams) {
   const gr = new GameRenderer(document.body);
   const scene = new THREE.Scene();
   gr.setScene(scene);
-  gr.setQuality('high');
+  const quality = params.get('q');
+  gr.setQuality(quality === 'low' || quality === 'medium' ? quality : 'high');
   scene.background = new THREE.Color(0x1b1f27);
   scene.environment = studioEnvironment(gr.renderer, { intensity: 1 });
   scene.fog = new THREE.Fog(0x1b1f27, 12, 30);

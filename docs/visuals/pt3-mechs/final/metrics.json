@@ -1,0 +1,135 @@
+{
+  "results": [
+    {
+      "name": "vanguard",
+      "pose": "front",
+      "fps": 59.99400059135864,
+      "meshes": 128,
+      "tris": 18826,
+      "calls": 1
+    },
+    {
+      "name": "vanguard",
+      "pose": "back",
+      "fps": 60.003934689870576,
+      "meshes": 128,
+      "tris": 18826,
+      "calls": 1
+    },
+    {
+      "name": "vanguard",
+      "pose": "run",
+      "fps": 59.99400059135864,
+      "meshes": 128,
+      "tris": 18826,
+      "calls": 1
+    },
+    {
+      "name": "vanguard",
+      "pose": "fire",
+      "fps": 59.92808630786096,
+      "meshes": 128,
+      "tris": 18826,
+      "calls": 1
+    },
+    {
+      "name": "titan",
+      "pose": "front",
+      "fps": 60.04528005570388,
+      "meshes": 133,
+      "tris": 20862,
+      "calls": 1
+    },
+    {
+      "name": "titan",
+      "pose": "back",
+      "meshes": 133,
+      "tris": 20862,
+      "calls": 1
+    },
+    {
+      "name": "titan",
+      "pose": "run",
+      "fps": 60.05119118218495,
+      "meshes": 133,
+      "tris": 20862,
+      "calls": 1
+    },
+    {
+      "name": "titan",
+      "pose": "fire",
+      "fps": 60.02755362835826,
+      "meshes": 133,
+      "tris": 20862,
+      "calls": 1
+    },
+    {
+      "name": "strider",
+      "pose": "front",
+      "fps": 60.09852216748768,
+      "meshes": 173,
+      "tris": 26382,
+      "calls": 1
+    },
+    {
+      "name": "strider",
+      "pose": "back",
+      "fps": 59.98623267635076,
+      "meshes": 173,
+      "tris": 26382,
+      "calls": 1
+    },
+    {
+      "name": "strider",
+      "pose": "run",
+      "fps": 60.05119116809032,
+      "meshes": 173,
+      "tris": 26382,
+      "calls": 1
+    },
+    {
+      "name": "strider",
+      "pose": "fire",
+      "fps": 59.98200540123979,
+      "meshes": 173,
+      "tris": 26382,
+      "calls": 1
+    },
+    {
+      "name": "paladin",
+      "pose": "front",
+      "fps": 59.98200540123979,
+      "meshes": 131,
+      "tris": 20422,
+      "calls": 1
+    },
+    {
+      "name": "paladin",
+      "pose": "back",
+      "fps": 59.974437116724594,
+      "meshes": 131,
+      "tris": 20422,
+      "calls": 1
+    },
+    {
+      "name": "paladin",
+      "pose": "run",
+      "fps": 60.02755364244179,
+      "meshes": 131,
+      "tris": 20422,
+      "calls": 1
+    },
+    {
+      "name": "paladin",
+      "pose": "fire",
+      "meshes": 131,
+      "tris": 20422,
+      "calls": 1
+    },
+    {
+      "name": "gameplay",
+      "fps": 21
+    }
+  ],
+  "errors": []
+}

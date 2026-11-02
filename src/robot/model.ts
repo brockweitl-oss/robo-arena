@@ -8,7 +8,7 @@ import { DamageVisuals } from './damage';
 import { Thruster } from '../vfx/thruster';
 import { decalTexture } from '../render/textures';
 import type { ResolvedLoadout } from '../data/parts';
-import type { Paint } from '../data/characters';
+import type { VisualPaint } from './paint';
 
 const FRAME_SCALE = { striker: 1.0, ironclad: 0.97, wisp: 0.98, regent: 0.92 } as const;
 const HEAD_SCALE = { striker: 0.88, ironclad: 0.9, wisp: 0.85, regent: 0.88 } as const;
@@ -36,12 +36,13 @@ export function rigSpecFor(lo: ResolvedLoadout): RigSpec {
   };
 }
 
-function emblemTexture(paint: Paint) {
-  const key = `emblem:${paint.emblem}:${paint.secondary}:${paint.trim}`;
+function emblemTexture(paint: VisualPaint) {
+  const key = `emblem:${paint.emblem}:${paint.decal ?? "unit"}:${paint.secondary}:${paint.trim}`;
   return decalTexture((g, s) => {
     const c2 = '#' + new THREE.Color(paint.secondary).getHexString();
     const ct = '#' + new THREE.Color(paint.trim).getHexString();
     g.clearRect(0, 0, s, s);
+    if (paint.decal === 'none') return;
     g.fillStyle = ct;
     g.beginPath();
     g.moveTo(s * 0.5, s * 0.06);
@@ -59,7 +60,12 @@ function emblemTexture(paint: Paint) {
     g.font = `900 ${s * 0.46}px "Arial Black", Impact, sans-serif`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillText(paint.emblem, s * 0.5, s * 0.53);
+    if(paint.decal==='chevron') {
+      g.beginPath();g.moveTo(s*.22,s*.35);g.lineTo(s*.5,s*.6);g.lineTo(s*.78,s*.35);
+      g.lineTo(s*.78,s*.52);g.lineTo(s*.5,s*.77);g.lineTo(s*.22,s*.52);g.closePath();g.fill();
+    } else if(paint.decal==='cross') {
+      g.fillRect(s*.42,s*.22,s*.16,s*.56);g.fillRect(s*.22,s*.42,s*.56,s*.16);
+    } else g.fillText(paint.emblem, s * 0.5, s * 0.53);
   }, 256, key);
 }
 
@@ -75,6 +81,8 @@ export class RobotModel {
   readonly podDock: THREE.Group;
   readonly meshes: THREE.Mesh[] = [];
   private damageVisuals: DamageVisuals | null = null;
+  private readonly ownedGeometry = new Set<THREE.BufferGeometry>();
+  private readonly weaponMaterials: THREE.Material[] = [];
   private flashAmt = 0;
   private flashColor = new THREE.Color(1, 1, 1);
   private podShown = 1;
@@ -84,7 +92,7 @@ export class RobotModel {
   /** 0..1 power level for visor/glow (defeat powers down). */
   power = 1;
 
-  constructor(readonly loadout: ResolvedLoadout, readonly paint: Paint, opts: { shadows?: boolean } = {}) {
+  constructor(readonly loadout: ResolvedLoadout, readonly paint: VisualPaint, opts: { shadows?: boolean } = {}) {
     const spec = rigSpecFor(loadout);
     this.rig = new Rig(spec);
     this.root = this.rig.root;
@@ -115,14 +123,20 @@ export class RobotModel {
     this.podDock = buildPodDock(loadout.pod, this.rig, bb, podGlow);
     this.meshes.push(...wb.build(wmats), ...bb.build({ ...this.mats, glowHot: bombGlow }));
 
+    // Cache owned resources while the full hierarchy is assembled. Garage thumbnails
+    // detach joints before disposal; docked pods/charge glows are not in `meshes`.
+    // Shared thruster geometry is attached afterward and retained by its own owner.
+    this.root.traverse(o => { if ((o as THREE.Mesh).isMesh) this.ownedGeometry.add((o as THREE.Mesh).geometry); });
+    this.weaponMaterials.push(this.weaponGlow, bombGlow, podGlow);
+
     // Thrusters
     for (const n of this.rig.backNozzles) {
-      const t = new Thruster(paint.glow, 0.07, 0.55);
+      const t = new Thruster(paint.flame ?? paint.glow, 0.07, 0.55);
       n.add(t.group);
       this.backThrusters.push(t);
     }
     for (const n of this.rig.footNozzles) {
-      const t = new Thruster(paint.glow, 0.045, 0.35);
+      const t = new Thruster(paint.flame ?? paint.glow, 0.045, 0.35);
       n.add(t.group);
       this.footThrusters.push(t);
     }
@@ -178,8 +192,8 @@ export class RobotModel {
       }
     }
     const pw = this.power;
-    (this.mats.glow as THREE.MeshStandardMaterial).emissiveIntensity = 3.2 * pw;
-    (this.mats.glowHot as THREE.MeshStandardMaterial).emissiveIntensity = 6 * pw;
+    (this.mats.glow as THREE.MeshStandardMaterial).emissiveIntensity = 1.8 * pw;
+    (this.mats.glowHot as THREE.MeshStandardMaterial).emissiveIntensity = 2.8 * pw;
     (this.mats.visor as THREE.MeshPhysicalMaterial).emissiveIntensity = 0.18 * pw;
     this.damageVisuals?.update(time, dt);
     // pod dock pop-in
@@ -192,9 +206,10 @@ export class RobotModel {
 
   dispose() {
     this.damageVisuals?.dispose();
-    for (const m of this.meshes) m.geometry.dispose();
+    for (const g of this.ownedGeometry) g.dispose();
+    this.ownedGeometry.clear();
     for (const m of Object.values(this.mats)) m.dispose();
-    this.weaponGlow.dispose();
+    for (const m of this.weaponMaterials) m.dispose();
     for (const t of [...this.backThrusters, ...this.footThrusters]) t.dispose();
   }
 }

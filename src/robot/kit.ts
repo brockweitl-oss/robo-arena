@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { panelMaps, rubberMaps, grimeMap } from '../render/textures';
-import type { Paint } from '../data/characters';
+import { panelMaps, rubberMaps, grimeMap, decalTexture } from '../render/textures';
+import type { VisualPaint } from './paint';
 
 /* ------------------------------------------------------------------ */
 /* Geometry primitives                                                 */
@@ -49,6 +49,47 @@ export function armorShell(points: [number, number][], depth: number, ridge = 0.
   }
   g.computeVertexNormals();
   return g;
+}
+
+/** Closed, smooth elliptical armor loft. Rings run bottom to top, with independent
+ * width/depth and swept centers; unlike extruded plates the whole silhouette tapers.
+ * Geometry remains static and merges into PartBuilder's joint/material buckets.
+ */
+export function armorLoft(rings: [number, number, number, number?, number?][], segments = 16): Geo {
+  const positions: number[] = [], indices: number[] = [];
+  for (const [y, rx, rz, cx = 0, cz = 0] of rings) {
+    for (let j = 0; j <= segments; j++) {
+      const a = j / segments * Math.PI * 2;
+      positions.push(cx + Math.cos(a) * rx, y, cz + Math.sin(a) * rz);
+    }
+  }
+  for (let i = 0; i < rings.length - 1; i++) for (let j = 0; j < segments; j++) {
+    const a = i * (segments + 1) + j, c = a + segments + 1;
+    indices.push(a, c, a + 1, a + 1, c, c + 1);
+  }
+  for (const [ring, reverse] of [[0, true], [rings.length - 1, false]] as const) {
+    const [y, , , x = 0, z = 0] = rings[ring], center = positions.length / 3;
+    positions.push(x, y, z);
+    for (let j = 0; j < segments; j++) {
+      const a = ring * (segments + 1) + j;
+      if (reverse) indices.push(center, a, a + 1); else indices.push(center, a + 1, a);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.setIndex(indices); g.computeVertexNormals();
+  return g;
+}
+
+/** Swept overlapping armor petal with a rounded crown and pointed lower edge. */
+export function petal(w: number, h: number, d: number, sweep = 0): Geo {
+  return armorLoft([
+    [-h * 0.5, w * 0.07, d * 0.12, 0, sweep],
+    [-h * 0.3, w * 0.3, d * 0.38, 0, sweep * 0.6],
+    [h * 0.13, w * 0.5, d * 0.5],
+    [h * 0.38, w * 0.44, d * 0.4, 0, -d * 0.1],
+    [h * 0.5, w * 0.2, d * 0.16, 0, -d * 0.15],
+  ]);
 }
 
 /** Box with chamfered (45°) vertical edges, extruded along Z. w = x, h = y, d = z. */
@@ -190,35 +231,50 @@ export type MatKey = 'primary' | 'secondary' | 'trim' | 'dark' | 'joint' | 'chro
 
 export type MatSet = Record<MatKey, THREE.Material>;
 
-export function makeMaterials(paint: Paint, seed = 1): MatSet {
+export function makeMaterials(paint: VisualPaint, seed = 1): MatSet {
   const panel = panelMaps(seed, 512, 1);
   const panelFine = panelMaps(seed + 50, 512, 2);
   const rub = rubberMaps(256);
   const grime = grimeMap(seed + 9, 512, 0.8);
 
-  const painted = (color: number, rough = 0.36) =>
-    new THREE.MeshPhysicalMaterial({
-      color,
-      metalness: 0.28,
-      roughness: rough,
-      roughnessMap: panel.rough,
-      normalMap: panel.normal,
-      normalScale: new THREE.Vector2(0.12, 0.12),
-      clearcoat: 0.25,
-      clearcoatRoughness: 0.22,
-      envMapIntensity: 1.1,
-    });
+  const wear = Number.isFinite(paint.wear) ? THREE.MathUtils.clamp(paint.wear!, 0, 1) : 0;
+  const finishes = {
+    gloss: { metalness: .3, roughness: .22, clearcoat: .9 },
+    matte: { metalness: .18, roughness: .78, clearcoat: 0 },
+    metal: { metalness: .72, roughness: .34, clearcoat: .2 },
+    chrome: { metalness: 1, roughness: .12, clearcoat: .35 },
+    carbon: { metalness: .36, roughness: .4, clearcoat: .45 },
+  };
+  const finish = paint.finish && finishes[paint.finish];
+  const carbon = paint.finish === 'carbon' ? decalTexture((g, size) => {
+    g.fillStyle = '#72777e'; g.fillRect(0,0,size,size);
+    const step=size/32;
+    for(let y=0;y<32;y++) for(let x=0;x<32;x++) {
+      g.fillStyle=(x+y)%2?'#696e75':'#7b8087';g.fillRect(x*step,y*step,step*.9,step*.9);
+      g.fillStyle='#83888e';g.fillRect(x*step,y*step,step*.15,step*.8);
+    }
+  },256,'carbon-weave-pt3-fine') : null;
+  if(carbon) { carbon.wrapS=carbon.wrapT=THREE.RepeatWrapping;carbon.repeat.set(10,10); }
+  const painted = (color: number, rough = .4) => new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color(color).lerp(new THREE.Color(0x636a70),wear*.20),
+    map: carbon, metalness: finish?.metalness ?? .28,
+    roughness: Math.min(.95,(finish?.roughness ?? rough)+wear*.18),
+    roughnessMap: wear > 0 ? grime : panel.rough,
+    normalMap: panel.normal, normalScale: new THREE.Vector2(.035+wear*.09,.035+wear*.09),
+    clearcoat: (finish?.clearcoat ?? .12)*(1-wear*.7), clearcoatRoughness: .22+wear*.45,
+    envMapIntensity: 1.1,
+  });
 
   const glowColor = new THREE.Color(paint.glow);
   const mats: MatSet = {
-    primary: painted(paint.primary, 0.48),
-    secondary: painted(paint.secondary, 0.44),
+    primary: painted(paint.primary, 0.55),
+    secondary: painted(paint.secondary, 0.52),
     trim: new THREE.MeshPhysicalMaterial({
       color: paint.trim,
       metalness: 0.55,
       roughness: 0.3,
       normalMap: panelFine.normal,
-      normalScale: new THREE.Vector2(0.15, 0.15),
+      normalScale: new THREE.Vector2(0.06, 0.06),
       clearcoat: 0.4,
       envMapIntensity: 1.1,
     }),
@@ -240,8 +296,8 @@ export function makeMaterials(paint: Paint, seed = 1): MatSet {
       roughnessMap: rub.rough,
     }),
     chrome: new THREE.MeshStandardMaterial({ color: 0xa6b1c0, metalness: 0.92, roughness: 0.28, envMapIntensity: 1.3 }),
-    glow: new THREE.MeshStandardMaterial({ color: 0x000000, emissive: glowColor, emissiveIntensity: 3.2, roughness: 0.4 }),
-    glowHot: new THREE.MeshStandardMaterial({ color: 0x000000, emissive: glowColor.clone().lerp(new THREE.Color(1, 1, 1), 0.35), emissiveIntensity: 6, roughness: 0.4 }),
+    glow: new THREE.MeshStandardMaterial({ color: 0x000000, emissive: glowColor, emissiveIntensity: 1.8, roughness: 0.4 }),
+    glowHot: new THREE.MeshStandardMaterial({ color: 0x000000, emissive: glowColor.clone().lerp(new THREE.Color(1, 1, 1), 0.35), emissiveIntensity: 2.8, roughness: 0.4 }),
     visor: new THREE.MeshPhysicalMaterial({
       color: 0x05070a,
       metalness: 0.2,
