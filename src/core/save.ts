@@ -67,6 +67,8 @@ export interface LifetimeStats {
   builds: Record<string, number>;
 }
 
+export interface BuildPreset { name: string; loadout: Loadout; paint: Paint }
+
 export interface SaveData {
   version: 2;
   /** Owned parts as "slot:id". */
@@ -87,6 +89,8 @@ export interface SaveData {
   credits: number;
   /** The player's robot paint (equipped scheme + decal + trail applied). */
   paint: Paint;
+  /** Five local garage build slots; empty slots are null. */
+  presets: (BuildPreset | null)[];
   /** Part mastery XP, "slot:id" → xp. */
   mastery: Record<string, number>;
   cosmetics: { owned: string[]; equipped: CosmeticSlots };
@@ -133,6 +137,7 @@ export function defaultSave(): SaveData {
     survivalBest: 0,
     credits: 0,
     paint: { ...PLAYER_PAINT },
+    presets: [null, null, null, null, null],
     mastery: {},
     cosmetics: { owned: [], equipped: { paint: null, decal: null, pose: null, trail: null } },
     challenges: { seedDate: '', weekKey: '', daily: [], weekly: [], progress: {}, done: [] },
@@ -149,6 +154,19 @@ const numMap = (v: unknown): Record<string, number> => {
   for (const [k, x] of Object.entries(obj(v))) if (typeof x === 'number' && Number.isFinite(x)) out[k] = x;
   return out;
 };
+
+function normalizePaint(raw: unknown): Paint {
+  const paintIn = obj(raw);
+  const paint: Paint = { ...PLAYER_PAINT };
+  for (const k of ['primary', 'secondary', 'trim', 'dark', 'glow'] as const) paint[k] = num(paintIn[k], PLAYER_PAINT[k], 0, 0xffffff) | 0;
+  if (typeof paintIn.emblem === 'string' && paintIn.emblem.length <= 3) paint.emblem = paintIn.emblem;
+  if (typeof paintIn.trail === 'number') paint.trail = num(paintIn.trail, 0, 0, 0xffffff) | 0;
+  if (typeof paintIn.flame === 'number' && Number.isFinite(paintIn.flame)) paint.flame = num(paintIn.flame, PLAYER_PAINT.glow, 0, 0xffffff) | 0;
+  if (['gloss', 'matte', 'metal', 'chrome', 'carbon'].includes(String(paintIn.finish))) paint.finish = paintIn.finish as Paint['finish'];
+  if (typeof paintIn.wear === 'number' && Number.isFinite(paintIn.wear)) paint.wear = num(paintIn.wear, 0, 0, 1);
+  if (['unit', 'chevron', 'cross', 'none'].includes(String(paintIn.decal))) paint.decal = paintIn.decal as Paint['decal'];
+  return paint;
+}
 
 /**
  * Upgrade any stored save object (v1 or v2, possibly partial or corrupt) to the current shape.
@@ -176,11 +194,7 @@ export function migrateSave(raw: unknown): SaveData {
   const eqIn = obj(cosIn.equipped);
   const eqStr = (v: unknown) => (typeof v === 'string' ? v : null);
   const chIn = obj(d.challenges);
-  const paintIn = obj(d.paint);
-  const paint: Paint = { ...PLAYER_PAINT };
-  for (const k of ['primary', 'secondary', 'trim', 'dark', 'glow'] as const) paint[k] = num(paintIn[k], PLAYER_PAINT[k], 0, 0xffffff) | 0;
-  if (typeof paintIn.emblem === 'string' && paintIn.emblem.length <= 3) paint.emblem = paintIn.emblem;
-  if (typeof paintIn.trail === 'number') paint.trail = num(paintIn.trail, 0, 0, 0xffffff) | 0;
+  const paint = normalizePaint(d.paint);
 
   const merged: SaveData = {
     version: 2,
@@ -195,6 +209,7 @@ export function migrateSave(raw: unknown): SaveData {
     survivalBest: num(d.survivalBest, 0, 0) | 0,
     credits: Math.floor(num(d.credits, 0, 0)),
     paint,
+    presets: [null, null, null, null, null],
     mastery: numMap(d.mastery),
     cosmetics: {
       owned: Array.from(new Set(strArr(cosIn.owned))),
@@ -214,9 +229,18 @@ export function migrateSave(raw: unknown): SaveData {
   // drop loadout entries the player doesn't own / that no longer exist
   for (const slot of Object.keys(base.loadout) as Slot[]) {
     const id = merged.loadout[slot];
-    if (typeof id !== 'string' || !ALL_PARTS[slot][id] || !merged.unlocked.includes(`${slot}:${id}`)) merged.loadout[slot] = DEFAULT_LOADOUT[slot];
+    if (typeof id !== 'string' || !Object.hasOwn(ALL_PARTS[slot], id) || !merged.unlocked.includes(`${slot}:${id}`)) merged.loadout[slot] = DEFAULT_LOADOUT[slot];
   }
-  for (const k of Object.keys(merged.loadout)) if (!(k in base.loadout)) delete (merged.loadout as unknown as Record<string, string>)[k];
+  for (const k of Object.keys(merged.loadout)) if (!Object.hasOwn(base.loadout, k)) delete (merged.loadout as unknown as Record<string, string>)[k];
+  if (Array.isArray(d.presets)) merged.presets = Array.from({ length: 5 }, (_, i) => {
+    const rawPreset = d.presets![i]; if (!rawPreset || typeof rawPreset !== 'object') return null;
+    const preset = obj(rawPreset), savedLoadout = obj(preset.loadout), loadout = { ...DEFAULT_LOADOUT };
+    for (const slot of Object.keys(loadout) as Slot[]) {
+      const id = savedLoadout[slot];
+      if (typeof id === 'string' && Object.hasOwn(ALL_PARTS[slot], id) && merged.unlocked.includes(`${slot}:${id}`)) loadout[slot] = id;
+    }
+    return { name: typeof preset.name === 'string' ? preset.name.slice(0, 40) : `Build ${i + 1}`, loadout, paint: normalizePaint(preset.paint) };
+  });
   return merged;
 }
 

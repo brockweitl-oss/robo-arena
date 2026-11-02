@@ -11,6 +11,10 @@ export interface Paint {
   emblem: string;
   /** Optional dash-afterimage trail color (cosmetic; rendered by effects when supported). */
   trail?: number;
+  finish?: 'gloss' | 'matte' | 'metal' | 'chrome' | 'carbon';
+  wear?: number;
+  flame?: number;
+  decal?: 'unit' | 'chevron' | 'cross' | 'none';
 }
 
 export type AIPersonality = 'rookie' | 'rusher' | 'bomber' | 'duelist' | 'trickster' | 'champion';
@@ -75,7 +79,7 @@ export const RIVALS: Rival[] = [
     pilot: 'Mira Osei',
     robotName: 'Lark',
     title: 'Sky Artillerist',
-    loadout: { gun: 'pulse', bomb: 'cluster', pod: 'mine', body: 'wisp', legs: 'hopper' },
+    loadout: { gun: 'homer', bomb: 'cluster', pod: 'mine', body: 'wisp', legs: 'hopper' },
     paint: { primary: 0x7b5cff, secondary: 0xf2f0ff, trim: 0x2a2440, dark: 0x2c2840, glow: 0xff7ae6, emblem: '03' },
     ai: 'bomber',
     skill: 0.45,
@@ -87,11 +91,11 @@ export const RIVALS: Rival[] = [
   },
   {
     id: 'vance',
-    hint: 'Cobalt mirrors your build. Out-move him: dash the moment his shots leave the barrel to trigger perfect dodges.',
+    hint: 'Cobalt closes for a scatter burst. Keep him outside shotgun range, then punish his committed shot or charge recovery.',
     suggest: 'body:wisp',
     pilot: 'Vance Ito',
     robotName: 'Cobalt',
-    title: 'Mirror Duelist',
+    title: 'Close-Quarters Duelist',
     loadout: { gun: 'scatter', bomb: 'mortar', pod: 'seeker', body: 'striker', legs: 'stride' },
     paint: { primary: 0x1d2e5c, secondary: 0x36c6ff, trim: 0xd9dde6, dark: 0x1a1f2c, glow: 0x9cf2ff, emblem: '11' },
     ai: 'duelist',
@@ -121,12 +125,12 @@ export const RIVALS: Rival[] = [
   },
   {
     id: 'sable',
-    hint: 'Sovereign wins long gun duels. Break line of sight behind cover, lob bombs over it, and guard its shots back at it.',
+    hint: 'Sovereign charges a beam behind a defense drone. Bait the beam, break line of sight, then punish its recovery. The drone cannot stop bombs.',
     suggest: 'body:ironclad',
     pilot: 'Sable Raine',
     robotName: 'Sovereign',
     title: 'Reigning Champion',
-    loadout: { gun: 'pulse', bomb: 'mortar', pod: 'seeker', body: 'regent', legs: 'stride' },
+    loadout: { gun: 'beam', bomb: 'mortar', pod: 'interceptor', body: 'regent', legs: 'stride' },
     paint: { primary: 0x1a1a22, secondary: 0xd9a63a, trim: 0xf0e6cf, dark: 0x111116, glow: 0xff3a5c, emblem: '01' },
     ai: 'champion',
     skill: 1.0,

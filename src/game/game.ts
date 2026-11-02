@@ -26,6 +26,7 @@ export class Game implements MenuHost {
   private match: Match | null = null;
   private timer = new THREE.Timer();
   private uiRoot: HTMLElement;
+  private backdropSuspended = false;
   /** Debug/testing hook. */
   fps = 0;
 
@@ -69,6 +70,7 @@ export class Game implements MenuHost {
   }
 
   private frame(dt: number) {
+    if (this.backdropSuspended) return;
     if (this.match) {
       this.match.frame(dt);
       return;
@@ -142,6 +144,10 @@ export class Game implements MenuHost {
 
   focusPreview(slot: string | null) {
     this.showroom.setFocus(slot);
+  }
+
+  suspendBackdrop(suspended: boolean) {
+    this.backdropSuspended = suspended;
   }
 
   sfx(name: SfxName) {

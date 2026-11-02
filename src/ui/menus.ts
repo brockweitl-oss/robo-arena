@@ -22,6 +22,8 @@ import { pilotLevel } from '../game/progression';
 import type { MatchConfig, MatchResult } from '../game/types';
 import type { MusicTrack } from '../audio/audio';
 import { MetaUI } from './meta';
+import { PhotoStudio } from '../render/photoStudio';
+import { PartThumbnails } from '../render/partThumbnails';
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -541,9 +543,9 @@ export class Menus implements MenuLayer {
   }
 
   private onKey = (e: KeyboardEvent) => {
-    if (!this.active) return;
+    if (!this.active || this.keyCapture) return;
     // let text fields (build-code import) receive typing; Esc still backs out
-    if (e.target instanceof HTMLInputElement && e.code !== 'Escape') return;
+    if ((e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) && e.code !== 'Escape') return;
     this.root.classList.remove('pad');
     const L = this.top!;
     if (L.any) {
@@ -1032,6 +1034,7 @@ export class Menus implements MenuLayer {
       const rp = res.replay;
       acts.push(btn('Watch Replay', () => { this.host.sfx('ui_select'); this.watchReplay(rp); }, 'big'));
     }
+    acts.push(btn('Photo Mode', () => this.openPhoto(), 'big'));
     const bar = h('div', 'ra-actions res-acts', ...acts);
     stagger([panel], 450);
     stagger([bar], 800);
@@ -1423,9 +1426,25 @@ export class Menus implements MenuLayer {
     });
     const importBtn = btn('Import Replay File', () => { this.host.sfx('ui_select'); file.click(); }, 'big');
     const back = btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big');
-    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col ra-scroll', ...(rows.length ? rows : [h('div', 'md-desc', 'No replays yet. Every finished fight is saved here automatically.')])), h('div', 'ra-actions', importBtn, back), file);
+    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col ra-scroll', ...(rows.length ? rows : [h('div', 'md-desc', 'No compatible replays yet. Playtest 2 recordings use older combat rules and cannot be played here. New finished fights are saved automatically.')])), h('div', 'ra-actions', importBtn, back), file);
     el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
     this.setScreen(el, { back: () => this.showModes(), initial: rows[0]?.querySelector<HTMLElement>('.ra-btn') ?? importBtn });
+  }
+
+  private openPhoto() {
+    if (this.keyCapture) return;
+    this.keyCapture = true;
+    this.host.suspendBackdrop?.(true);
+    const previousFocus = document.activeElement as HTMLElement | null;
+    try {
+      new PhotoStudio(this.host.save.loadout, this.host.save.paint, () => {
+        this.keyCapture = false; this.host.suspendBackdrop?.(false); previousFocus?.focus();
+      });
+    } catch (error) {
+      this.keyCapture = false; this.host.suspendBackdrop?.(false);
+      this.toast('Photo mode could not start. Please try again.');
+      throw error;
+    }
   }
 
   /* ---------------- garage */
@@ -1434,7 +1453,8 @@ export class Menus implements MenuLayer {
     this.music('garage');
     const s = this.host.save;
     const el = h('div', 'scr-garage');
-    const hd = this.header('Workshop', 'Garage');
+    const hd = this.header('Assembly bay / 03', 'Garage');
+    const thumbnails = new PartThumbnails();
 
     const preview = h('div', 'gar-preview', h('div', 'gar-ring'), h('div', 'gar-drag', svg('<svg viewBox="0 0 24 24"><path d="M12 5c-4 0-7.5 1.6-9 4l-2-1v5h5L4 11.5C5.2 9.5 8.3 8 12 8s6.8 1.5 8 3.5L18 13h5V8l-2 1c-1.5-2.4-5-4-9-4z"/></svg>'), h('span', 'k-kb', 'Drag to rotate'), h('span', 'k-pad', 'R-Stick to rotate')));
     const sendBackdrop = () => {
@@ -1524,7 +1544,7 @@ export class Menus implements MenuLayer {
         const src = unlockSource(slot, p.id);
         const pips = h('div', 'gp-pips', ...Object.entries(p.ratings).map(([k, v]) => h('span', '', k.slice(0, 3), h('b', '', '■'.repeat(v)))));
         const el = nav(h('div', `gar-part ${owned ? '' : 'locked'} ${equipped ? 'equipped' : ''}`,
-          h('div', 'gp-ico', svg(owned ? SLOT_ICON[slot] : LOCK_ICON)),
+          h('div', 'gp-visual', thumbnails.image(slot, p.id)),
           h('div', 'gp-body', h('div', 'gp-name', owned ? p.name : p.name), owned ? pips : h('div', 'gp-lock', src ? `Beat ${src.pilot} to unlock` : 'Locked')),
           equipped ? h('div', 'gp-eq', svg(CHECK_ICON), 'E') : null), {
           locked: !owned,
@@ -1579,14 +1599,71 @@ export class Menus implements MenuLayer {
     }
 
     const backBtn = btn('Back', () => { this.host.sfx('ui_back'); leave(); }, 'big');
-    const shareBtn = btn('Build Code', () => { this.host.sfx('ui_select'); this.meta.openShareCode(() => { sendBackdrop(); renderList(this.gSlot); renderSummary(); }); }, 'big');
-    const left = h('div', 'ra-panel gar-left', tabs, h('div', 'gar-list-h', h('span', '', `Parts`), count), list, h('div', 'gar-left-foot', backBtn, shareBtn));
-    const right = h('div', 'gar-right', detail, summary);
+    const shareBtn = btn('Build Code', () => { this.host.sfx('ui_select'); this.meta.openShareCode(() => { sendBackdrop(); renderList(this.gSlot); renderSummary(); redrawPaint(); wear.value = String(Math.round((s.paint.wear ?? 0) * 100)); wearLabel.textContent = `Wear ${wear.value}%`; }); }, 'big');
+    const presetSelect = h('select', 'gar-preset-select'); presetSelect.setAttribute('aria-label', 'Saved build slot');
+    const renderPresets = () => {
+      const selected = presetSelect.value || '0';
+      presetSelect.replaceChildren(...s.presets.map((preset, i) => { const option = h('option', '', `${i + 1} · ${preset?.name ?? 'Empty slot'}`); option.value = String(i); return option; }));
+      presetSelect.value = selected;
+    };
+    const savePreset = btn('Save', () => {
+      const i = Number(presetSelect.value), parts = resolveLoadout(s.loadout);
+      s.presets[i] = { name: `${parts.body.name} / ${parts.gun.name}`, loadout: { ...s.loadout }, paint: { ...s.paint } };
+      this.host.persist(); renderPresets(); this.toast(`Build ${i + 1} saved`);
+    }, 'gar-preset-action');
+    const loadPreset = btn('Load', () => {
+      const preset = s.presets[Number(presetSelect.value)]; if (!preset) { this.toast('This build slot is empty'); return; }
+      s.loadout = { ...preset.loadout }; s.paint = { ...preset.paint }; this.host.persist();
+      renderList(this.gSlot); renderSummary(); renderDetail(ALL_PARTS[this.gSlot][s.loadout[this.gSlot]]); redrawPaint();
+      wear.value = String(Math.round((s.paint.wear ?? 0) * 100)); wearLabel.textContent = `Wear ${wear.value}%`; sendBackdrop(); this.toast('Build loaded');
+    }, 'gar-preset-action');
+    renderPresets();
+    const presetRow = h('div', 'gar-presets', presetSelect, savePreset, loadPreset);
+    const left = h('div', 'ra-panel gar-left', tabs, presetRow, h('div', 'gar-list-h', h('span', '', `Parts`), count), list, h('div', 'gar-left-foot', backBtn, shareBtn));
+    const paintShop = h('section', 'ra-panel paint-shop');
+    const studioTitle = h('div', 'paint-title', 'Finish studio');
+    let zone: 'primary' | 'secondary' | 'trim' | 'dark' | 'glow' | 'flame' | 'trail' = 'primary';
+    const zones = ['primary', 'secondary', 'trim', 'dark', 'glow', 'flame', 'trail'] as const;
+    const colors = [0xf4f1ea, 0x232a34, 0x4e6172, 0xb53836, 0xff6a1f, 0xc7a452, 0x4c6953, 0x345c95, 0x795b9d, 0x37e8ff, 0x99efc4, 0xf17dc1];
+    const zoneRow = h('div', 'paint-zones');
+    const palette = h('div', 'paint-palette');
+    const finishRow = h('div', 'paint-finishes');
+    const decalRow = h('div', 'paint-decals');
+    const applyPaint = () => { this.host.persist(); sendBackdrop(); };
+    const redrawPaint = () => {
+      zoneRow.replaceChildren(...zones.map(k => btn(k, () => { zone = k; redrawPaint(); }, `paint-zone ${zone === k ? 'selected' : ''}`)));
+      palette.replaceChildren(...colors.map(color => {
+        const b = btn('', () => { s.paint[zone] = color; applyPaint(); redrawPaint(); }, `paint-swatch ${(s.paint[zone] ?? s.paint.glow) === color ? 'selected' : ''}`);
+        b.style.setProperty('--swatch', hex(color)); b.setAttribute('aria-label', `${zone} ${hex(color)}`); b.title = `${zone} ${hex(color)}`; return b;
+      }));
+      finishRow.replaceChildren(...(['gloss', 'matte', 'metal', 'chrome', 'carbon'] as const).map(finish => btn(finish, () => { s.paint.finish = finish; applyPaint(); redrawPaint(); }, `paint-finish ${s.paint.finish === finish ? 'selected' : ''}`)));
+      decalRow.replaceChildren(...(['unit', 'chevron', 'cross', 'none'] as const).map(decal => btn(decal, () => { s.paint.decal = decal; applyPaint(); redrawPaint(); }, `paint-finish ${(s.paint.decal ?? 'unit') === decal ? 'selected' : ''}`)));
+    };
+    const wearLabel = h('span', '', `Wear ${Math.round((s.paint.wear ?? 0) * 100)}%`);
+    const wear = h('input', 'paint-wear'); wear.type = 'range'; wear.min = '0'; wear.max = '100'; wear.value = String((s.paint.wear ?? 0) * 100); wear.setAttribute('aria-label', 'Armor wear');
+    let wearTimer = 0;
+    wear.oninput = () => {
+      s.paint.wear = Number(wear.value) / 100; wearLabel.textContent = `Wear ${wear.value}%`;
+      clearTimeout(wearTimer); wearTimer = window.setTimeout(applyPaint, 100);
+    };
+    wear.onchange = () => { clearTimeout(wearTimer); applyPaint(); };
+    wear.addEventListener('keydown', e => e.stopPropagation());
+    redrawPaint();
+    paintShop.append(studioTitle, zoneRow, palette, finishRow, h('label', 'paint-wear-row', wearLabel, wear), decalRow);
+    paintShop.hidden = true;
+    const specsTab = btn('Specifications', () => { detail.hidden = false; summary.hidden = false; paintShop.hidden = true; specsTab.classList.add('selected'); paintTab.classList.remove('selected'); }, 'selected');
+    const paintTab = btn('Paint Studio', () => { detail.hidden = true; summary.hidden = true; paintShop.hidden = false; specsTab.classList.remove('selected'); paintTab.classList.add('selected'); }, '');
+    const rightTabs = h('div', 'gar-right-tabs', specsTab, paintTab);
+    const right = h('div', 'gar-right', rightTabs, detail, summary, paintShop);
+    const photo = btn('Photo Mode', () => this.openPhoto(), 'big', SLOT_ICON.body);
+    photo.classList.add('gar-photo'); preview.append(photo);
+    photo.addEventListener('pointerdown', e => e.stopPropagation());
     stagger([left], 80);
     stagger([right], 200);
     el.append(h('div', 'vig vig-left'), h('div', 'vig vig-right'), hd, preview, left, right, hints([['move', 'Move'], ['tabs', 'Slot'], ['confirm', 'Equip'], ['drag', 'Rotate'], ['back', 'Back']]));
 
     const leave = () => {
+      clearTimeout(wearTimer); this.host.persist(); thumbnails.dispose();
       this.host.focusPreview(null);
       onBack();
     };

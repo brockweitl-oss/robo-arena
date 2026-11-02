@@ -788,3 +788,66 @@
 /* Compact threat chevrons remain legible against bright explosions. */
 .hud .hud-threat { filter:drop-shadow(0 2px 1px #05090f) drop-shadow(0 0 4px var(--c)); border-left-width:8px; border-right-width:8px; border-bottom-width:16px; }
 .hud .hud-threat::after { content:''; position:absolute; left:-5px; top:7px; border-left:5px solid transparent; border-right:5px solid transparent; border-bottom:8px solid #111823; }
+/* Playtest 3 assembly bay: a quieter instrument panel around the hero model. */
+.scr-garage .gar-left { width: calc(var(--u) * 25); left: calc(var(--u) * 2); }
+.scr-garage .gar-right { width: calc(var(--u) * 25); right: calc(var(--u) * 2); top: calc(var(--u) * 5); overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
+.scr-garage .gar-preview { left: calc(var(--u) * 28); right: calc(var(--u) * 28); top: calc(var(--u) * 4); }
+.scr-garage .gar-ring { display: none; }
+.scr-garage .gar-part { gap: calc(var(--u) * .55); padding: calc(var(--u) * .45); min-height: calc(var(--u) * 4.6); }
+.gp-visual { width: calc(var(--u) * 5.6); height: calc(var(--u) * 3.8); flex: none; background: radial-gradient(ellipse, #32455766, #0b111a00 75%); display: grid; place-items: center; }
+.gp-thumb { width: 100%; height: 100%; object-fit: contain; }
+.gar-part.locked .gp-thumb { filter: grayscale(.7); opacity: .6; }
+.scr-garage .gp-name { font-size: calc(var(--u) * .9); }
+.scr-garage .gp-pips { font-size: calc(var(--u) * .6); }
+.scr-garage .gar-summary { margin-top: 0; }
+.scr-garage .gs-parts { display: none; }
+.scr-garage .gar-detail, .scr-garage .gar-summary { padding: calc(var(--u) * .9); }
+.scr-garage .gd-name { font-size: calc(var(--u) * 1.35); }
+.scr-garage .gd-desc { font-size: calc(var(--u) * .8); }
+.scr-garage .gd-ratings { gap: 4px; }
+.gar-photo { position: absolute; bottom: calc(var(--u) * 2.8); left: 50%; transform: translateX(-50%); white-space: nowrap; }
+.gar-photo.is-focus { transform: translateX(-50%); }
+.paint-shop { padding: calc(var(--u) * .9); display: grid; gap: 8px; flex: none; }
+.paint-title { text-transform: uppercase; letter-spacing: .18em; font-size: calc(var(--u) * .8); color: #b8c6d6; }
+.paint-zones, .paint-finishes, .paint-decals { display: flex; flex-wrap: wrap; gap: 4px; }
+.paint-shop .ra-btn { min-height: 28px; padding: 4px 8px; font-size: max(10px, calc(var(--u) * .65)); text-transform: capitalize; }
+.paint-shop .selected { --bd: #68d7eb; --bg: #183342; color: #e7fbff; }
+.paint-palette { display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px; }
+.paint-shop .paint-swatch { min-width: 0; min-height: 24px; padding: 0; background: var(--swatch); border: 2px solid #ffffff16; clip-path: none; }
+.paint-shop .paint-swatch::before, .paint-shop .paint-swatch::after { display: none; }
+.paint-shop .paint-swatch.selected { border-color: white; box-shadow: 0 0 0 1px #111; }
+.paint-wear-row { display: flex; gap: 12px; align-items: center; font-size: max(11px, calc(var(--u) * .7)); color: #b8c6d6; }
+.paint-wear { min-width: 0; flex: 1; accent-color: #68d7eb; }
+.res-acts { flex-wrap: wrap; }
+.res-acts .ra-btn { font-size: calc(var(--u) * .85); padding-left: .9em; padding-right: .9em; }
+/* Photo studio is outside the menu root and owns its own accessible controls. */
+.photo-studio { position: fixed; inset: 0; z-index: 1000; color: #e4edf4; font-family: 'Chakra Petch', system-ui, sans-serif; background: #101720; }
+.photo-studio * { box-sizing: border-box; }
+.photo-studio canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.photo-panel { position: absolute; top: 24px; left: 24px; width: 255px; max-height: calc(100vh - 80px); overflow-y: auto; padding: 20px; display: grid; gap: 12px; background: #0d151ee8; border: 1px solid #91b9d032; box-shadow: 0 20px 50px #0006; }
+.photo-heading { text-transform: uppercase; letter-spacing: .15em; font-size: 20px; font-weight: 700; }
+.photo-sub { margin: 0 0 6px; color: #95a8b8; font-size: 13px; line-height: 1.45; }
+.photo-control { display: grid; grid-template-columns: 1fr auto; gap: 6px; text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
+.photo-control input, .photo-control select { grid-column: 1 / -1; width: 100%; accent-color: #66d2e4; }
+.photo-control output { grid-column: 2; grid-row: 1; color: #74daeb; }
+.photo-control select { padding: 8px; background: #1b2b39; color: #e4edf4; border: 1px solid #6e9fb655; text-transform: capitalize; }
+.photo-button { padding: 9px 12px; color: #d4e5ef; border: 1px solid #6e9fb655; background: #182733; font: inherit; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; cursor: pointer; }
+.photo-button:hover, .photo-button:focus-visible { border-color: #72d6e8; background: #244153; outline: 2px solid #72d6e855; }
+.photo-primary { background: #64d6e7; color: #081820; font-weight: 700; }
+.photo-status { position: absolute; left: 24px; bottom: 20px; color: #b5c7d5; font-size: 13px; padding: 8px 12px; background: #0d151eb0; }
+.photo-help { position: absolute; right: 24px; bottom: 20px; font-size: 12px; color: #a5bfcc; }
+.photo-clean .photo-panel, .photo-clean .photo-status, .photo-clean .photo-help { display: none; }
+@media (max-width: 800px) { .photo-panel { width: 210px; top: 12px; left: 12px; padding: 12px; gap: 8px; } .photo-status { max-width: 60%; font-size: 10px; } .photo-help { font-size: 10px; } }
+.scr-garage .gs-stats { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.scr-garage .gs-stat { min-width: 0; flex-direction: column; gap: 2px; font-size: calc(var(--u) * .72); }
+.scr-garage .gs-stat b { white-space: normal; overflow-wrap: anywhere; }
+.scr-garage .gs-stat:last-child { grid-column: 1 / -1; padding-top: 4px; border-top: 1px solid var(--line); }
+.scr-garage .gs-h { min-width: 0; }
+.scr-garage .gs-h span { font-size: calc(var(--u) * 1.05); }
+.gar-presets { display: flex; gap: 5px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.gar-preset-select { min-width: 0; flex: 1; color: #afc6d6; background: #101a25; border: 1px solid #53708455; padding: 7px; font: inherit; font-size: calc(var(--u) * .65); }
+.gar-presets .ra-btn { min-width: 0; padding: 6px 9px; font-size: calc(var(--u) * .65); }
+.gar-right [hidden] { display: none !important; }
+.gar-right-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; flex: none; }
+.gar-right-tabs .ra-btn { font-size: calc(var(--u) * .73); padding: 9px; text-align: center; }
+.gar-right-tabs .selected { --bd: #68d7eb; --bg: #183342; color: #e7fbff; }

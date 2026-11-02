@@ -2,12 +2,13 @@
  * Build share codes: loadout + paint packed into a short URL-safe string.
  *
  * Layout (bytes, then base64url without padding, prefixed "RA-"):
- *   [0]      version (1)
+ *   [0]      version (2; decoder also accepts version 1)
  *   [1..5]   part index per slot (gun, bomb, pod, body, legs) in catalog insertion order
  *            (new parts must be APPENDED to the catalog so old codes keep decoding)
  *   [6..20]  primary, secondary, trim, dark, glow (3 bytes each, RGB)
- *   [21]     flags: bit0 = trail color present
+ *   [21]     flags: trail, finish, wear, flame, decal presence bits
  *   [22..24] trail color (only when flag bit0)
+ *   [v2]     optional finish byte, wear percent byte, flame RGB, decal byte (flag order)
  *   [n]      emblem length (0..3), then emblem bytes (printable ASCII)
  *   [last 2] CRC-16/CCITT of everything before it
  *
@@ -17,7 +18,9 @@
 import { ALL_PARTS, type Loadout, type Slot } from './parts';
 import type { Paint } from './characters';
 
-export const BUILD_CODE_VERSION = 1;
+export const BUILD_CODE_VERSION = 2;
+const FINISHES = ['gloss', 'matte', 'metal', 'chrome', 'carbon'] as const;
+const DECALS = ['unit', 'chevron', 'cross', 'none'] as const;
 const PREFIX = 'RA-';
 const SLOT_ORDER: Slot[] = ['gun', 'bomb', 'pod', 'body', 'legs'];
 const COLORS = ['primary', 'secondary', 'trim', 'dark', 'glow'] as const;
@@ -70,18 +73,27 @@ function fromB64url(s: string): number[] | null {
 const partIds = (slot: Slot) => Object.keys(ALL_PARTS[slot]);
 
 export function encodeBuild(loadout: Loadout, paint: Paint): string {
-  const bytes: number[] = [BUILD_CODE_VERSION];
+  return encodeVersion(loadout, paint, BUILD_CODE_VERSION);
+}
+
+function encodeVersion(loadout: Loadout, paint: Paint, version: number): string {
+  const bytes: number[] = [version];
   for (const s of SLOT_ORDER) bytes.push(Math.max(0, partIds(s).indexOf(loadout[s])));
   for (const k of COLORS) {
     const c = paint[k] >>> 0;
     bytes.push((c >> 16) & 255, (c >> 8) & 255, c & 255);
   }
   const hasTrail = typeof paint.trail === 'number';
-  bytes.push(hasTrail ? 1 : 0);
+  const flags = (hasTrail ? 1 : 0) | (version > 1 ? ((paint.finish !== undefined ? 2 : 0) | (paint.wear !== undefined ? 4 : 0) | (paint.flame !== undefined ? 8 : 0) | (paint.decal !== undefined ? 16 : 0)) : 0);
+  bytes.push(flags);
   if (hasTrail) {
     const t = paint.trail! >>> 0;
     bytes.push((t >> 16) & 255, (t >> 8) & 255, t & 255);
   }
+  if (flags & 2) bytes.push(Math.max(0, FINISHES.indexOf(paint.finish!)));
+  if (flags & 4) bytes.push(Math.round(Math.max(0, Math.min(1, paint.wear!)) * 100));
+  if (flags & 8) { const c = paint.flame! >>> 0; bytes.push((c >> 16) & 255, (c >> 8) & 255, c & 255); }
+  if (flags & 16) bytes.push(Math.max(0, DECALS.indexOf(paint.decal!)));
   const em = [...(paint.emblem ?? '')].filter((ch) => ch.charCodeAt(0) >= 32 && ch.charCodeAt(0) < 127).slice(0, 3);
   bytes.push(em.length, ...em.map((ch) => ch.charCodeAt(0)));
   const crc = crc16(bytes);
@@ -97,7 +109,7 @@ export function decodeBuild(code: string): DecodeResult {
   if (!bytes || bytes.length < 25) return { ok: false, error: 'Code is too short or has invalid characters.' };
   const crc = (bytes[bytes.length - 2] << 8) | bytes[bytes.length - 1];
   if (crc16(bytes, bytes.length - 2) !== crc) return { ok: false, error: 'Checksum mismatch — the code is damaged.' };
-  if (bytes[0] !== BUILD_CODE_VERSION) return { ok: false, error: `Unsupported code version ${bytes[0]}.` };
+  if (bytes[0] !== 1 && bytes[0] !== BUILD_CODE_VERSION) return { ok: false, error: `Unsupported code version ${bytes[0]}.` };
   let i = 1;
   const loadout = {} as Loadout;
   for (const s of SLOT_ORDER) {
@@ -111,17 +123,21 @@ export function decodeBuild(code: string): DecodeResult {
     i += 3;
   }
   const flags = bytes[i++];
-  if (flags & ~1) return { ok: false, error: 'Unknown flags in code.' };
+  if (flags & ~(bytes[0] === 1 ? 1 : 31)) return { ok: false, error: 'Unknown flags in code.' };
   if (flags & 1) {
     paint.trail = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
     i += 3;
   }
+  if (flags & 2) { const f = FINISHES[bytes[i++]]; if (!f) return { ok: false, error: 'Unknown finish in code.' }; paint.finish = f; }
+  if (flags & 4) { const w = bytes[i++]; if (w === undefined || w > 100) return { ok: false, error: 'Invalid wear in code.' }; paint.wear = w / 100; }
+  if (flags & 8) { paint.flame = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2]; i += 3; }
+  if (flags & 16) { const d = DECALS[bytes[i++]]; if (!d) return { ok: false, error: 'Unknown decal in code.' }; paint.decal = d; }
   const n = bytes[i++];
   if (n === undefined || n > 3 || i + n !== bytes.length - 2) return { ok: false, error: 'Code length is wrong.' };
   paint.emblem = String.fromCharCode(...bytes.slice(i, i + n));
   const build = { loadout, paint };
   // strict: the code must be canonical (rejects altered padding bits etc.)
-  if (encodeBuild(loadout, paint) !== PREFIX + body) return { ok: false, error: 'Code is not canonical — the code is damaged.' };
+  if (encodeVersion(loadout, paint, bytes[0]) !== PREFIX + body) return { ok: false, error: 'Code is not canonical — the code is damaged.' };
   return { ok: true, build };
 }
 
@@ -134,7 +150,7 @@ export function applyImportedLoadout(current: Loadout, imported: Loadout, unlock
   const locked: string[] = [];
   for (const s of SLOT_ORDER) {
     const key = `${s}:${imported[s]}`;
-    if (ALL_PARTS[s][imported[s]] && unlocked.includes(key)) loadout[s] = imported[s];
+    if (Object.hasOwn(ALL_PARTS[s], imported[s]) && unlocked.includes(key)) loadout[s] = imported[s];
     else locked.push(key);
   }
   return { loadout, locked };

@@ -40,6 +40,8 @@ export interface MenuHost {
   rotatePreview(dYaw: number): void;
   /** Highlight a slot on the garage preview (camera nudges toward it): 'gun'|'bomb'|'pod'|'body'|'legs'|null. */
   focusPreview(slot: string | null): void;
+  /** Photo studio owns rendering while open; keep the menu scene suspended. */
+  suspendBackdrop?(suspended: boolean): void;
 
   sfx(name: SfxName): void;
   music(track: MusicTrack): void;
