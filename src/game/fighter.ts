@@ -117,6 +117,8 @@ export interface HitInfo {
   /** Launch upward (m/s), e.g. hazards. */
   launch?: number;
   source: 'gun' | 'bomb' | 'pod' | 'charge' | 'hazard' | 'fire' | 'skill';
+  /** Presentation only: which weapon/ordnance model caused it (per-weapon effects). Never read by the sim. */
+  look?: string;
   /** Direct bomb hit: breaks a guard instead of being blocked. */
   guardBreak?: boolean;
   /** Light damage-over-time: no flinch, no hit-stop. */

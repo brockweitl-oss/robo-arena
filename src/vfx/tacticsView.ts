@@ -110,7 +110,7 @@ export class TacticsView {
   }
 
   pickupTaken(p: Pickup) {
-    this.fx.burst(p.pos.clone(), PICKUP_COLOR[p.kind], 0.8);
+    this.fx.weapons.pickup(p.kind, p.pos.clone(), PICKUP_COLOR[p.kind]);
   }
 
   update(dt: number) {

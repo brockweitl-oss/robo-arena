@@ -143,8 +143,8 @@ export type GameEvent =
   | { type: 'podLaunch'; who: number; pod: Pod }
   | { type: 'podTrigger'; pod: Pod }
   | { type: 'impact'; pos: THREE.Vector3; normal: THREE.Vector3; color: number; proj: Projectile }
-  | { type: 'explosion'; pos: THREE.Vector3; radius: number; color: number; big: boolean; onGround: boolean }
-  | { type: 'hit'; victim: number; attacker: number; pos: THREE.Vector3; dir: THREE.Vector3; damage: number; heavy: boolean; knockdown: boolean; ko: boolean; blocked: boolean; parried: boolean; guardBroken: boolean; source: HitInfo['source']; color: number; skillLook?: ShotSpec['look']; skillReflected?: boolean }
+  | { type: 'explosion'; pos: THREE.Vector3; radius: number; color: number; big: boolean; onGround: boolean; look?: string }
+  | { type: 'hit'; victim: number; attacker: number; pos: THREE.Vector3; dir: THREE.Vector3; damage: number; heavy: boolean; knockdown: boolean; ko: boolean; blocked: boolean; parried: boolean; guardBroken: boolean; source: HitInfo['source']; look?: string; color: number; skillLook?: ShotSpec['look']; skillReflected?: boolean }
   | { type: 'dodge'; who: number; pos: THREE.Vector3; perfect: boolean }
   | { type: 'deflect'; who: number; pos: THREE.Vector3; color: number; parry: boolean }
   | { type: 'clash'; pos: THREE.Vector3 }
@@ -497,7 +497,7 @@ export class World {
           const dir = p.vel.clone().normalize();
           const travel = p.age * s.speed;
           const sweet = !!s.sweet && !p.deflected && travel >= s.sweet.from * s.sweet.range && travel <= s.sweet.to * s.sweet.range + 0.5;
-          const result = this.applyHit(target, p.owner, { damage: s.damage * (sweet ? s.sweet!.mul : 1), down: s.down, dir, knock: s.knockback, heavy: s.down >= 40 || !!s.pull, source: s.skill ? 'skill' : 'gun', comboBonus: !p.deflected && s.comboDetonator ? comboBonus(s.damage * DAMAGE_SCALE) : undefined }, hit, s.color, false, s.skill ? { look: s.look, reflected: p.deflected } : undefined);
+          const result = this.applyHit(target, p.owner, { damage: s.damage * (sweet ? s.sweet!.mul : 1), down: s.down, dir, knock: s.knockback, heavy: s.down >= 40 || !!s.pull, source: s.skill ? 'skill' : 'gun', look: s.look, comboBonus: !p.deflected && s.comboDetonator ? comboBonus(s.damage * DAMAGE_SCALE) : undefined }, hit, s.color, false, s.skill ? { look: s.look, reflected: p.deflected } : undefined);
           const landed = !!result && !result.blocked && !result.parried;
           if (sweet && landed) { this.fighters[p.owner].stats.sweetSpots++; this.events.push({ type: 'sweetSpot', attacker: p.owner, pos: hit.clone() }); }
           if (landed && !p.deflected && s.pull && target.alive && !result.knockdown) {
@@ -575,7 +575,7 @@ export class World {
       const fighterHit = this.segmentVsFighter(prev, b.pos, target, 0.65);
       if (fighterHit && (!w || fighterHit.distanceToSquared(prev) < w.point.distanceToSquared(prev))) {
         b.pos.copy(fighterHit);
-        this.explode(b.pos, b.owner, def.damage, def.down, def.blastRadius, def.color, def.blastRadius > 3, 'bomb', false, true);
+        this.explode(b.pos, b.owner, def.damage, def.down, def.blastRadius, def.color, def.blastRadius > 3, 'bomb', false, true, true, def.model);
         if (def.fire) this.startFire(b, b.pos.clone().setY(groundHeightBelow(b.pos.x, b.pos.z, b.pos.y, this.colliders)));
         b.alive = false;
         continue;
@@ -590,7 +590,7 @@ export class World {
             // skip toward the target: low, fast hops
             const d = toT.length();
             if (d < 1.6) {
-              this.explode(b.pos, b.owner, def.damage, def.down, def.blastRadius, def.color, false, 'bomb', true);
+              this.explode(b.pos, b.owner, def.damage, def.down, def.blastRadius, def.color, false, 'bomb', true, false, true, def.model);
               b.alive = false;
               continue;
             }
@@ -612,7 +612,7 @@ export class World {
           const crate = this.crates.find((c) => c.alive && c.collider === w.collider);
           if (crate) this.damageCrate(crate, def.damage, w.point);
         }
-        this.explode(at, b.owner, def.damage, def.down, def.blastRadius, def.color, def.blastRadius > 3, 'bomb', w ? w.normal.y > 0.5 : false);
+        this.explode(at, b.owner, def.damage, def.down, def.blastRadius, def.color, def.blastRadius > 3, 'bomb', w ? w.normal.y > 0.5 : false, false, true, def.model);
         if (def.fire && w && w.normal.y > 0.5) this.startFire(b, at.clone().setY(w.point.y));
         b.alive = false;
       }
@@ -752,7 +752,7 @@ export class World {
     p.alive = false;
     if (p.def.blastRadius <= 0) return;
     const dmgMul = shotDown ? 0.5 : 1;
-    this.explode(p.pos.clone(), p.owner, p.def.damage * dmgMul, p.def.down * dmgMul, p.def.blastRadius * (shotDown ? 0.7 : 1), p.def.color, false, 'pod', true, false, !shotDown);
+    this.explode(p.pos.clone(), p.owner, p.def.damage * dmgMul, p.def.down * dmgMul, p.def.blastRadius * (shotDown ? 0.7 : 1), p.def.color, false, 'pod', true, false, !shotDown, p.def.model);
   }
 
   /* ------------------------------------------------------------ melee */
@@ -781,8 +781,8 @@ export class World {
 
   /* ------------------------------------------------------------ damage */
 
-  explode(pos: THREE.Vector3, owner: number, damage: number, down: number, radius: number, color: number, big: boolean, source: HitInfo['source'], onGround = true, direct = false, canPrime = true) {
-    this.events.push({ type: 'explosion', pos: pos.clone(), radius, color, big, onGround });
+  explode(pos: THREE.Vector3, owner: number, damage: number, down: number, radius: number, color: number, big: boolean, source: HitInfo['source'], onGround = true, direct = false, canPrime = true, look?: string) {
+    this.events.push({ type: 'explosion', pos: pos.clone(), radius, color, big, onGround, look });
     const ownerF = this.fighters[owner];
     const victim = this.fighters[1 - owner];
     const c = victim.chestPoint();
@@ -795,7 +795,7 @@ export class World {
       const fall = 1 - THREE.MathUtils.clamp((d - 0.6) / radius, 0, 1) * 0.55;
       const dir = c.clone().sub(pos);
       dir.normalize();
-      this.applyHit(victim, owner, { damage: damage * fall * (ownerF ? ownerF.damageMul : 1), down: down * fall, dir, knock: 6, heavy: true, source, guardBreak: direct }, c, color, canPrime && (source === 'bomb' || source === 'pod'));
+      this.applyHit(victim, owner, { damage: damage * fall * (ownerF ? ownerF.damageMul : 1), down: down * fall, dir, knock: 6, heavy: true, source, look, guardBreak: direct }, c, color, canPrime && (source === 'bomb' || source === 'pod'));
     }
     // chain-detonate pods caught in blasts; damage crates
     for (const p of this.pods) if (p.alive && p.pos.distanceTo(pos) < radius * 0.8 && p.owner !== owner) this.detonatePod(p, true);
@@ -829,7 +829,7 @@ export class World {
     this.events.push({
       type: 'hit', victim: victim.id, attacker, pos: at.clone(), dir: h.dir.clone(), damage: r.damage,
       heavy: (h.heavy || r.knockdown || !!r.guardBroken) && !r.blocked && !r.parried, knockdown: r.knockdown, ko: r.ko,
-      blocked: !!r.blocked, parried: !!r.parried, guardBroken: !!r.guardBroken, source: h.source, color, skillLook: skill?.look, skillReflected: skill?.reflected,
+      blocked: !!r.blocked, parried: !!r.parried, guardBroken: !!r.guardBroken, source: h.source, look: h.look, color, skillLook: skill?.look, skillReflected: skill?.reflected,
     });
     if (r.ko && this.koLoser < 0) {
       this.koLoser = victim.id;
