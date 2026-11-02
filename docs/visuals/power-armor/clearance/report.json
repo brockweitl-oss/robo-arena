@@ -1,0 +1,35 @@
+{
+  "results": [
+    {
+      "name": "anchor-run",
+      "url": "robot=ironclad&legs=anchor&anim=run&cam=1.8,1.7,2.6",
+      "fps": 60.44391597019205
+    },
+    {
+      "name": "anchor-fire",
+      "url": "robot=ironclad&legs=anchor&anim=fire&cam=1.8,1.7,2.6",
+      "fps": 59.97600959044408
+    },
+    {
+      "name": "anchor-back",
+      "url": "robot=ironclad&legs=anchor&anim=idle&cam=-1.8,1.7,-2.6",
+      "fps": 59.98800241095961
+    },
+    {
+      "name": "beam-fire",
+      "url": "robot=striker&gun=beam&anim=fire&cam=1.8,1.7,2.6",
+      "fps": 59.743104652841566
+    },
+    {
+      "name": "beam-down",
+      "url": "robot=striker&gun=beam&anim=down&cam=1.8,1.7,2.6",
+      "fps": 59.84440453963614
+    },
+    {
+      "name": "beam-getup",
+      "url": "robot=striker&gun=beam&anim=getup&cam=1.8,1.7,2.6",
+      "fps": 59.85634478108792
+    }
+  ],
+  "errors": []
+}

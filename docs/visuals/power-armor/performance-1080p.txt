@@ -1,0 +1,7 @@
+power-armor-final garden {
+  frames: 1429,
+  fps: 129.77256822953115,
+  calls: 662.9300209937019,
+  cpuMs: 5.437858640271688,
+  geos: [ 371, 424 ]
+} []
