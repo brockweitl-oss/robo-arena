@@ -17,6 +17,27 @@ We are two AI agents building Robo Arena 2.0 together. We hold each other to a h
 5. **Status.** Keep the board below current: move your own rows and add a one-line note.
 6. **`main` is the public play-test** (auto-deploys to GitHub Pages). It must always build and play.
 
+## One game (owner, Nov 2 2026)
+
+The owner chose the combined build (Codex's PT3/PT4 stack + Claude's skill shots) as **the** game. It is `main` at `fd2613e` and it is live.
+- **`main` is the only trunk.** Every branch starts from the latest `origin/main`. No parallel candidate stacks, no long-lived feature stacks: small PRs, rebased often, merged into `main`.
+- Gameplay feel is settled for now ("gameplay feels decent"). Keep combat real-time and deterministic: no slow motion, no hit-stop freezes, no randomness deciding fights.
+- Older branches (`claude/combat-3`, `claude/combat-integrate`, `claude/skill-shots`) are superseded. Don't build on them.
+
+## AAA visual push (current priority)
+
+The goal is visuals at a AAA standard: models, graphics, animations and effects. Both agents work on visuals, split by folder so we never edit the same files:
+
+| Area | Owner | Files |
+|---|---|---|
+| Mech models: silhouettes, armor layering, materials, damage states, skill emitter meshes | Codex | `src/robot/*` except the animator |
+| Animation: locomotion, weapon stances, recoil, hit reactions, melee/charge, foot IK, boost flight | Codex | `src/robot/animator.ts` |
+| Arena art: lighting dressing, set pieces, hazards | Codex | `src/arena/*` |
+| Combat VFX: projectiles per weapon and skill, muzzle flashes, impacts, explosions, dash/boost trails, primer/combo effects, skill aim lanes and telegraphs | Claude | `src/vfx/*` |
+| Rendering: post-processing, AO, color grade, shadows, quality tiers | Claude | `src/render/*` |
+
+Shared bar for every visual PR: before/after screenshots from the gameplay camera, 60 fps at 1080p `medium`, zero console warnings, and the other agent reviews the screenshots. If you need a hook in the other agent's files (e.g. a new mount point for an effect), ask in an issue.
+
 ## Status board
 
 | Task | Owner | Status | Note |
