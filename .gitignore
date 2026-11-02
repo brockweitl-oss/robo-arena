@@ -6,3 +6,4 @@ test-results/
 .DS_Store
 .wrangler/
 playtest-build/
+.claude/

@@ -541,7 +541,8 @@ export class World {
       const dx = v.pos.x - z.pos.x;
       const dz = v.pos.z - z.pos.z;
       // ground fire: only burns robots standing in it
-      if (dx * dx + dz * dz < z.radius * z.radius && v.pos.y - z.pos.y < 0.6 && v.grounded) {
+      // two-sided vertical check: fire on a raised deck must not burn robots below it
+      if (dx * dx + dz * dz < z.radius * z.radius && Math.abs(v.pos.y - z.pos.y) < 0.6 && v.grounded) {
         this.applyHit(v, z.owner, { damage: z.def.damage, down: z.def.down, dir: new THREE.Vector3(dx, 0, dz).normalize(), knock: 0, heavy: false, source: 'fire', tick: true }, v.chestPoint(), z.color);
       }
     }
@@ -665,7 +666,8 @@ export class World {
   private stepMelee() {
     for (const f of this.fighters) {
       const other = this.fighters[1 - f.id];
-      if (f.guarding && other.guarding && f.chargePhase === 1 && f.pos.distanceTo(other.pos) < 1.8) {
+      // clash only when both robots are lunging; a defender still in its parry window parries instead
+      if (f.chargePhase === 1 && f.mode === 'charge' && other.mode === 'charge' && other.chargePhase === 1 && f.pos.distanceTo(other.pos) < 1.8) {
         // charge clash: both bounce off
         for (const g of [f, other]) {
           const away = g.pos.clone().sub(g === f ? other.pos : f.pos).setY(0).normalize();
@@ -800,7 +802,8 @@ export class World {
           if (!f.canHazardHit() || f.isInvulnerable) continue;
           const dx = f.pos.x - tr.pos.x;
           const dz = f.pos.z - tr.pos.z;
-          if (dx * dx + dz * dz > TRAP.radius * TRAP.radius || f.pos.y - tr.pos.y > 2.5) continue;
+          const dy = f.pos.y - tr.pos.y;
+          if (dx * dx + dz * dz > TRAP.radius * TRAP.radius || dy < -0.5 || dy > 2.5) continue;
           f.markHazard();
           const dir = new THREE.Vector3(dx, 0, dz);
           if (dir.lengthSq() < 1e-3) dir.set(0, 0, 1);

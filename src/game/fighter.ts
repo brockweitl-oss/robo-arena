@@ -375,7 +375,8 @@ export class Fighter implements AnimSource {
               this.fireShot(!grounded, power);
               this.holdT = -1;
               this.railCharge = 0;
-              this.gunCd = gun.cooldown;
+              // same air penalty as burst guns
+              this.gunCd = gun.cooldown * (grounded ? 1 : 1.15);
             }
           }
         } else if (this.bufGun > 0 && this.gunCd <= 0 && this.burstLeft === 0) {
@@ -650,17 +651,19 @@ export class Fighter implements AnimSource {
     if (this.isInvulnerable || !this.alive) return out;
     out.applied = true;
     const guardable = h.source !== 'charge' && h.source !== 'hazard' && h.source !== 'fire';
+    // a perfect parry beats everything an opponent throws at you, including their charge attack
+    const parryable = h.source !== 'hazard' && h.source !== 'fire' && !h.guardBreak;
+    if (this.parrying && parryable) {
+      out.parried = true;
+      this.stats.parries++;
+      this.events.push({ type: 'parry' });
+      return out;
+    }
     if (this.guarding && guardable && h.guardBreak) {
       // direct bomb hit on a guard: the guard shatters
       out.guardBroken = true;
       h = { ...h, down: h.down + 30 };
       this.events.push({ type: 'guardBreak' });
-    } else if (this.parrying && guardable) {
-      out.parried = true;
-      out.applied = true;
-      this.stats.parries++;
-      this.events.push({ type: 'parry' });
-      return out;
     } else if (this.guarding && guardable) {
       h = { ...h, damage: h.damage * 0.3 * this.st.guardChipMul, down: h.down * 0.25 };
       out.blocked = true;

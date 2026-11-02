@@ -57,7 +57,7 @@ function fight(a: Loadout, b: Loadout, seed: number, timeLimit = 120): number {
   return Math.abs(ra - rb) < 0.02 ? 0.5 : ra > rb ? 1 : 0;
 }
 
-const N = Number(process.env.BALANCE_N ?? 12);
+const N = Number(process.env.BALANCE_N ?? 200);
 
 it('part balance tournament', { timeout: 60 * 60 * 1000 }, () => {
   const report: Record<string, Record<string, { vsDefault: number; field: number }>> = {};
@@ -79,7 +79,7 @@ it('part balance tournament', { timeout: 60 * 60 * 1000 }, () => {
   const rnd = (() => { let s = 99; return () => ((s = (s * 16807) % 2147483647) / 2147483647); })();
   const pick = (slot: Slot) => { const ids = Object.keys(ALL_PARTS[slot]); return ids[Math.floor(rnd() * ids.length)]; };
   const tally: Record<string, { w: number; n: number }> = {};
-  const M = N * 10;
+  const M = N * 10; // random-build fights
   for (let i = 0; i < M; i++) {
     const a = { gun: pick('gun'), bomb: pick('bomb'), pod: pick('pod'), body: pick('body'), legs: pick('legs') } as Loadout;
     const b = { gun: pick('gun'), bomb: pick('bomb'), pod: pick('pod'), body: pick('body'), legs: pick('legs') } as Loadout;
