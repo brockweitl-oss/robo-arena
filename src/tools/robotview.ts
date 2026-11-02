@@ -89,7 +89,15 @@ export function robotView(params: URLSearchParams) {
       case 'dash': src.mode = 'dash'; src.vel.set(0, 0, 24); model.setThrust(1, 0.5); break;
       case 'fire': src.aimTarget = target; src.aimWeight = 1; if (Math.floor(t0 * 3) !== Math.floor((t0 - dt) * 3)) anim.event({ type: 'fire' }); break;
       case 'aim': src.aimTarget = target; src.aimWeight = 1; break;
-      case 'charge': src.mode = 'charge'; src.chargePhase = tt < 0.3 ? 0 : tt < 0.6 ? 1 : 2; break;
+      case 'charge': {
+        src.mode = 'charge';
+        const ch = lo.body.charge;
+        const cycle = ch.windup + ch.lunge + ch.recover + .35;
+        const t = tt % cycle;
+        src.chargePhase = t < ch.windup ? 0 : t < ch.windup + ch.lunge ? 1 : 2;
+        src.modeTime = t - (src.chargePhase === 0 ? 0 : src.chargePhase === 1 ? ch.windup : ch.windup + ch.lunge);
+        break;
+      }
       case 'down': src.mode = 'down'; src.grounded = tt > 0.4; break;
       case 'getup': src.mode = 'getup'; src.modeTime = Math.min(tt, 0.55); break;
       case 'victory': src.mode = 'victory'; break;

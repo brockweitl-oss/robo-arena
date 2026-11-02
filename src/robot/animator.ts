@@ -9,6 +9,7 @@ export type AnimMode =
 
 export type AnimEvent =
   | { type: 'fire' }
+  | { type: 'combo'; role: 'trigger' | 'target' }
   | { type: 'bomb' }
   | { type: 'pod' }
   | { type: 'land'; strength: number }
@@ -121,6 +122,8 @@ export class Animator {
   private armInit = false;
   private elbowSp: Record<Side, Sp> = { L: new Sp(260, 0.7), R: new Sp(260, 0.7) };
   private stepSide = 0;
+  private launchSide = 1;
+  private shotBrace = 0;
   chargeStyle: ChargeStyle = 'punch';
   /** Footstep callback (side, world pos) for SFX/dust. */
   onStep: ((side: Side) => void) | null = null;
@@ -128,14 +131,39 @@ export class Animator {
   constructor(readonly model: RobotModel) {
     const f = model.loadout.body.frame;
     this.chargeStyle = f === 'ironclad' ? 'ram' : f === 'wisp' ? 'kick' : f === 'regent' ? 'slash' : 'punch';
+    // Large frames settle with weight; the root and foot IK remain simulation driven.
+    if (f === 'ironclad') {
+      this.leanX.k = this.leanZ.k = 100;
+      this.chestX.z = 0.85;
+      this.crouch.z = 0.85;
+    }
   }
 
   event(e: AnimEvent) {
     switch (e.type) {
-      case 'fire':
-        this.recoil.kick(9);
-        this.barrelKick.kick(-3.5);
-        this.chestX.kick(-1.2);
+      case 'fire': {
+        const gun = this.model.loadout.gun.model;
+        const precision = gun === 'rail' || gun === 'beam';
+        const scatter = gun === 'scatter';
+        const homer = gun === 'homer';
+        this.recoil.k = precision ? 260 : scatter ? 620 : 700;
+        this.recoil.z = precision ? 0.85 : 0.7;
+        this.recoil.kick(precision ? 19 : scatter ? 14 : homer ? 5 : 4);
+        this.barrelKick.kick(precision ? -7 : scatter ? -5 : -2);
+        this.chestX.kick(precision ? -3.8 : scatter ? -2.6 : -0.5);
+        this.shotBrace = precision ? 0.38 : scatter ? 0.18 : homer ? 0.22 : 0.06;
+        if (precision) this.crouch.kick(0.45);
+        if (homer) {
+          this.chestZ.kick(this.launchSide * 1.3);
+          this.launchSide *= -1;
+        }
+        break;
+      }
+      case 'combo':
+        // One decisive mechanical response, never a simulation pause or random shake.
+        this.chestX.kick(e.role === 'target' ? -5 : -2);
+        this.crouch.kick(e.role === 'target' ? 0.9 : 0.3);
+        this.antX.kick(e.role === 'target' ? 5 : -2);
         break;
       case 'bomb':
         this.launcherKick.kick(14);
@@ -190,6 +218,7 @@ export class Animator {
     const dt = Math.min(dtIn, 1 / 30);
     if (dt <= 0) return;
     this.time += dt;
+    this.shotBrace = Math.max(0, this.shotBrace - dt);
     const rig = this.model.rig;
     const spec = rig.spec;
     const scale = spec.scale;
@@ -221,6 +250,12 @@ export class Animator {
     const onGround = mode === 'ground' || mode === 'charge' || mode === 'showcase' || mode === 'victory' || mode === 'defeat' || (mode === 'stagger' && src.grounded) || mode === 'getup' || (mode === 'intro' && src.grounded);
     const isDash = mode === 'dash' || mode === 'airdash';
     const isDown = mode === 'down';
+    const precision = this.model.loadout.gun.model === 'rail' || this.model.loadout.gun.model === 'beam';
+    const brace = precision ? Math.max(src.railCharge, Math.min(1, this.shotBrace / 0.2)) : 0;
+    const chargeWind = mode === 'charge' && src.chargePhase === 0
+      ? sstep(0, this.model.loadout.body.charge.windup, src.modeTime) : 0;
+    const chargeRecover = mode === 'charge' && src.chargePhase === 2
+      ? 1 - sstep(0, this.model.loadout.body.charge.recover, src.modeTime) : 0;
 
     // --- blend weights ---
     const walkW = this.walkW.step(onGround && !isDash ? sstep(0.4, 3.5, hSpeed) : 0, dt);
@@ -244,7 +279,7 @@ export class Animator {
     // --- body / hips ---
     const bob = walkW * 0.045 * (0.5 - 0.5 * Math.cos(this.phase * Math.PI * 4));
     const breathe = Math.sin(this.time * 2.1) * 0.006;
-    let crouchTarget = 0.02 + walkW * 0.04;
+    let crouchTarget = 0.02 + walkW * 0.04 + brace * 0.045;
     let leanXT = 0;
     let leanZT = 0;
     if (onGround && !isDash) {
@@ -260,11 +295,17 @@ export class Animator {
       leanZT = THREE.MathUtils.clamp(-lvx * 0.02, -0.25, 0.25);
     }
     if (mode === 'charge') {
-      if (src.chargePhase === 0) crouchTarget = 0.16;
+      if (src.chargePhase === 0) {
+        crouchTarget = 0.08 + chargeWind * 0.1;
+        leanXT = -0.08 - chargeWind * 0.1;
+      }
       else if (src.chargePhase === 1) {
         crouchTarget = 0.1;
         leanXT = this.chargeStyle === 'kick' ? -0.35 : 0.55;
-      } else crouchTarget = 0.08;
+      } else {
+        crouchTarget = 0.04 + chargeRecover * 0.1;
+        leanXT = chargeRecover * 0.28;
+      }
     }
     if (mode === 'stagger') crouchTarget = 0.1;
     if (mode === 'defeat') crouchTarget = 0.35;
@@ -329,9 +370,9 @@ export class Animator {
       // occasional look-around
       this.lookTimer -= dt;
       if (this.lookTimer <= 0) {
-        this.lookTimer = 2.2 + Math.random() * 3;
-        this.lookYaw = Math.random() < 0.35 ? 0 : (Math.random() - 0.5) * 1.3;
-        this.lookPitch = (Math.random() - 0.4) * 0.3;
+        this.lookTimer = 3.4;
+        this.lookYaw = Math.sin(this.time * 0.73) * 0.42;
+        this.lookPitch = Math.sin(this.time * 0.47 + 1.2) * 0.1;
       }
       relYaw = this.lookYaw;
       relPitch = this.lookPitch;
@@ -342,13 +383,17 @@ export class Animator {
     let chestYawT = clampYaw * (0.25 + 0.2 * aimW);
     let chestXT = breathe * 2 + (mode === 'defeat' ? 0.5 : 0) + (mode === 'victory' ? -0.12 : 0);
     let chestZT = 0;
+    chestXT += brace * 0.09;
     if (mode === 'charge') {
       if (src.chargePhase === 0) {
-        chestYawT = this.chargeStyle === 'ram' ? 0.9 : 0.7;
-        chestXT = 0.15;
+        chestYawT = (this.chargeStyle === 'ram' ? 0.9 : 0.7) * (0.55 + chargeWind * 0.45);
+        chestXT = 0.08 + chargeWind * 0.12;
       } else if (src.chargePhase === 1) {
         chestYawT = this.chargeStyle === 'ram' ? 0.8 : this.chargeStyle === 'slash' ? -0.9 : -0.5;
         chestXT = 0.25;
+      } else {
+        chestYawT = (this.chargeStyle === 'slash' ? -0.65 : -0.3) * chargeRecover;
+        chestXT = 0.2 * chargeRecover;
       }
       waistYawT = chestYawT * 0.4;
     }
@@ -589,6 +634,8 @@ export class Animator {
     const mode = src.mode;
     const swing = Math.sin(this.phase * Math.PI * 2) * 0.75 * walkW;
     const rc = this.recoil.step(0, dt);
+    const gun = this.model.loadout.gun.model;
+    const brace = (gun === 'rail' || gun === 'beam') ? Math.max(src.railCharge, Math.min(1, this.shotBrace / 0.2)) : 0;
     for (const side of ['L', 'R'] as Side[]) {
       const sx = side === 'L' ? 1 : -1;
       // locomotion pose (euler on the shoulder): pitch, roll
@@ -622,6 +669,11 @@ export class Animator {
         px = 0.6;
         pz = sx * 0.5;
         elbow = 0.6;
+      }
+      if (side === 'L' && (mode === 'ground' || mode === 'air') && brace > 0) {
+        px = THREE.MathUtils.lerp(px, -0.65, brace);
+        pz = THREE.MathUtils.lerp(pz, 0.1, brace);
+        elbow = THREE.MathUtils.lerp(elbow, 1.65, brace);
       }
       if (mode === 'defeat') {
         px = 0.2;
