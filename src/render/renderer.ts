@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import {
   EffectComposer,
+  NormalPass,
+  SSAOEffect,
   RenderPass,
   EffectPass,
   BloomEffect,
@@ -43,6 +45,8 @@ export class GameRenderer {
   profile: QualityProfile = QUALITY.medium;
 
   private renderPass: RenderPass;
+  private normals: NormalPass;
+  private aoPass: EffectPass;
   private bloom: BloomEffect;
   private chroma: ChromaticAberrationEffect;
   private vignette: VignetteEffect;
@@ -74,6 +78,15 @@ export class GameRenderer {
     this.composer = new EffectComposer(this.renderer, { frameBufferType: THREE.HalfFloatType, multisampling: 0 });
     this.renderPass = new RenderPass(this.scene, this.camera);
     this.composer.addPass(this.renderPass);
+    this.normals = new NormalPass(this.scene, this.camera, { resolutionScale: 0.5 });
+    this.composer.addPass(this.normals);
+    const ao = new SSAOEffect(this.camera, this.normals.texture, {
+      samples: 8, rings: 3, resolutionScale: 0.5, radius: 0.075, intensity: 1.15,
+      luminanceInfluence: 0.65, worldDistanceThreshold: 60, worldDistanceFalloff: 20,
+      worldProximityThreshold: 0.6, worldProximityFalloff: 0.4,
+    });
+    this.aoPass = new EffectPass(this.camera, ao);
+    this.composer.addPass(this.aoPass);
 
     this.bloom = new BloomEffect({
       intensity: 1.15,
@@ -118,6 +131,7 @@ export class GameRenderer {
   setQuality(q: Quality) {
     this.quality = q;
     this.profile = QUALITY[q];
+    this.normals.enabled = this.aoPass.enabled = q !== 'low';
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * this.profile.pixelRatio);
     this.renderer.shadowMap.enabled = this.profile.shadows;
     this.renderer.shadowMap.needsUpdate = true;
@@ -138,6 +152,7 @@ export class GameRenderer {
   setScene(scene: THREE.Scene) {
     this.scene = scene;
     this.renderPass.mainScene = scene;
+    this.normals.mainScene = scene;
     (this.renderPass as any).scene = scene;
   }
 
@@ -167,3 +182,4 @@ export class GameRenderer {
     this.composer.render(dt);
   }
 }
+
