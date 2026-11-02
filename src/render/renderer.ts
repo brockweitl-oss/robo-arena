@@ -52,10 +52,16 @@ export class GameRenderer {
   private bloom: BloomEffect;
   private chroma: ChromaticAberrationEffect;
   private vignette: VignetteEffect;
-  private effectPass!: EffectPass;
-  private chromaPass!: EffectPass;
-  private gradePass!: EffectPass;
-  private smaaPass: EffectPass | null = null;
+  // Post passes are allocated once and retained for the renderer's lifetime.
+  // Quality changes only toggle blend functions / pass membership; they never
+  // create new EffectPasses (which would leak fullscreen materials and leave
+  // stale "change" listeners on the shared effects).
+  private effectPass: EffectPass;
+  private chromaPass: EffectPass;
+  private gradePass: EffectPass;
+  private smaaPass: EffectPass;
+  private readonly bloomBlend: BlendFunction;
+  private readonly grainBlend: BlendFunction;
   private smaa: SMAAEffect;
   private tone: ToneMappingEffect;
   private chromaAmount = 0;
@@ -111,34 +117,38 @@ export class GameRenderer {
     });
     this.chroma.blendMode.blendFunction = BlendFunction.NORMAL;
     this.grain.blendMode.opacity.value = 0.35;
-    this.rebuildPasses();
+    this.bloomBlend = this.bloom.blendMode.blendFunction;
+    this.grainBlend = this.grain.blendMode.blendFunction;
+    this.effectPass = new EffectPass(this.camera, this.bloom, this.tone, this.vignette);
+    // Grade on tone-mapped (display-range) colour, in its own pass.
+    this.gradePass = new EffectPass(this.camera, this.grade, this.grain);
+    // Chromatic aberration (convolution-free) + SMAA run after tone mapping.
+    this.chromaPass = new EffectPass(this.camera, this.chroma);
+    this.smaaPass = new EffectPass(this.camera, this.smaa);
+    this.composer.addPass(this.effectPass);
+    this.composer.addPass(this.gradePass);
+    this.composer.addPass(this.chromaPass);
+    this.applyPostProfile();
 
     window.addEventListener('resize', () => this.resize());
   }
 
-  private rebuildPasses() {
-    if (this.effectPass) this.composer.removePass(this.effectPass);
-    if (this.chromaPass) this.composer.removePass(this.chromaPass);
-    if (this.gradePass) this.composer.removePass(this.gradePass);
-    if (this.smaaPass) this.composer.removePass(this.smaaPass);
-    this.smaaPass = null;
-    const effects: any[] = [];
-    if (this.profile.bloom) effects.push(this.bloom);
-    effects.push(this.tone, this.vignette);
-    this.effectPass = new EffectPass(this.camera, ...effects);
-    this.composer.addPass(this.effectPass);
-    // Grade on tone-mapped (display-range) colour, in its own pass.
-    const grade: any[] = [this.grade];
-    if (this.quality !== 'low') grade.push(this.grain);
-    this.gradePass = new EffectPass(this.camera, ...grade);
-    this.composer.addPass(this.gradePass);
-    // Chromatic aberration (convolution-free) + SMAA run after tone mapping.
-    this.chromaPass = new EffectPass(this.camera, this.chroma);
-    this.composer.addPass(this.chromaPass);
-    if (this.profile.smaa) {
-      this.smaaPass = new EffectPass(this.camera, this.smaa);
-      this.composer.addPass(this.smaaPass);
-    }
+  /**
+   * Applies the current quality profile to the retained post passes.
+   * Disabled effects use BlendFunction.DST, which EffectPass omits from the
+   * compiled shader. SMAA is the only optional *pass*; it is always the last
+   * pass, so removing / re-appending it lets the composer keep renderToScreen
+   * on whichever pass is final (chromaPass or smaaPass).
+   */
+  private applyPostProfile() {
+    const bloomFn = this.profile.bloom ? this.bloomBlend : BlendFunction.DST;
+    if (this.bloom.blendMode.blendFunction !== bloomFn) this.bloom.blendMode.blendFunction = bloomFn;
+    const grainFn = this.quality === 'low' ? BlendFunction.DST : this.grainBlend;
+    if (this.grain.blendMode.blendFunction !== grainFn) this.grain.blendMode.blendFunction = grainFn;
+    const passes = this.composer.passes;
+    const hasSmaa = passes.includes(this.smaaPass);
+    if (this.profile.smaa && !hasSmaa) this.composer.addPass(this.smaaPass);
+    else if (!this.profile.smaa && hasSmaa) this.composer.removePass(this.smaaPass);
   }
 
   setQuality(q: Quality) {
@@ -158,7 +168,7 @@ export class GameRenderer {
       const m = (o as THREE.Mesh).material as THREE.Material | undefined;
       if (m) m.needsUpdate = true;
     });
-    this.rebuildPasses();
+    this.applyPostProfile();
     this.resize();
   }
 

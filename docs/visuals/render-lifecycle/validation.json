@@ -1,0 +1,186 @@
+{
+  "fps": 60,
+  "errors": [],
+  "samples": [
+    {
+      "quality": "low",
+      "stable": true,
+      "listeners": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "screen": 1,
+      "programs": 85
+    },
+    {
+      "quality": "medium",
+      "stable": true,
+      "listeners": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "screen": 1,
+      "programs": 113
+    },
+    {
+      "quality": "high",
+      "stable": true,
+      "listeners": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "screen": 1,
+      "programs": 114
+    },
+    {
+      "quality": "low",
+      "stable": true,
+      "listeners": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "screen": 1,
+      "programs": 116
+    },
+    {
+      "quality": "medium",
+      "stable": true,
+      "listeners": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "screen": 1,
+      "programs": 118
+    },
+    {
+      "quality": "high",
+      "stable": true,
+      "listeners": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "screen": 1,
+      "programs": 119
+    },
+    {
+      "quality": "low",
+      "stable": true,
+      "listeners": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "screen": 1,
+      "programs": 119
+    },
+    {
+      "quality": "medium",
+      "stable": true,
+      "listeners": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "screen": 1,
+      "programs": 120
+    },
+    {
+      "quality": "high",
+      "stable": true,
+      "listeners": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "screen": 1,
+      "programs": 122
+    },
+    {
+      "quality": "low",
+      "stable": true,
+      "listeners": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "screen": 1,
+      "programs": 122
+    },
+    {
+      "quality": "medium",
+      "stable": true,
+      "listeners": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "screen": 1,
+      "programs": 124
+    },
+    {
+      "quality": "high",
+      "stable": true,
+      "listeners": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "screen": 1,
+      "programs": 124
+    }
+  ]
+}
