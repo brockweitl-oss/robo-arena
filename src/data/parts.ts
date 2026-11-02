@@ -383,7 +383,7 @@ export const LEGS: Record<string, LegsDef> = {
     desc: 'Reverse-joint spring legs. Two air jumps and a higher leap.',
     pro: 'High, repeatable jumps', con: 'Slower run; heavy landings',
     ratings: { Speed: 2, Jump: 5, Air: 4 },
-    speedMul: 0.94, jumpMul: 1.14, airJumps: 2, airDashes: 1, dashMul: 0.95, dashCharges: 1, hoverMul: 0.85, fallMul: 1.05, knockMul: 1, endurance: 0, landingMul: 1.25,
+    speedMul: 0.94, jumpMul: 1.1, airJumps: 2, airDashes: 1, dashMul: 0.95, dashCharges: 1, hoverMul: 0.85, fallMul: 1.05, knockMul: 1, endurance: 0, landingMul: 1.25,
   },
   sprint: {
     id: 'sprint', slot: 'legs', name: 'Sprint Legs', model: 'sprint', family: 'paladin', mass: 18,
@@ -393,11 +393,11 @@ export const LEGS: Record<string, LegsDef> = {
     speedMul: 1.08, jumpMul: 0.9, airJumps: 1, airDashes: 1, dashMul: 1.04, dashCharges: 2, hoverMul: 0.85, fallMul: 1, knockMul: 1.05, endurance: -6, landingMul: 1,
   },
   anchor: {
-    id: 'anchor', slot: 'legs', name: 'Anchor Legs', model: 'anchor', family: 'titan', mass: 32,
+    id: 'anchor', slot: 'legs', name: 'Anchor Legs', model: 'anchor', family: 'titan', mass: 30,
     desc: 'Heavy stabilizers. Barely budge when hit, but every dash is short.',
     pro: 'Resists knockback; much higher endurance', con: 'Short dashes; weak jump; slow',
     ratings: { Speed: 1, Jump: 2, Air: 1 },
-    speedMul: 1.0, jumpMul: 0.96, airJumps: 1, airDashes: 1, dashMul: 0.92, dashCharges: 1, hoverMul: 0.9, fallMul: 1.05, knockMul: 0.5, endurance: 45, landingMul: 1.0,
+    speedMul: 1.0, jumpMul: 0.96, airJumps: 1, airDashes: 1, dashMul: 0.94, dashCharges: 1, hoverMul: 0.9, fallMul: 1.05, knockMul: 0.5, endurance: 45, landingMul: 1.0,
   },
   feather: {
     id: 'feather', slot: 'legs', name: 'Feather Legs', model: 'feather', family: 'strider', mass: 16,
