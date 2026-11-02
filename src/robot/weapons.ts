@@ -2,6 +2,12 @@ import * as THREE from 'three';
 import type { Rig } from './rig';
 import { PartBuilder, rbox, plate, chamferBox, cyl, sphere, torus, xf, vents, lathe, boltRing } from './kit';
 import type { GunDef, BombDef, PodDef } from '../data/parts';
+import type { MatSet } from './kit';
+
+// Accept the new visual keys before the gameplay catalog lands.
+type VisualGun = Omit<GunDef, 'model'> & { model: GunDef['model'] | 'beam' | 'homer' };
+type VisualBomb = Omit<BombDef, 'model'> & { model: BombDef['model'] | 'napalm' | 'bouncer' };
+type VisualPod = Omit<PodDef, 'model'> & { model: PodDef['model'] | 'turret' | 'interceptor' };
 
 /**
  * Weapon visuals. The gun hangs off the right elbow with its barrel along local -Y
@@ -20,7 +26,7 @@ export interface WeaponNodes {
   podDock: THREE.Group;
 }
 
-export function buildGun(def: GunDef, rig: Rig, b: PartBuilder, glowMat: THREE.Material): { barrel: THREE.Group; chargeGlow: THREE.Mesh | null } {
+export function buildGun(def: VisualGun, rig: Rig, b: PartBuilder, glowMat: THREE.Material): { barrel: THREE.Group; chargeGlow: THREE.Mesh | null } {
   const m = rig.gunMount;
   const F = rig.spec.forearm;
   m.position.set(-0.115, -F * 0.45, 0.0);
@@ -28,7 +34,32 @@ export function buildGun(def: GunDef, rig: Rig, b: PartBuilder, glowMat: THREE.M
   barrel.name = 'barrel';
   m.add(barrel);
   let chargeGlow: THREE.Mesh | null = null;
-  if (def.model === 'blaster') {
+  if (def.model === 'beam') {
+    b.add(m, 'dark', chamferBox(0.13, 0.29, 0.16, 0.035));
+    b.add(m, 'secondary', xf(chamferBox(0.14, 0.09, 0.17, 0.025), [0, 0.09, 0]));
+    b.add(barrel, 'dark', xf(cyl(0.044, 0.044, 0.48, 12), [0, -0.34, 0.02]));
+    for (let i = 0; i < 4; i++) {
+      const y = -0.18 - i * 0.12;
+      b.add(barrel, 'chrome', xf(torus(0.072 - i * 0.006, 0.013, 16, 6), [0, y, 0.02], [Math.PI / 2, 0, 0]));
+      b.add(barrel, 'glow', xf(torus(0.052 - i * 0.006, 0.005, 16, 5), [0, y - 0.016, 0.02], [Math.PI / 2, 0, 0]));
+    }
+    for (const sx of [-1, 1]) b.add(barrel, 'primary', xf(chamferBox(0.035, 0.47, 0.08, 0.015), [sx * 0.075, -0.34, 0.02]));
+    chargeGlow = new THREE.Mesh(cyl(0.022, 0.022, 0.43, 12), glowMat);
+    chargeGlow.position.set(0, -0.37, 0.02);
+    chargeGlow.scale.y = 0.001;
+    barrel.add(chargeGlow);
+    rig.muzzle.position.set(0, -0.63, 0.02);
+  } else if (def.model === 'homer') {
+    b.add(m, 'dark', chamferBox(0.12, 0.27, 0.13, 0.03));
+    for (const sx of [-1, 1]) {
+      b.add(barrel, 'primary', xf(chamferBox(0.085, 0.35, 0.105, 0.023), [sx * 0.085, -0.16, 0]));
+      b.add(barrel, 'dark', xf(cyl(0.033, 0.033, 0.31, 12), [sx * 0.085, -0.18, 0]));
+      b.add(barrel, 'chrome', xf(torus(0.034, 0.008, 12, 6), [sx * 0.085, -0.34, 0], [Math.PI / 2, 0, 0]));
+      b.add(barrel, 'glowHot', xf(cyl(0.022, 0.022, 0.006, 10), [sx * 0.085, -0.338, 0]));
+      b.add(barrel, 'secondary', xf(chamferBox(0.09, 0.045, 0.11, 0.012), [sx * 0.085, -0.08, 0]));
+    }
+    rig.muzzle.position.set(0, -0.37, 0);
+  } else if (def.model === 'blaster') {
     // receiver hugging the forearm
     b.add(m, 'dark', xf(chamferBox(0.09, 0.28, 0.14, 0.03), [0, 0, 0]));
     b.add(m, 'secondary', xf(chamferBox(0.095, 0.08, 0.145, 0.02), [0, 0.06, 0]));
@@ -72,7 +103,7 @@ export function buildGun(def: GunDef, rig: Rig, b: PartBuilder, glowMat: THREE.M
   return { barrel, chargeGlow };
 }
 
-export function buildBomb(def: BombDef, rig: Rig, b: PartBuilder): THREE.Group {
+export function buildBomb(def: VisualBomb, rig: Rig, b: PartBuilder): THREE.Group {
   const mount = rig.bombMount;
   const launcher = new THREE.Group();
   launcher.name = 'launcher';
@@ -82,7 +113,25 @@ export function buildBomb(def: BombDef, rig: Rig, b: PartBuilder): THREE.Group {
   for (const g of boltRing(0.07, 6, 0.008, 0.01)) b.add(mount, 'chrome', xf(g, [0, 0.016, 0], [-Math.PI / 2, 0, 0]));
   launcher.rotation.x = -0.5; // tubes angle forward-up by default
   launcher.position.y = 0.03;
-  if (def.model === 'mortar') {
+  if (def.model === 'napalm') {
+    b.add(launcher, 'dark', xf(chamferBox(0.18, 0.12, 0.18, 0.03), [0, 0.06, 0]));
+    b.add(launcher, 'primary', xf(cyl(0.075, 0.075, 0.29, 12), [0, 0.2, 0]));
+    for (const y of [0.11, 0.29]) b.add(launcher, 'secondary', xf(cyl(0.083, 0.083, 0.03, 12), [0, y, 0]));
+    b.add(launcher, 'dark', xf(cyl(0.057, 0.057, 0.04, 12), [0, 0.355, 0]));
+    b.add(launcher, 'glowHot', xf(cyl(0.04, 0.04, 0.006, 12), [0, 0.378, 0]));
+    for (const sx of [-1, 1]) b.add(launcher, 'chrome', xf(chamferBox(0.018, 0.2, 0.025, 0.005), [sx * 0.08, 0.2, 0]));
+    rig.bombMuzzle.position.set(0, 0.39, 0);
+  } else if (def.model === 'bouncer') {
+    b.add(launcher, 'dark', xf(cyl(0.12, 0.12, 0.19, 16), [0, 0.13, 0], [0, 0, Math.PI / 2]));
+    for (const sx of [-1, 1]) b.add(launcher, 'secondary', xf(cyl(0.125, 0.125, 0.025, 16), [sx * 0.1, 0.13, 0], [0, 0, Math.PI / 2]));
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3;
+      b.add(launcher, 'chrome', xf(chamferBox(0.16, 0.025, 0.025, 0.006), [0, 0.13 + Math.cos(a) * 0.12, Math.sin(a) * 0.12], [a, 0, 0]));
+    }
+    b.add(launcher, 'dark', xf(cyl(0.055, 0.065, 0.14, 12), [0, 0.3, 0]));
+    b.add(launcher, 'glowHot', xf(cyl(0.038, 0.038, 0.005, 12), [0, 0.373, 0]));
+    rig.bombMuzzle.position.set(0, 0.39, 0);
+  } else if (def.model === 'mortar') {
     b.add(launcher, 'dark', xf(cyl(0.075, 0.085, 0.28, 18), [0, 0.13, 0], [0, 0, 0]));
     b.add(launcher, 'secondary', xf(cyl(0.088, 0.088, 0.06, 18), [0, 0.08, 0]));
     b.add(launcher, 'chrome', xf(torus(0.072, 0.012, 18, 6), [0, 0.27, 0], [Math.PI / 2, 0, 0]));
@@ -104,13 +153,13 @@ export function buildBomb(def: BombDef, rig: Rig, b: PartBuilder): THREE.Group {
   return launcher;
 }
 
-export function buildPodDock(def: PodDef, rig: Rig, b: PartBuilder, glowMat: THREE.Material): THREE.Group {
+export function buildPodDock(def: VisualPod, rig: Rig, b: PartBuilder, glowMat: THREE.Material): THREE.Group {
   const mount = rig.podMount;
   b.add(mount, 'dark', xf(chamferBox(0.16, 0.06, 0.12, 0.02), [0, -0.02, 0]));
   const dock = new THREE.Group();
   dock.name = 'podDock';
   mount.add(dock);
-  if (def.model === 'seeker') {
+  if (def.model === 'seeker' || def.model === 'turret' || def.model === 'interceptor') {
     const pod = buildPodMesh(def, glowMat, 0.75);
     pod.position.set(0, 0.08, -0.02);
     dock.add(pod);
@@ -127,7 +176,7 @@ export function buildPodDock(def: PodDef, rig: Rig, b: PartBuilder, glowMat: THR
 const podMatCache = new Map<number, THREE.Material[]>();
 
 /** Standalone pod mesh: used both for the docked pod and the in-flight drone. */
-export function buildPodMesh(def: PodDef, glowMat: THREE.Material | null, scale = 1): THREE.Group {
+export function buildPodMesh(def: VisualPod, glowMat: THREE.Material | null, scale = 1): THREE.Group {
   let mats = podMatCache.get(def.color);
   if (!mats) {
     mats = [
@@ -140,6 +189,33 @@ export function buildPodMesh(def: PodDef, glowMat: THREE.Material | null, scale 
   }
   const [dark, paint, glow, chrome] = mats;
   const g = new THREE.Group();
+  if (def.model === 'turret' || def.model === 'interceptor') {
+    const b = new PartBuilder();
+    const mats: MatSet = { primary: paint, secondary: paint, trim: chrome, chrome, dark, joint: dark, glow: glowMat ?? glow, glowHot: glowMat ?? glow, visor: dark, decal: paint };
+    if (def.model === 'turret') {
+      b.add(g, 'dark', xf(cyl(0.07, 0.1, 0.1, 12), [0, 0.02, 0]));
+      b.add(g, 'primary', xf(chamferBox(0.2, 0.1, 0.17, 0.03), [0, 0.1, 0]));
+      b.add(g, 'chrome', xf(cyl(0.021, 0.03, 0.22, 12), [0, 0.1, 0.16], [Math.PI / 2, 0, 0]));
+      b.add(g, 'glow', xf(cyl(0.015, 0.015, 0.006, 10), [0, 0.1, 0.275], [Math.PI / 2, 0, 0]));
+      for (let i = 0; i < 3; i++) {
+        const a = i * Math.PI * 2 / 3;
+        b.add(g, 'dark', xf(chamferBox(0.04, 0.045, 0.22, 0.012), [Math.sin(a) * 0.11, -0.05, Math.cos(a) * 0.11], [-0.25, a, 0]));
+        b.add(g, 'chrome', xf(chamferBox(0.07, 0.025, 0.08, 0.012), [Math.sin(a) * 0.2, -0.08, Math.cos(a) * 0.2], [0, a, 0]));
+      }
+    } else {
+      b.add(g, 'primary', chamferBox(0.16, 0.09, 0.23, 0.035));
+      b.add(g, 'glow', xf(chamferBox(0.075, 0.025, 0.016, 0.006), [0, 0, 0.125]));
+      for (const sx of [-1, 1]) {
+        b.add(g, 'dark', xf(chamferBox(0.21, 0.025, 0.09, 0.015), [sx * 0.13, 0, -0.025], [0, -sx * 0.25, 0]));
+        b.add(g, 'chrome', xf(torus(0.062, 0.014, 16, 6), [sx * 0.22, 0, -0.025], [Math.PI / 2, 0, 0]));
+        b.add(g, 'glow', xf(cyl(0.039, 0.039, 0.008, 12), [sx * 0.22, -0.012, -0.025]));
+        b.add(g, 'dark', xf(cyl(0.014, 0.018, 0.14, 10), [sx * 0.06, -0.04, 0.13], [Math.PI / 2, 0, 0]));
+      }
+    }
+    b.build(mats);
+    g.scale.setScalar(scale);
+    return g;
+  }
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material) => {
     const m = new THREE.Mesh(geo, mat);
     m.castShadow = mat !== glow;

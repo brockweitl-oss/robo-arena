@@ -11,7 +11,9 @@ export interface LegLengths {
   footLen: number;
 }
 
-export function legLengths(model: LegsDef['model'], len: number): LegLengths {
+type VisualLeg = LegsDef['model'] | 'sprint' | 'anchor' | 'feather';
+
+export function legLengths(model: VisualLeg, len: number): LegLengths {
   if (model === 'hopper') return { thigh: 0.3 * len, shin: 0.38 * len, ankleH: 0.11, meta: 0.26 * len, footLen: 0.36 };
   return { thigh: 0.4 * len, shin: 0.41 * len, ankleH: 0.11, meta: 0, footLen: 0.34 };
 }
@@ -113,6 +115,23 @@ function hopper(rig: Rig, b: PartBuilder, side: Side, bulk: number) {
   footNozzle(rig, b, ft, [0, -A + 0.07, -0.06], 0.035);
 }
 
-export function buildLegs(model: LegsDef['model'], rig: Rig, b: PartBuilder, bulk: number) {
-  for (const side of ['L', 'R'] as Side[]) (model === 'hopper' ? hopper : stride)(rig, b, side, bulk);
+export function buildLegs(model: VisualLeg, rig: Rig, b: PartBuilder, bulk: number) {
+  for (const side of ['L', 'R'] as Side[]) {
+    const sx = side === 'L' ? 1 : -1;
+    const k = bulk * (model === 'sprint' ? 0.76 : model === 'anchor' ? 1.22 : model === 'feather' ? 0.72 : 1);
+    (model === 'hopper' ? hopper : stride)(rig, b, side, k);
+    if (model === 'sprint') {
+      b.add(rig.knee[side], 'secondary', xf(plate([[0, 0.1], [0.055, -0.14], [0.02, -0.3], [-0.02, -0.1]], 0.025, 0.005), [sx * 0.11 * k, -0.1, -0.02], [0, sx * Math.PI / 2, 0]));
+    } else if (model === 'anchor') {
+      // Stabilizer teeth are carried above the sole so they never clip the ground.
+      for (const dx of [-1, 1]) {
+        b.add(rig.ankle[side], 'dark', xf(chamferBox(0.05, 0.12, 0.09, 0.012), [dx * 0.15 * k, -0.03, 0.05]));
+        b.add(rig.ankle[side], 'chrome', xf(plate([[-0.025, 0.04], [0.025, 0.04], [0.012, -0.04], [-0.012, -0.04]], 0.06, 0.004), [dx * 0.15 * k, -0.065, 0.05]));
+      }
+      b.add(rig.knee[side], 'secondary', xf(chamferBox(0.16 * k, 0.045, 0.025, 0.012), [0, -0.12, 0.13 * k]));
+    } else if (model === 'feather') {
+      for (let i = 0; i < 3; i++) b.add(rig.knee[side], i === 0 ? 'secondary' : 'primary', xf(plate([[0, 0.04], [0.16, 0.1], [0.12, -0.04], [0, -0.06]], 0.018, 0.004), [sx * 0.075, -0.15 - i * 0.07, -0.05], [0, -sx * 0.6, 0], [sx, 1, 1]));
+      footNozzle(rig, b, rig.knee[side], [sx * 0.1, -0.32, -0.08], 0.035);
+    }
+  }
 }
