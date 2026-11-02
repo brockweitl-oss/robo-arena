@@ -401,7 +401,7 @@ export class Match {
       const anchor = s.model.rig.lockPoint.getWorldPosition(_v2); anchor.y += .28;
       this.fx.updateComboMarker(s.fighter.id as 0 | 1, anchor, p?.remaining ?? 0, p?.duration ?? 2, p?.armed ? 0xffd36a : 0x5adfff);
     }
-    this.fx.syncProjectiles(this.world.projectiles, dt);
+    this.fx.syncProjectiles(this.world.projectiles, dt, this.sides.map((sd) => sd.model.rig.muzzle.getWorldPosition(new THREE.Vector3())));
     this.fx.syncBombs(this.world.bombs, dt);
     this.fx.syncPods(this.world.pods, dt);
     this.tactics.update(dt);
@@ -1039,7 +1039,7 @@ export class Match {
               // telegraph: charge sound + glint (the enemy's lane shows on the ground during the cast)
               audio.play('gun_rail_charge', { pos: f.pos, volume: 0.8, pitch: 1.3 });
               s.model.root.updateMatrixWorld(true);
-              fx.chargeGlint(s.model.rig.muzzle.getWorldPosition(new THREE.Vector3()), f.lo.skill.color);
+              fx.skillCharge(s.model.rig.muzzle.getWorldPosition(new THREE.Vector3()), f.lo.skill.color, !isP);
               break;
             }
             case 'skill': {
@@ -1048,7 +1048,7 @@ export class Match {
               s.anim.event({ type: 'fire' });
               s.model.root.updateMatrixWorld(true);
               const mp = s.model.rig.muzzle.getWorldPosition(new THREE.Vector3());
-              fx.muzzle(mp, new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)), sk.color, true);
+              fx.skillRelease(mp, new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)), sk.color);
               break;
             }
             case 'chargeStart':
@@ -1181,6 +1181,7 @@ export class Match {
           }
           const isPV = e.victim === 0;
           fx.hitSpark(e.pos, e.dir, e.color, e.heavy);
+          if (e.source === 'skill' && !e.blocked && !e.parried) fx.skillHit(e.pos, e.dir, e.color);
           audio.play(e.heavy ? 'hit_heavy' : 'hit_light', { pos: e.pos });
           v.anim.event({ type: 'hit', dir: e.dir, heavy: e.heavy });
           v.model.flash(e.heavy ? 1 : 0.7);

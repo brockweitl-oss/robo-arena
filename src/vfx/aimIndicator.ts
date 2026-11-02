@@ -12,13 +12,27 @@ import type { Collider } from '../arena/types';
 export class AimIndicator {
   readonly group = new THREE.Group();
   private geo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0, 0, 0.5);
-  private mine: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
-  private foe: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  private mine: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  private foe: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
 
   constructor(scene: THREE.Scene) {
     const mk = (color: number) => {
-      const m = new THREE.Mesh(this.geo, new THREE.MeshBasicMaterial({
-        color, transparent: true, opacity: 0.3, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false,
+      const m = new THREE.Mesh(this.geo, new THREE.ShaderMaterial({
+        uniforms: { uColor: { value: new THREE.Color(color) }, uOpacity: { value: 0.3 }, uT: { value: 0 }, uRange: { value: 20 } },
+        vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+        fragmentShader: `uniform vec3 uColor; uniform float uOpacity; uniform float uT; uniform float uRange; varying vec2 vUv;
+          void main(){
+            float along = 1.0 - vUv.y;
+            float ax = abs(vUv.x - 0.5) * 2.0;
+            float edge = smoothstep(0.82, 0.97, ax) * (1.0 - smoothstep(0.97, 1.0, ax));
+            float f = fract(along * uRange / 1.6 - ax * 0.35 - uT * 1.8);
+            float chevron = smoothstep(0.0, 0.08, f) * (1.0 - smoothstep(0.18, 0.3, f)) * (1.0 - ax * 0.6);
+            float fade = smoothstep(0.0, 0.06, along) * (1.0 - smoothstep(0.8, 1.0, along));
+            float tip = smoothstep(0.93, 0.985, along) * (1.0 - smoothstep(0.985, 1.0, along));
+            float a = (0.16 + edge * 1.2 + chevron * 0.75) * fade + tip * 1.6;
+            gl_FragColor = vec4(uColor * a * uOpacity * 3.0, 1.0);
+          }`,
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
       }));
       m.renderOrder = 5;
       m.frustumCulled = false;
@@ -38,15 +52,21 @@ export class AimIndicator {
     if (goal) {
       const sk = me.lo.skill;
       this.lane(this.mine, me.pos, goal.x, goal.z, sk.range, sk.radius * 2 + 0.5, colliders);
-      this.mine.material.color.setHex(sk.color);
-      this.mine.material.opacity = (me.skillCd > 0 ? 0.12 : 0.32) * pulse;
+      const u = this.mine.material.uniforms;
+      (u.uColor.value as THREE.Color).setHex(me.skillCd > 0 ? 0x8a8f99 : sk.color);
+      u.uOpacity.value = (me.skillCd > 0 ? 0.35 : 1) * pulse * 0.4;
+      u.uT.value = time;
+      u.uRange.value = sk.range;
     }
     this.foe.visible = foe.castT >= 0;
     if (this.foe.visible) {
       const sk = foe.lo.skill;
       const t = foe.castTarget;
       this.lane(this.foe, foe.pos, t ? t[0] : me.pos.x, t ? t[2] : me.pos.z, sk.range, sk.radius * 2 + 0.5, colliders);
-      this.foe.material.opacity = 0.45 * pulse;
+      const fu = this.foe.material.uniforms;
+      fu.uOpacity.value = 0.6 * pulse;
+      fu.uT.value = time * 2;
+      fu.uRange.value = sk.range;
     }
   }
 

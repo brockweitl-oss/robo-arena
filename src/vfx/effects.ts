@@ -3,6 +3,8 @@ import { ComboEffects } from './comboEffects';
 import * as THREE from 'three';
 import { PoseSnapshot } from './poseSnapshot';
 import { ParticleSystem } from './particles';
+import { ProjectileViews } from './projectileViews';
+import { Fireballs } from './fireball';
 import { scorchSprite, glowSprite } from '../render/textures';
 import type { Projectile, Bomb, Pod } from '../game/world';
 import { buildPodMesh } from '../robot/weapons';
@@ -68,6 +70,8 @@ export class Effects {
   readonly smoke: ParticleSystem;
   readonly panels = new PanelDebris();
   private readonly combos: ComboEffects;
+  private readonly shots: ProjectileViews;
+  private readonly fireballs: Fireballs;
   private rings: Ring[] = [];
   private decals: Decal[] = [];
   private flashes: Flash[] = [];
@@ -96,6 +100,10 @@ export class Effects {
     this.sparks.scale = q;
     this.smoke.scale = Math.max(0.6, q);
     this.group.add(this.sparks.mesh, this.smoke.mesh);
+    this.shots = new ProjectileViews(this.sparks, this.smoke);
+    this.group.add(this.shots.group);
+    this.fireballs = new Fireballs(quality === 'low' ? 4 : 8, quality === 'high' ? 4 : 3);
+    this.group.add(this.fireballs.group);
     scene.add(this.group);
     this.group.add(this.panels.mesh);
 
@@ -213,6 +221,11 @@ export class Effects {
     }
   }
 
+  /** Star-burst flare: a few very fast, very short streaks (reads at gameplay distance). */
+  flare(pos: THREE.Vector3, color: number, len: number, n = 6, dir?: THREE.Vector3, cone = 0) {
+    this.sparks.emit({ pos, count: n, dir, cone, speed: [38, 46], size: [0.09, 0.14], life: [0.05, 0.08], color: 0xffffff, color2: color, intensity: 5, stretch: len / 42 });
+  }
+
   /* --------------------------------------------------------------- composite effects */
 
   muzzle(pos: THREE.Vector3, dir: THREE.Vector3, color: number, big = false) {
@@ -220,6 +233,8 @@ export class Effects {
     this.sparks.emit({ pos, count: 1, size: [0.55 * k, 0.6 * k], life: [0.06, 0.08], color: 0xffffff, color2: color, intensity: 3 });
     this.sparks.emit({ pos, count: 1, size: [0.9 * k, 1.0 * k], life: [0.08, 0.1], color, intensity: 2.2 });
     this.sparks.emit({ pos, count: big ? 14 : 6, dir, cone: 0.75, speed: [6, 16], size: [0.05, 0.08], life: [0.08, 0.18], color: 0xffffff, color2: color, intensity: 3, stretch: 0.03, drag: 4 });
+    this.sparks.emit({ pos, count: big ? 4 : 2, dir, cone: 0.97, speed: [26, 32], size: [0.22 * k, 0.3 * k], life: [0.04, 0.06], color: 0xffffff, color2: color, intensity: 4, stretch: 0.03 * k });
+    if (big) this.flare(pos, color, 1.2, 5);
     this.lightFlash(pos, color, big ? 30 : 12, 0.08);
   }
 
@@ -240,13 +255,18 @@ export class Effects {
     this.sparks.emit({ pos, count: 6, speed: [1, 3], size: [0.35, 0.55], grow: 2, life: [0.12, 0.2], color, intensity: 2 });
     this.ring(pos, dir.clone().negate(), 0xffffff, 0.2, heavy ? 2.2 : 1.2, heavy ? 0.28 : 0.18, 0.9);
     this.lightFlash(pos, 0xfff0d0, heavy ? 30 : 14, 0.12);
-    if (heavy) this.debris(pos, 4, 6);
+    this.flare(pos, color, heavy ? 2.4 : 1.2, heavy ? 8 : 4);
+    if (heavy) { this.debris(pos, 4, 6); this.fireballs.spawn(pos, 0.55, color, 0.3); }
   }
 
   explosion(pos: THREE.Vector3, radius: number, color: number, big: boolean, onGround: boolean) {
     const k = radius / 3;
     // 1) white-hot flash
     this.sparks.emit({ pos, count: 1, size: [radius * 1.5, radius * 1.8], life: [0.07, 0.1], color: 0xffffff, intensity: 2.5 });
+    // 1b) shaped fireballs (main + two lobes) and a star flare
+    this.fireballs.spawn(pos.clone().add(new THREE.Vector3(0, radius * 0.15, 0)), radius * 0.75, color, big ? 0.7 : 0.55);
+    for (let i = 0; i < (big ? 2 : 1); i++) this.fireballs.spawn(pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * radius * 0.8, radius * 0.1, (Math.random() - 0.5) * radius * 0.8)), radius * 0.45, color, 0.45);
+    this.flare(pos.clone().add(new THREE.Vector3(0, radius * 0.3, 0)), color, radius * 1.6, big ? 10 : 7);
     // 2) fireball: many overlapping additive puffs, color ramps from hot to deep
     this.sparks.emit({ pos, count: Math.round(26 * k), spread: radius * 0.25, speed: [1.5, 5.5 * k], size: [radius * 0.32, radius * 0.5], grow: 1.6, life: [0.25, 0.5], color: 0xffc060, color2: color, intensity: 1.5, drag: 4, gravity: -3, spin: 2 });
     // 3) smoke column
@@ -283,6 +303,7 @@ export class Effects {
     this.ring(pos, UP, color, 0.4, 5, 0.45, 1);
     this.ring(pos, new THREE.Vector3(0, 0.3, 1).normalize(), 0xffffff, 0.2, 3.5, 0.3, 0.8);
     this.lightFlash(pos, color, 80, 0.4);
+    this.flare(pos, color, 3, 10);
     this.debris(pos, 10, 9);
   }
 
@@ -334,6 +355,35 @@ export class Effects {
     this.ring(pos, new THREE.Vector3(0, 0.2, 1).normalize(), color, 0.6, 0.08, 0.3, 0.7);
   }
 
+  /** Skill wind-up at the emitter: gathering sparks, a glint and (for enemies) a red warning ring. */
+  skillCharge(pos: THREE.Vector3, color: number, enemy: boolean) {
+    this.chargeGlint(pos, color);
+    for (let i = 0; i < Math.round(14 * this.scale); i++) {
+      _v.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(0.9);
+      this.sparks.emit({ pos: pos.clone().add(_v), vel: _v.clone().multiplyScalar(-7), count: 1, size: [0.05, 0.08], life: [0.12, 0.14], color: 0xffffff, color2: color, intensity: 4, stretch: 0.03 });
+    }
+    if (enemy) this.ring(pos, new THREE.Vector3(0, 0.2, 1).normalize(), 0xff3b3b, 1.4, 0.2, 0.18, 0.9);
+    this.lightFlash(pos, color, 16, 0.18);
+  }
+
+  /** Skill release: a heavy muzzle blast with a recoil shock cone. */
+  skillRelease(pos: THREE.Vector3, dir: THREE.Vector3, color: number) {
+    this.muzzle(pos, dir, color, true);
+    this.ring(pos.clone().addScaledVector(dir, 0.4), dir, color, 0.2, 1.8, 0.2, 1);
+    this.sparks.emit({ pos, count: 18, dir, cone: 0.85, speed: [14, 30], size: [0.06, 0.1], life: [0.1, 0.22], color: 0xffffff, color2: color, intensity: 4, stretch: 0.03, drag: 3 });
+    this.smoke.emit({ pos, count: 4, dir: dir.clone().negate(), cone: 0.4, speed: [1, 3], size: [0.3, 0.45], grow: 2.4, life: [0.5, 0.8], color: 0x8c8a90, alpha: 0.35, drag: 2.5, gravity: -0.6, spin: 1 });
+  }
+
+  /** A skill shot landing: bigger than a gun hit, coloured by the skill. */
+  skillHit(pos: THREE.Vector3, dir: THREE.Vector3, color: number) {
+    this.flare(pos, color, 3.2, 10);
+    this.ring(pos, dir.clone().negate(), color, 0.3, 3.2, 0.32, 1);
+    const warm = new THREE.Color(color);
+    if (warm.r > warm.b) this.fireballs.spawn(pos, 0.7, color, 0.32);
+    this.sparks.emit({ pos, count: Math.round(30 * this.scale) + 6, dir, cone: 0.5, speed: [8, 24], size: [0.06, 0.1], life: [0.25, 0.55], color: 0xffffff, color2: color, intensity: 4, stretch: 0.04, drag: 2, gravity: 12 });
+    this.lightFlash(pos, color, 50, 0.25);
+  }
+
   chargeWarning(pos: THREE.Vector3, dir: THREE.Vector3) {
     this.ring(pos, dir, 0xff4433, 0.85, 0.3, 0.24, 0.8);
     this.sparks.emit({ pos, count: 1, size: [0.65, 0.7], life: [0.12, 0.16], color: 0xff5533, intensity: 3, grow: 0.3 });
@@ -348,49 +398,9 @@ export class Effects {
 
   /* --------------------------------------------------------------- live entities */
 
-  syncProjectiles(list: Projectile[], dt: number) {
-    const seen = new Set<number>();
-    for (const p of list) {
-      seen.add(p.id);
-      let v = this.projViews.get(p.id);
-      if (!v) {
-        const pooled = this.projPool.pop() ?? {
-          core: new THREE.Mesh(this.coreGeo, this.coreMat(p.spec.color)),
-          halo: new THREE.Sprite(this.haloMat(p.spec.color)),
-        };
-        pooled.core.material = this.coreMat(p.spec.coreColor ?? 0xffffff);
-        pooled.halo.material = this.haloMat(p.spec.color);
-        pooled.core.visible = pooled.halo.visible = true;
-        this.group.add(pooled.core, pooled.halo);
-        v = { ...pooled, last: p.pos.clone() };
-        this.projViews.set(p.id, v);
-      }
-      const r = p.spec.radius;
-      v.core.position.copy(p.pos);
-      // stretch along velocity
-      const sp = p.vel.length();
-      v.core.scale.set(r * 0.55, r * 0.55, r * 0.55 + sp * 0.012);
-      _v.copy(p.pos).add(p.vel);
-      v.core.lookAt(_v);
-      v.halo.position.copy(p.pos);
-      v.halo.scale.setScalar(r * 6);
-      // trail particles along the path since last frame
-      const dist = v.last.distanceTo(p.pos);
-      const steps = Math.min(6, Math.ceil(dist / 0.35));
-      for (let i = 0; i < steps; i++) {
-        _v.copy(v.last).lerp(p.pos, (i + 1) / steps);
-        this.sparks.emit({ pos: _v, count: 1, size: [r * 1.6, r * 2.0], grow: 0.15, life: [0.12, 0.2], color: p.spec.color, intensity: 1.8, speed: [0, 0.4] });
-      }
-      v.last.copy(p.pos);
-    }
-    for (const [id, v] of this.projViews) {
-      if (seen.has(id)) continue;
-      v.core.visible = v.halo.visible = false;
-      this.group.remove(v.core, v.halo);
-      this.projPool.push({ core: v.core, halo: v.halo });
-      this.projViews.delete(id);
-    }
-    void dt;
+  /** `anchors[owner]` = that robot's muzzle (harpoon cables start there). */
+  syncProjectiles(list: Projectile[], dt: number, anchors: THREE.Vector3[] = []) {
+    this.shots.sync(list, dt, anchors);
   }
 
   syncBombs(list: Bomb[], dt: number) {
@@ -515,6 +525,7 @@ export class Effects {
     this.time += dt;
     this.panels.update(dt);
     this.combos.update(dt);
+    this.fireballs.update(dt);
     this.sparks.update(dt);
     this.smoke.update(dt);
     for (const r of this.rings) {
@@ -598,8 +609,8 @@ export class Effects {
     this.combos.clear();
     this.sparks.clear();
     this.smoke.clear();
-    for (const [, v] of this.projViews) { this.group.remove(v.core, v.halo); this.projPool.push({core:v.core,halo:v.halo}); }
-    this.projViews.clear();
+    this.shots.clear();
+    this.fireballs.clear();
     for (const [, g] of this.bombViews) { this.group.remove(g); ((g.children[2] as THREE.Mesh).material as THREE.Material).dispose(); }
     this.bombViews.clear();
     for (const [, v] of this.podViews) { this.group.remove(v.g); Effects.disposeGeometries(v.g); (v.light.material as THREE.Material).dispose(); }
@@ -616,6 +627,8 @@ export class Effects {
     for (const list of this.ghosts.values()) for (const g of list) { g.mat.dispose(); g.snapshot.geometry.dispose(); }
     this.panels.dispose();
     this.combos.dispose();
+    this.shots.dispose();
+    this.fireballs.dispose();
     this.coreGeo.dispose(); this.ringGeo.dispose();
     Object.values(this.bombGeo).forEach(g => g.dispose());
     this.bombShellMat.dispose(); this.bombBandMats.forEach(m => m.dispose());
