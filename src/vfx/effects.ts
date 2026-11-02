@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PoseSnapshot } from './poseSnapshot';
 import { ParticleSystem } from './particles';
 import { scorchSprite, glowSprite } from '../render/textures';
 import type { Projectile, Bomb, Pod } from '../game/world';
@@ -39,7 +40,7 @@ interface Chunk {
 }
 interface Ghost {
   group: THREE.Group;
-  meshes: { src: THREE.Mesh; dst: THREE.Mesh }[];
+  snapshot: PoseSnapshot;
   t: number;
   active: boolean;
   mat: THREE.ShaderMaterial;
@@ -451,18 +452,11 @@ export class Effects {
     for (let i = 0; i < 4; i++) {
       const mat = ghostMaterial(color);
       const group = new THREE.Group();
-      const meshes: Ghost['meshes'] = [];
-      for (const src of model.meshes) {
-        if ((src.material as THREE.Material) === model.mats.decal) continue;
-        const dst = new THREE.Mesh(src.geometry, mat);
-        dst.matrixAutoUpdate = false;
-        dst.frustumCulled = false;
-        group.add(dst);
-        meshes.push({ src, dst });
-      }
+      const snapshot = new PoseSnapshot(model.meshes.filter(src => src.material !== model.mats.decal), mat);
+      group.add(snapshot);
       group.visible = false;
       this.group.add(group);
-      list.push({ group, meshes, t: 0, active: false, mat });
+      list.push({ group, snapshot, t: 0, active: false, mat });
     }
     this.ghosts.set(model, list);
   }
@@ -472,7 +466,7 @@ export class Effects {
     if (!list) return;
     const g = list.find((x) => !x.active) ?? list.reduce((a, b) => (a.t > b.t ? a : b));
     model.root.updateMatrixWorld(true);
-    for (const { src, dst } of g.meshes) dst.matrix.copy(src.matrixWorld);
+    g.snapshot.capture();
     g.t = 0;
     g.active = true;
     g.group.visible = true;
@@ -578,7 +572,7 @@ export class Effects {
     this.scene.remove(this.group);
     for (const m of this.coreMats.values()) m.dispose();
     for (const m of this.haloMats.values()) m.dispose();
-    for (const list of this.ghosts.values()) for (const g of list) g.mat.dispose();
+    for (const list of this.ghosts.values()) for (const g of list) { g.mat.dispose(); g.snapshot.geometry.dispose(); }
     this.chunkMesh.dispose();
   }
 }

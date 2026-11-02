@@ -1,3 +1,4 @@
+import { lightShafts } from '../render/lightShafts';
 // Crucible Yard — industrial foundry floor at night. Steel deck, two raised catwalks with ramps,
 // ingot-crate cover and a crane platform that shuttles across the arena on a timed path.
 import * as THREE from 'three';
@@ -180,6 +181,11 @@ export const createFoundry: ArenaFactory = (opts) => {
   root.name = 'foundry';
   const kit = new TexKit();
   const ownedMats: THREE.Material[] = [];
+  if (!low) {
+    const shafts = lightShafts(0xffb26a, [[-15, 21, -18], [15, 21, 18]], 21);
+    root.add(shafts);
+    ownedMats.push(shafts.material);
+  }
   const ownedGeos: THREE.BufferGeometry[] = [];
   const R = rng(1337);
 
