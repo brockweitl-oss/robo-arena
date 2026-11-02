@@ -190,6 +190,8 @@ export class Fighter implements AnimSource {
   get attackCommitted() {
     return this.recoveryTime > 0 || this.holdT >= 0 || this.burstLeft > 0;
   }
+  get remainingAirDashes() { return this.airDashes; }
+
   get canDash() {
     return this.dashCharges > 0 && this.dashGap <= 0 && !this.attackCommitted;
   }
@@ -789,3 +791,4 @@ export class Fighter implements AnimSource {
     if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
   }
 }
+
