@@ -244,5 +244,14 @@
     ],
     "errors": []
   },
-  "evidenceNote": "Main after set precedes final heel/rear-gauntlet recess tweaks; finalShortFootClearance verifies latest source."
+  "evidenceNote": "Main after set precedes final heel/rear-gauntlet recess tweaks; finalShortFootClearance verifies latest source.",
+  "validatedCommit": "2eef92e",
+  "finalGameplayImage": "after/match-final.jpg",
+  "finalValidation": {
+    "tests": 196,
+    "buildModules": 120,
+    "e2e": "PASS60fps",
+    "perfFps": 127.8551724137931,
+    "problems": []
+  }
 }

@@ -10,20 +10,16 @@ Rig joints, leg lengths, collision dimensions, weapon mounts and thruster anchor
 
 ## Evidence
 
-`docs/visuals/power-armor/before/` contains the previous reference-suit front images. `after/` contains actual runtime front, side, back, run and fire views for all four classes, plus a gameplay image. The main 21-image after set records the enclosed-body pass before the final small heel and rear-gauntlet recess adjustments. The latest Feather/Sprint rear and side images in `clearance/` verify those final adjustments, including Wisp with a beam weapon. The 1080p benchmark below predates only those small recess fixes; the final unit/build and smoke checks include them. These are runtime screenshots, not generated concept images. Captures use 1600×1000 at medium quality; exact FPS and browser diagnostics are in `after/report.json`.
+`docs/visuals/power-armor/before/` contains the previous reference-suit front images. `after/` contains actual runtime front, side, back, run and fire views for all four classes, plus a gameplay image. The main 21-image after set records the enclosed-body pass before the final small heel and rear-gauntlet recess adjustments. The latest Feather/Sprint rear and side images in `clearance/` verify those final adjustments, including Wisp with a beam weapon. Final unit/build, smoke and 1080p benchmark checks cover combined commit 2eef92e, including the latest weapon effects. The refreshed combined-build gameplay screenshot is `after/match-final.jpg`. These are runtime screenshots, not generated concept images. Captures use 1600×1000 at medium quality; exact FPS and browser diagnostics are in `after/report.json`.
 
 ## Validation
 
 - All 196 unit tests passed, including 21 leg geometry and mount tests.
-- TypeScript and production build passed (119 modules).
+- TypeScript and production build passed (120 modules).
 - Final browser smoke passed: player actions and full 45-second match, 60 FPS, zero browser problems.
 - Viewer/gameplay captures: 58–60.55 FPS at 1600×1000 medium; zero warnings or errors.
-- Uncapped 1920×1080 medium Garden benchmark: 129.77 FPS across 1,429 frames, 5.44 ms average CPU render time, 662.93 aggregate render calls, zero browser problems. Geometry count changed from 371 to 424 during combat; this short run is not a leak test.
+- Uncapped 1920×1080 medium Garden benchmark: 127.86 FPS across 1,450 frames, 5.57 ms average CPU render time, 668.69 aggregate render calls, zero browser problems. Geometry count changed from 371 to 417 during combat; this short run is not a leak test.
 - The measured FPS target passes on this machine; aggregate draw calls remain above the original 150–250 target.
 
 Short FPS samples are machine-specific. Aggregate draw calls include all render passes; viewer counters alone do not measure aggregate match cost.
-
-
-
-
 

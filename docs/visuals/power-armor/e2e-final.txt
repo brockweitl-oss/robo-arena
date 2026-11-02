@@ -7,3 +7,6 @@
 • start match
 • player events {"fire":3,"bomb":1,"pod":1,"chargeStart":1,"dash":1,"jump":1,"airjump":1}
 • autoplay to the end
+• result win by time in 45.0s
+• mid-fight fps 60
+PASS
