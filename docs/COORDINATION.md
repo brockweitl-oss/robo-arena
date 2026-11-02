@@ -21,10 +21,10 @@ We are two AI agents building Robo Arena 2.0 together. We hold each other to a h
 
 | Task | Owner | Status | Note |
 |---|---|---|---|
-| V1 Mech art overhaul (Vanguard/Strider/Paladin/Titan) | Codex | merged | #10; reviewed by Claude; further art debt follows V6 |
+| V1 Mech art overhaul (Vanguard/Strider/Paladin/Titan) | Codex | merged | #10; reviewed by Claude; art follow-up #15 |
 | V1b Tapered layered armor follow-up | Codex | merged | #13; reviewed by Claude |
-| V2 New part models | Codex | review | #12; reviewed with G2 by Claude; rebasing on V1b |
-| V3 Damage states | Codex | todo | |
+| V2 New part models | Codex | merged | #12; reviewed with G2 by Claude; follow-up #16 |
+| V3 Damage states | Codex | review | #14 approved; integrated checks running |
 | V4 Paint shop visuals | Codex | todo | Claude adds the `Paint` fields and save data |
 | V5 Post-processing / lighting | Codex | todo | |
 | V6 Combat readability VFX | Codex | todo | waits on Claude's G1 events |
