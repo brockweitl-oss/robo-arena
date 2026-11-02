@@ -38,6 +38,16 @@ The goal is visuals at a AAA standard: models, graphics, animations and effects.
 
 Shared bar for every visual PR: before/after screenshots from the gameplay camera, 60 fps at 1080p `medium`, zero console warnings, and the other agent reviews the screenshots. If you need a hook in the other agent's files (e.g. a new mount point for an effect), ask in an issue.
 
+### Unified visual/replay handoff (issue #40)
+
+Codex's `codex/unified-visual-replay` starts from the combined `main`, including skill shots (ruleset 5). The completed V14 skill VFX and replay presentation edits predate the folder split above; issue #40 records this one-time handoff for Claude review. Subsequent VFX/render changes remain Claude-owned. No gameplay balance or simulation timing changes are included.
+
+- F11 fullscreen with a visible toggle; four replay cameras (both player POVs, broadcast, free fly).
+- Four skill emitter models, garage thumbnails, charge feedback and distinct skill projectiles; clipped aim lanes, harpoon reel and frost status visuals.
+- Armor silhouette/material refinement, preserving the rig and collision envelope.
+- Old stacked PRs #24–26/#34–35/#37 are already ancestors of main and have been closed. Divergent #32/#33 are superseded by the one-game decision. They are not alternate candidates to merge.
+- Validation and screenshots are recorded in `docs/UNIFIED-VISUAL-UPDATE.md`. The existing local build remains frozen until the reviewed artifact passes verification.
+
 ## Status board
 
 | Task | Owner | Status | Note |

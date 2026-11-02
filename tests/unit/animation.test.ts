@@ -5,14 +5,14 @@ import { Rig } from '../../src/robot/rig';
 import type { RobotModel } from '../../src/robot/model';
 import { DEFAULT_LOADOUT, resolveLoadout, type Loadout } from '../../src/data/parts';
 
-function fixture(gun: Loadout['gun'] = 'pulse') {
+function fixture(gun: Loadout['gun'] = 'pulse', skill: Loadout['skill'] = 'lance') {
   const rig = new Rig({ hipY: 1, hipX: .16, thigh: .45, shin: .45, ankleH: .1, meta: 0, waistY: .12, chestY: .15, neckY: .25, shoulderX: .3, shoulderY: .2, upperArm: .3, forearm: .3, scale: 1, footLen: .25 });
-  const model = { rig, loadout: resolveLoadout({ ...DEFAULT_LOADOUT, gun }), barrel: new THREE.Group(), launcher: new THREE.Group(), setCharge() {} } as unknown as RobotModel;
+  const model = { rig, loadout: resolveLoadout({ ...DEFAULT_LOADOUT, gun, skill }), barrel: new THREE.Group(), launcher: new THREE.Group(), setCharge() {} } as unknown as RobotModel;
   const animator = new Animator(model);
   const source: AnimSource = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, grounded: true, mode: 'ground', modeTime: 0, chargePhase: 0, hovering: false, aimTarget: new THREE.Vector3(0, 1.4, 10), aimWeight: 1, railCharge: 0, dashDir: new THREE.Vector3(0, 0, 1) };
   const step = (n: number) => { for (let i = 0; i < n; i++) { source.modeTime += 1 / 60; animator.update(source, 1 / 60); } };
   step(90);
-  return { animator, source, rig, step };
+  return { animator, source, rig, step, model };
 }
 
 it('precision release moves the torso more than pulse without moving the simulation root', () => {
@@ -25,6 +25,35 @@ it('precision release moves the torso more than pulse without moving the simulat
   for (const side of ['L', 'R'] as const) {
     const q = rail.rig.ankle[side].getWorldQuaternion(new THREE.Quaternion());
     expect(q.angleTo(rail.rig.root.quaternion)).toBeLessThan(.0001);
+  }
+});
+
+it('all four skill casts have distinct continuous poses and leave gun recoil and root untouched', () => {
+  const poses: number[][] = [];
+  for (const skill of ['lance', 'wave', 'hook', 'frost'] as const) {
+    const f = fixture('pulse', skill);
+    let previous = f.rig.chest.quaternion.clone();
+    for (let i = 0; i < 30; i++) {
+      f.source.castT = f.model.loadout.skill.cast * (1 - i / 30);
+      f.step(1);
+      expect(previous.angleTo(f.rig.chest.quaternion)).toBeLessThan(.12);
+      previous.copy(f.rig.chest.quaternion);
+    }
+    poses.push(f.rig.chest.quaternion.toArray());
+    f.source.castT = -1; f.animator.event({ type: 'skill' });
+    for (let i = 0; i < 120; i++) {
+      f.step(1);
+      expect(previous.angleTo(f.rig.chest.quaternion)).toBeLessThan(.12);
+      previous.copy(f.rig.chest.quaternion);
+      expect(Math.abs(f.model.barrel.position.y)).toBe(0);
+      expect(f.rig.root.position.equals(f.source.pos)).toBe(true);
+    }
+    f.rig.root.updateMatrixWorld(true);
+    f.rig.root.traverse(node => expect(node.matrixWorld.elements.every(Number.isFinite)).toBe(true));
+    expect(Math.abs(f.rig.chest.rotation.x)).toBeLessThan(.05);
+  }
+  for (let i = 0; i < poses.length; i++) for (let j = i + 1; j < poses.length; j++) {
+    expect(new THREE.Quaternion().fromArray(poses[i]).angleTo(new THREE.Quaternion().fromArray(poses[j]))).toBeGreaterThan(.03);
   }
 });
 

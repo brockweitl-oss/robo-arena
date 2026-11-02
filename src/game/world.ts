@@ -140,7 +140,7 @@ export type GameEvent =
   | { type: 'podTrigger'; pod: Pod }
   | { type: 'impact'; pos: THREE.Vector3; normal: THREE.Vector3; color: number; proj: Projectile }
   | { type: 'explosion'; pos: THREE.Vector3; radius: number; color: number; big: boolean; onGround: boolean }
-  | { type: 'hit'; victim: number; attacker: number; pos: THREE.Vector3; dir: THREE.Vector3; damage: number; heavy: boolean; knockdown: boolean; ko: boolean; blocked: boolean; parried: boolean; guardBroken: boolean; source: HitInfo['source']; color: number }
+  | { type: 'hit'; victim: number; attacker: number; pos: THREE.Vector3; dir: THREE.Vector3; damage: number; heavy: boolean; knockdown: boolean; ko: boolean; blocked: boolean; parried: boolean; guardBroken: boolean; source: HitInfo['source']; color: number; skillLook?: ShotSpec['look']; skillReflected?: boolean }
   | { type: 'dodge'; who: number; pos: THREE.Vector3; perfect: boolean }
   | { type: 'deflect'; who: number; pos: THREE.Vector3; color: number; parry: boolean }
   | { type: 'clash'; pos: THREE.Vector3 }
@@ -451,7 +451,7 @@ export class World {
       if (hit) {
         if (!target.isInvulnerable) {
           const dir = p.vel.clone().normalize();
-          const result = this.applyHit(target, p.owner, { damage: s.damage, down: s.down, dir, knock: s.knockback, heavy: s.down >= 40 || !!s.pull, source: s.skill ? 'skill' : 'gun', comboBonus: !p.deflected && s.comboDetonator ? comboBonus(s.damage * DAMAGE_SCALE) : undefined }, hit, s.color);
+          const result = this.applyHit(target, p.owner, { damage: s.damage, down: s.down, dir, knock: s.knockback, heavy: s.down >= 40 || !!s.pull, source: s.skill ? 'skill' : 'gun', comboBonus: !p.deflected && s.comboDetonator ? comboBonus(s.damage * DAMAGE_SCALE) : undefined }, hit, s.color, false, s.skill ? { look: s.look, reflected: p.deflected } : undefined);
           const landed = !!result && !result.blocked && !result.parried;
           if (landed && !p.deflected && s.pull && target.alive && !result.knockdown) {
             // harpoon: reel the target in (staggered by the heavy hit)
@@ -759,7 +759,7 @@ export class World {
     }
   }
 
-  applyHit(victim: Fighter, attacker: number, h: HitInfo, at: THREE.Vector3, color: number, canPrime = false) {
+  applyHit(victim: Fighter, attacker: number, h: HitInfo, at: THREE.Vector3, color: number, canPrime = false, skill?: { look: ShotSpec['look']; reflected: boolean }) {
     const primerOwner = victim.primer?.owner;
     const r = victim.takeHit({ ...h, damage: h.damage * DAMAGE_SCALE });
     if (!r.applied) return;
@@ -782,7 +782,7 @@ export class World {
     this.events.push({
       type: 'hit', victim: victim.id, attacker, pos: at.clone(), dir: h.dir.clone(), damage: r.damage,
       heavy: (h.heavy || r.knockdown || !!r.guardBroken) && !r.blocked && !r.parried, knockdown: r.knockdown, ko: r.ko,
-      blocked: !!r.blocked, parried: !!r.parried, guardBroken: !!r.guardBroken, source: h.source, color,
+      blocked: !!r.blocked, parried: !!r.parried, guardBroken: !!r.guardBroken, source: h.source, color, skillLook: skill?.look, skillReflected: skill?.reflected,
     });
     if (r.ko && this.koLoser < 0) {
       this.koLoser = victim.id;

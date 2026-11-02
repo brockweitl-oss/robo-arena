@@ -77,6 +77,13 @@ function helmet(rig:Rig,b:B,frame:Frame) {
   } else if(slim) b.add(h,'secondary',xf(petal(.045,.2,.07),[0,.20,-.035],[.55,0,0]));
   else if(!heavy) b.add(h,'trim',xf(petal(.038,.15,.035),[0,.235,-.05],[Math.PI/2,0,0]));
   rig.lockPoint.position.set(0,.31,0);
+  // Offset optical rangefinder: three recessed lenses in one mechanical cheek housing.
+  const sensorX = -w * 1.04;
+  b.add(h,'dark',xf(armorShell([[-.025,-.045],[.025,-.035],[.025,.045],[-.018,.05]],.025,.004),[sensorX,.14,.065],[0,-.55,0]));
+  for (let i=0;i<3;i++) {
+    b.add(h,'chrome',xf(torus(.009,.003,10,4),[sensorX,.114+i*.022,.093],[0,-.55,0]));
+    b.add(h,i===1?'glow':'visor',xf(cyl(.006,.006,.005,10),[sensorX-.002,.114+i*.022,.095],[Math.PI/2,-.55,0]));
+  }
 }
 function arm(rig:Rig,b:B,side:Side,frame:Frame) {
   const sx=side==='L'?1:-1, heavy=frame==='ironclad', slim=frame==='wisp', paladin=frame==='regent';
@@ -94,12 +101,20 @@ function arm(rig:Rig,b:B,side:Side,frame:Frame) {
   }
   if(slim) { nozzle(rig,b,e,[sx*.075,-f*.6,-.035],.026,0); }
   b.add(e,'glow',xf(plate([[-.008,-.07],[.008,-.07],[.006,.07],[-.006,.07]],.005,.001),[sx*.035,-f*.4,.1*k]));
-  // Shoulder is a swept compound cap, its lower overlapping leaf reveals the joint.
+  // Pressed shoulder shell: a broad crown, a cut lower corner, and a separate overlapping cap.
   const sw=heavy?.36:slim?.18:paladin?.30:.245, sh=heavy?.27:.19, sd=heavy?.32:slim?.18:.235;
   if(paladin) b.add(pad,'primary',xf(armorShell([[-.11,-.07],[.075,-.105],[.18,-.015],[.12,.125],[-.1,.10]],.25,.025),[sx*.025,.015,-.005],[.08,sx*.14,0],[sx,1,1]));
-  else b.add(pad,'primary',xf(petal(sw,sh,sd,.015),[sx*(heavy?.045:.025),.015,-.005],[.05,0,-sx*(heavy?.1:.4)]));
+  else {
+    const pos: [number,number,number] = [sx*(heavy?.045:.025),.015,-.005];
+    const rot: [number,number,number] = [.05,0,-sx*(heavy?.1:.25)];
+    // A true recessed casing split follows the curved cross-section, rather than a floating decal.
+    b.add(pad,'dark',xf(armorLoft([[-sh*.13,sw*.47,sd*.43],[sh*.09,sw*.46,sd*.42]],10),pos,rot,[sx,1,1]));
+    b.add(pad,'primary',xf(armorLoft([[-sh*.48,sw*.27,sd*.27,sw*.09,0],[-sh*.12,sw*.49,sd*.45],[-.008,sw*.48,sd*.445]],10),pos,rot,[sx,1,1]));
+    b.add(pad,'primary',xf(armorLoft([[.009,sw*.478,sd*.442],[sh*.23,sw*.46,sd*.43],[sh*.40,sw*.29,sd*.30,-sw*.07,-.01]],10),pos,rot,[sx,1,1]));
+    if (heavy) for (const x of [-.075,.075]) b.add(pad,'chrome',xf(cyl(.012,.012,.009,6),[sx*.045+x,-.035,sd*.40],[Math.PI/2,0,0]));
+  }
   if(paladin) b.add(pad,'secondary',xf(armorShell([[-.1,.015],[.10,.04],[.155,-.015],[.10,-.035],[-.08,-.025]],.08,.012),[sx*.03,.1,.07],[.18,0,0],[sx,1,1]));
-  else b.add(pad,'secondary',xf(petal(sw*.83,sh*.38,sd*.88),[sx*.025,.082,-.005],[0,0,-sx*.28]));
+  else b.add(pad,'secondary',xf(armorShell([[-sw*.42,.023],[sw*.20,.035],[sw*.43,.005],[sw*.32,-.02],[-sw*.38,-.014]],sd*.52,.009),[sx*.025,.092,-sd*.15],[.08,0,-sx*.20],[sx,1,1]));
   if(heavy || paladin) {
     b.add(pad,'trim',xf(armorShell([[-sw*.19,.014],[sw*.19,.014],[sw*.16,-.018],[-sw*.16,-.018]],.007,.001),[sx*.025,.02,sd*.46],[0,0,-sx*.28]));
     for(const g of vents(sw*.26,.024,2,.004)) b.add(pad,'dark',xf(g,[sx*.025,.02,sd*.48],[0,0,-sx*.28]));
@@ -123,10 +138,10 @@ function chest(rig:Rig,b:B,frame:Frame) {
   // Continuous compound hull, narrow at waist, powerful at clavicle, swept spine.
   b.add(c,'dark',armorLoft([[-.18,w*.38,d*.63,0,-.005],[-.07,w*.68,d*.85],[.08,w*.96,d],[.17,w*.86,d*.8,0,-.015],[.20,w*.46,d*.6,0,-.025]],20));
   for(const sx of [-1,1]) {
-    // Each pectoral is a bowed surface with tapered lower point, not a flat extrusion.
+    // Broad folded breastplate with a clipped lower edge; the curved hull remains exposed beneath.
     if(paladin) b.add(c,'primary',xf(armorShell([[.025,-.12],[.19,-.11],[.28,.06],[.23,.145],[.055,.10]],.085,.035),[0,0,d*.6],[-.12,-sx*.14,0],[sx,1,1]));
-    else b.add(c,'primary',xf(petal(w*.95,heavy?.31:.27,d*.72,.035),[sx*w*.48,.035,d*.63],[-.14,-sx*.20,-sx*.28]));
-    b.add(c,'secondary',xf(petal(w*.86,.095,d*.48),[sx*w*.47,.143,d*.56],[-.2,-sx*.18,-sx*.25]));
+    else b.add(c,'primary',xf(armorShell([[.035,-.105],[w*.55,-.13],[w*.91,-.045],[w*.94,.10],[w*.60,.145],[.045,.10]],heavy?.072:.052,heavy?.026:.02),[0,0,d*.65],[-.10,-sx*.18,0],[sx,1,1]));
+    b.add(c,'secondary',xf(armorShell([[.045,.125],[w*.62,.17],[w*.91,.13],[w*.87,.095],[w*.58,.12],[.05,.085]],.025,.009),[0,0,d*.78],[-.12,-sx*.18,0],[sx,1,1]));
     // Floating side ribs reveal recessed structural bands.
     for(let i=0;i<2;i++) b.add(c,i?'trim':'primary',xf(petal(w*.45,.105,.065,.018),[sx*w*(.63-i*.13),-.08-i*.055,d*.55],[-.05,-sx*.55,sx*.23]));
     const p=piston(new THREE.Vector3(sx*w*.65,-.13,-d*.5),new THREE.Vector3(sx*w*.9,.1,-d*.45),heavy?.022:.012);
@@ -136,7 +151,7 @@ function chest(rig:Rig,b:B,frame:Frame) {
   // intake mouths read as manufactured plates rather than soft organic lobes.
   b.add(c,'primary',xf(armorShell([[-.055,-.15],[.055,-.15],[.08,.09],[.045,.16],[-.045,.16],[-.08,.09]],.04,.018),[0,-.005,d*.88]));
   for(const sx of [-1,1]) {
-    const vx=sx*w*.63,vy=.04,vz=d*.96;
+    const vx=sx*w*.63,vy=.04,vz=d+.035;
     b.add(c,'dark',xf(armorShell([[-.035,-.044],[.035,-.034],[.045,.04],[-.03,.05]],.009,.002),[vx,vy,vz],[-.12,-sx*.20,-sx*.28]));
     for(const g of vents(.05,.065,4,.006)) b.add(c,'chrome',xf(g,[vx,vy,vz+.008],[-.12,-sx*.20,-sx*.28]));
     b.add(c,'trim',xf(plate([[-.065,.0],[.06,-.012],[.062,-.02],[-.065,-.008]],.007,.001),[sx*w*.48,.11,d*.97],[-.1,-sx*.2,-sx*.25]));

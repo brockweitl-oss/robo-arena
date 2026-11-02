@@ -4,6 +4,7 @@ import { PartBuilder, makeMaterials, type MatSet } from './kit';
 import { buildFrame, FRAME_PROPS } from './frames';
 import { buildLegs, legLengths } from './legs';
 import { buildGun, buildBomb, buildPodDock } from './weapons';
+import { buildSkill } from './skills';
 import { DamageVisuals } from './damage';
 import { Thruster } from '../vfx/thruster';
 import { decalTexture } from '../render/textures';
@@ -79,6 +80,8 @@ export class RobotModel {
   readonly chargeGlow: THREE.Mesh | null;
   readonly launcher: THREE.Group;
   readonly podDock: THREE.Group;
+  readonly skillEmitter: THREE.Group;
+  private skillGlow: THREE.MeshStandardMaterial;
   readonly meshes: THREE.Mesh[] = [];
   private damageVisuals: DamageVisuals | null = null;
   private readonly ownedGeometry = new Set<THREE.BufferGeometry>();
@@ -122,12 +125,16 @@ export class RobotModel {
     const podGlow = new THREE.MeshStandardMaterial({ color: 0, emissive: new THREE.Color(loadout.pod.color), emissiveIntensity: 5 });
     this.podDock = buildPodDock(loadout.pod, this.rig, bb, podGlow);
     this.meshes.push(...wb.build(wmats), ...bb.build({ ...this.mats, glowHot: bombGlow }));
+    const sb = new PartBuilder();
+    this.skillGlow = new THREE.MeshStandardMaterial({ color: 0, emissive: loadout.skill.color, emissiveIntensity: 2 });
+    this.skillEmitter = buildSkill(loadout.skill, this.rig, sb);
+    this.meshes.push(...sb.build({ ...this.mats, glowHot: this.skillGlow }));
 
     // Cache owned resources while the full hierarchy is assembled. Garage thumbnails
     // detach joints before disposal; docked pods/charge glows are not in `meshes`.
     // Shared thruster geometry is attached afterward and retained by its own owner.
     this.root.traverse(o => { if ((o as THREE.Mesh).isMesh) this.ownedGeometry.add((o as THREE.Mesh).geometry); });
-    this.weaponMaterials.push(this.weaponGlow, bombGlow, podGlow);
+    this.weaponMaterials.push(this.weaponGlow, bombGlow, podGlow, this.skillGlow);
 
     // Thrusters
     for (const n of this.rig.backNozzles) {
@@ -177,6 +184,10 @@ export class RobotModel {
 
   setCharge(v: number) {
     if (this.chargeGlow) this.chargeGlow.scale.set(1 + v * 1.5, Math.max(0.001, v), 1 + v * 1.5);
+  }
+  /** Presentation-only windup control for the auxiliary skill emitter. */
+  setSkillCharge(v: number) {
+    this.skillGlow.emissiveIntensity = 2 + Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0)) * 4;
   }
 
   update(time: number, dt: number) {

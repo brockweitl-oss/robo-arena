@@ -9,6 +9,7 @@ export type AnimMode =
 
 export type AnimEvent =
   | { type: 'fire' }
+  | { type: 'skill' }
   | { type: 'combo'; role: 'trigger' | 'target' }
   | { type: 'bomb' }
   | { type: 'pod' }
@@ -34,6 +35,8 @@ export interface AnimSource {
   /** 0..1: how strongly the gun arm should aim (rises when firing). */
   aimWeight: number;
   railCharge: number;
+  /** Remaining shoulder-emitter cast time; absent or negative outside a cast. */
+  castT?: number;
   dashDir: THREE.Vector3;
 }
 
@@ -124,6 +127,8 @@ export class Animator {
   private stepSide = 0;
   private launchSide = 1;
   private shotBrace = 0;
+  private skillWeight = 0;
+  private skillRelease = 0;
   chargeStyle: ChargeStyle = 'punch';
   /** Footstep callback (side, world pos) for SFX/dust. */
   onStep: ((side: Side) => void) | null = null;
@@ -141,6 +146,15 @@ export class Animator {
 
   event(e: AnimEvent) {
     switch (e.type) {
+      case 'skill': {
+        const kind = this.model.loadout.skill.model;
+        this.skillRelease = kind === 'frost' ? .42 : kind === 'wave' ? .34 : .26;
+        // Shoulder emitter recoil never kicks the separate gun barrel or gun arm.
+        this.chestX.kick(kind === 'lance' ? -3.8 : kind === 'wave' ? -2.2 : kind === 'hook' ? -1.2 : -.7);
+        this.chestYaw.kick(kind === 'hook' ? -3 : kind === 'lance' ? 1.4 : 0);
+        this.chestZ.kick(kind === 'wave' ? 1.5 : kind === 'frost' ? -.8 : .4);
+        break;
+      }
       case 'fire': {
         const gun = this.model.loadout.gun.model;
         const precision = gun === 'rail' || gun === 'beam';
@@ -219,10 +233,15 @@ export class Animator {
     if (dt <= 0) return;
     this.time += dt;
     this.shotBrace = Math.max(0, this.shotBrace - dt);
+    this.skillRelease = Math.max(0, this.skillRelease - dt);
     const rig = this.model.rig;
     const spec = rig.spec;
     const scale = spec.scale;
     const mode = src.mode;
+    const skillCasting = Number.isFinite(src.castT) && src.castT! >= 0;
+    const skillProgress = skillCasting ? 1 - Math.min(1, src.castT! / Math.max(.001, this.model.loadout.skill.cast)) : 0;
+    const skillTarget = (mode === 'ground' || mode === 'air') ? (skillCasting ? .3 + .7 * skillProgress : Math.min(1, this.skillRelease / .18)) : 0;
+    this.skillWeight += (skillTarget - this.skillWeight) * (1 - Math.exp(-18 * dt));
 
     // --- facing ---
     if (!this.yawInit) {
@@ -384,6 +403,11 @@ export class Animator {
     let chestXT = breathe * 2 + (mode === 'defeat' ? 0.5 : 0) + (mode === 'victory' ? -0.12 : 0);
     let chestZT = 0;
     chestXT += brace * 0.09;
+    const skillKind = this.model.loadout.skill.model;
+    const skillW = this.skillWeight;
+    chestXT += skillW * (skillKind === 'lance' ? .15 : skillKind === 'wave' ? .06 : skillKind === 'hook' ? -.04 : .035);
+    chestYawT += skillW * (skillKind === 'hook' ? .24 : skillKind === 'lance' ? -.12 : 0);
+    chestZT += skillW * (skillKind === 'wave' ? -.10 : skillKind === 'frost' ? .07 : .025);
     if (mode === 'charge') {
       if (src.chargePhase === 0) {
         chestYawT = (this.chargeStyle === 'ram' ? 0.9 : 0.7) * (0.55 + chargeWind * 0.45);
@@ -674,6 +698,12 @@ export class Animator {
         px = THREE.MathUtils.lerp(px, -0.65, brace);
         pz = THREE.MathUtils.lerp(pz, 0.1, brace);
         elbow = THREE.MathUtils.lerp(elbow, 1.65, brace);
+      }
+      if (side === 'L' && (mode === 'ground' || mode === 'air')) {
+        const kind = this.model.loadout.skill.model, w = this.skillWeight;
+        px = THREE.MathUtils.lerp(px, kind === 'hook' ? -.4 : kind === 'frost' ? .1 : -.2, w);
+        pz = THREE.MathUtils.lerp(pz, kind === 'wave' ? .65 : kind === 'frost' ? .45 : .12, w);
+        elbow = THREE.MathUtils.lerp(elbow, kind === 'lance' ? 1.5 : kind === 'hook' ? 1.1 : .75, w);
       }
       if (mode === 'defeat') {
         px = 0.2;
