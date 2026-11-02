@@ -46,11 +46,11 @@ export const COILS = [
   { x: -12.5, z: 12.5, k: 2 },
   { x: 12.5, z: -12.5, k: 3 },
 ];
-export const COIL_PERIOD = 9;
-export const COIL_STAGGER = 2.25;
+export const COIL_PERIOD = 12;
+export const COIL_STAGGER = 0;
 export const COIL_WARN = 6.0; // phase where telegraph starts
-export const COIL_FIRE = 7.3; // phase where discharge starts (1.3 s telegraph)
-export const COIL_END = 8.0; // discharge ends (0.7 s)
+export const COIL_FIRE = 8.5; // phase where discharge starts (2.5 s telegraph)
+export const COIL_END = 9.15; // discharge ends (0.65 s)
 
 export function coilPhase(t: number, k: number): number {
   const p = (t - k * COIL_STAGGER) % COIL_PERIOD;

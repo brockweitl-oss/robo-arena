@@ -1,6 +1,7 @@
 // Lantern Terrace — a rooftop bonsai garden at dusk. Raked sand, stacked stone terraces, a giant bonsai,
-// stone lanterns, a koi pond, paper lantern strings, and three steam geysers that launch fighters.
+// stone lanterns, a koi pond, paper lantern strings, and three clearly timed pressure vents.
 import * as THREE from 'three';
+import { HazardDial } from './hazardDial';
 import type { ArenaFactory, BoxCollider, Collider, Hazard, RampCollider } from './types';
 import { rng, tileMaps } from '../render/textures';
 import { Buckets, mat4, rbox, rockGeo, taperTube, wedgeGeo, boxUV, prep } from './garden/geo';
@@ -29,12 +30,12 @@ const ET = { x0: 10, x1: WALL_IN, z0: -8, z1: 8 };
 const PLANTER = { x0: 12.4, x1: 16.6, z0: -2.4, z1: 2.4, top: 2.7 };
 const GEYSER_R = 1.3;
 const GEYSERS = [
-  { pos: V(-7.6, 0, 0), period: 7.5, offset: 3.0 },
-  { pos: V(6.5, 0, 10), period: 8.5, offset: 4.5 },
-  { pos: V(6.5, 0, -10), period: 8.5, offset: 8.75 },
+  { pos: V(-7.6, 0, 0), period: 12, offset: 6.0 },
+  { pos: V(6.5, 0, 10), period: 12, offset: 6.0 },
+  { pos: V(6.5, 0, -10), period: 12, offset: 6.0 },
 ];
-const WARN = 1.2;
-const ACTIVE = 0.8;
+const WARN = 2.5;
+const ACTIVE = 0.65;
 const pondR = (a: number) => 3.1 * (1 + 0.17 * Math.sin(2 * a + 0.5) + 0.07 * Math.sin(3 * a + 1.3));
 
 export const createGarden: ArenaFactory = ({ quality, renderer }) => {
@@ -693,9 +694,9 @@ export const createGarden: ArenaFactory = ({ quality, renderer }) => {
       radius: GEYSER_R,
       yMin: g.pos.y - 0.5,
       yMax: g.pos.y + 2.6,
-      damage: 40,
-      down: 25,
-      launch: 14,
+      damage: 20,
+      down: 0,
+      launch: 0,
       isWarning: (t: number) => { const p = ph(t); return p >= 0 && p < WARN; },
       isActive: (t: number) => { const p = ph(t); return p >= WARN && p < WARN + ACTIVE; },
     };
@@ -703,6 +704,7 @@ export const createGarden: ArenaFactory = ({ quality, renderer }) => {
   const timings: GeyserTiming[] = GEYSERS.map((g) => ({ pos: g.pos, phase: phaseOf(g), warn: WARN, active: ACTIVE }));
   const gfx = new GeyserFX(timings, quality, GEYSER_R);
   root.add(gfx.group);
+  const ventDials = GEYSERS.map(g => new HazardDial(root, g.pos, GEYSER_R, t => { const p=phaseOf(g)(t); return p < 0 ? 0 : p < WARN ? p/WARN : p < WARN+ACTIVE ? 1 : 0; }));
 
   // ---------- Ambient FX ----------
   const fireflies = new Fireflies(low ? 36 : quality === 'medium' ? 70 : 100, [V(13, 2, 0), V(0, 0.6, 0), V(-14, 3.6, 0), V(-14, 1, 13), V(-14, 1, -13), V(9, 0.8, 9), V(9, 0.8, -9), V(-6, 0.6, 9), V(-6, 0.6, -9)], 7);
@@ -739,6 +741,7 @@ export const createGarden: ArenaFactory = ({ quality, renderer }) => {
   sway(0);
 
   const update = (time: number, dt: number) => {
+    ventDials.forEach(d => d.update(simT));
     sky.skyMat.uniforms.time.value = time;
     // lantern flicker
     const f = 0.9 + Math.sin(time * 9.1) * 0.04 + Math.sin(time * 23.7) * 0.03;
@@ -779,6 +782,7 @@ export const createGarden: ArenaFactory = ({ quality, renderer }) => {
     },
     update,
     dispose() {
+      ventDials.forEach(d => d.dispose());
       const mats = new Set<THREE.Material>();
       const geos = new Set<THREE.BufferGeometry>();
       root.traverse((o) => {

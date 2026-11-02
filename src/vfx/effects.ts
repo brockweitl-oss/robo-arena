@@ -476,7 +476,7 @@ export class Effects {
   registerRobot(model: RobotModel, color: number) {
     const list: Ghost[] = [];
     for (let i = 0; i < 4; i++) {
-      const mat = ghostMaterial(color);
+      const mat = ghostMaterial(model.paint.trail ?? color);
       const group = new THREE.Group();
       const snapshot = new PoseSnapshot(model.meshes.filter(src => src.material !== model.mats.decal), mat);
       group.add(snapshot);

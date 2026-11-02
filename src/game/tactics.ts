@@ -9,7 +9,9 @@ export interface TacticsLayout {
   pickup: [number, number];
 }
 
+const fieldLayout = (): TacticsLayout => ({ crates: [[3,3],[-3,-3],[3,-3],[-3,3]], pads: [{at:[0,7],sw:[3.6,1.2,7]},{at:[0,-7],sw:[-3.6,1.2,-7]}], pickup:[0,0] });
 export const TACTICS: Record<string, TacticsLayout> = {
+  hangar:fieldLayout(), proving:fieldLayout(), sunken:fieldLayout(),
   foundry: {
     crates: [[3, 3], [-3, -3], [8, -1], [-8, 1]],
     pads: [

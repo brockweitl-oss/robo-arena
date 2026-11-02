@@ -1,6 +1,7 @@
 import { lightShafts } from '../render/lightShafts';
 // Halo Deck — championship platform on an orbital ring station.
 import * as THREE from 'three';
+import { HazardDial } from './hazardDial';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { ArenaFactory, Collider, Hazard, BoxCollider } from './types';
 import { panelMaps, glowSprite, studioEnvironment, decalTexture } from '../render/textures';
@@ -710,13 +711,14 @@ export const createOrbital: ArenaFactory = ({ quality, renderer }) => {
     radius: COIL_R,
     yMin: -0.5,
     yMax: 1.4,
-    damage: 60,
-    down: 35,
-    launch: 6,
+    damage: 24,
+    down: 0,
+    launch: 0,
     isActive: (t: number) => coilActive(t, c.k),
     isWarning: (t: number) => coilWarning(t, c.k),
   }));
 
+  const coilDials = COILS.map(c => new HazardDial(root, new THREE.Vector3(c.x,0,c.z), COIL_R, t => { const p=coilPhase(t,c.k); return p < COIL_WARN ? 0 : p < COIL_FIRE ? (p-COIL_WARN)/(COIL_FIRE-COIL_WARN) : p < COIL_END ? 1 : 0; }));
   const applyLift = (h: number) => {
     liftTop.position.y = h;
     const colH = Math.max(0.001, h - 0.25);
@@ -767,6 +769,7 @@ export const createOrbital: ArenaFactory = ({ quality, renderer }) => {
       liftCol.vel!.set(0, v, 0);
     },
     update(time: number, dt: number) {
+      coilDials.forEach(d => d.update(simT));
       backdrop.update(time);
       applyLift(liftCol.max.y);
       liftFieldMat.uniforms.uTime.value = time;
@@ -878,6 +881,7 @@ export const createOrbital: ArenaFactory = ({ quality, renderer }) => {
       impact.visible = impactOn;
     },
     dispose() {
+      coilDials.forEach(d => d.dispose());
       arcs.dispose();
       backdrop.dispose();
       root.traverse((o) => {

@@ -39,3 +39,25 @@ We are two AI agents building Robo Arena 2.0 together. We hold each other to a h
 | G6 Meta: challenges, credits shop, part mastery, achievements, profile, share codes, rebinding, aim-assist slider, off-screen threat arrows, hit confirmation | Claude | todo | |
 | G7 Online: Cloudflare Worker + Durable Objects lobbies, rollback netcode, ranked Elo (D1) | Claude | todo | needs the owner's Cloudflare login |
 | G8 CI: GitHub Actions (test, build, Pages deploy) | Claude | blocked | the owner must grant the `workflow` scope |
+
+## Playtest 3 takeover — 2026-11-02
+
+The owner authorized Codex to complete gameplay and visuals while Claude has no usage. This temporarily overrides the ownership/reviewer split above. Independent Codex agents reviewed combat and garage/arena changes; no Claude review is claimed. Local validation replaces unavailable hosted CI for this candidate.
+
+| Release task | Status | Evidence |
+|---|---|---|
+| Tactical combat / weapon roles / deterministic AI | implemented, independently reviewed | directional 3D guard, attack commitments, dash costs, exact-tick replay |
+| V1 full silhouette rebuild | implemented, visually reviewed | four classes, 16 viewer poses plus gameplay |
+| V2/V3/V5/V6 base features | already integrated; PT3 corrections applied | part models, pooled damage, AO/shafts, telegraphs |
+| V4 paint and V9 garage | implemented and browser verified | persistent finishes/colors, rendered thumbnails, five builds, v2 sharing |
+| V7 arenas and predictable hazards | implemented and browser verified | all six arenas, exact supports, warning/active phases, zero warnings |
+| V8 photo mode | implemented and browser verified | garage/results, controls, PNG export and context cleanup |
+| G4 balance coverage | final matrix passed; tuning remains | pulse56/rail48%; varied deterministic scenarios, not universal PvP balance proof |
+| G5/G6 modes and progression | integrated, regression checks | campaign/practice/survival/local versus/replays/save compatibility |
+| G7 hosted online | outstanding | networking service and deployment access unavailable; local versus is included |
+| G8 hosted CI | blocked | GitHub token lacks workflow scope |
+| Separate head/core/arms/back stat sockets | outstanding | current garage exposes the actual five-slot loadout |
+| Primer/detonator team combos | deferred by player | later feature |
+
+See [PLAYTEST-3.md](PLAYTEST-3.md) for player notes, telemetry, release boundaries and final validation.
+
