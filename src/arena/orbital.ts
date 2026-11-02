@@ -1,3 +1,4 @@
+import { lightShafts } from '../render/lightShafts';
 // Halo Deck — championship platform on an orbital ring station.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
@@ -44,6 +45,10 @@ export const createOrbital: ArenaFactory = ({ quality, renderer }) => {
   const low = quality === 'low';
   const root = new THREE.Group();
   root.name = 'arena:orbital';
+  if (!low) {
+    const shafts = lightShafts(0x89cbff, [[-20, 20, -20], [20, 20, 20]], 20);
+    root.add(shafts);
+  }
   const ownTextures: THREE.Texture[] = [];
   const own = <T extends THREE.Texture>(t: T) => (ownTextures.push(t), t);
 
