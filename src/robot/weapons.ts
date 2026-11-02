@@ -40,10 +40,11 @@ export function buildGun(def: VisualGun, rig: Rig, b: PartBuilder, glowMat: THRE
     b.add(barrel, 'dark', xf(cyl(0.044, 0.044, 0.48, 12), [0, -0.34, 0.02]));
     for (let i = 0; i < 4; i++) {
       const y = -0.18 - i * 0.12;
-      b.add(barrel, 'chrome', xf(torus(0.072 - i * 0.006, 0.013, 16, 6), [0, y, 0.02], [Math.PI / 2, 0, 0]));
-      b.add(barrel, 'glow', xf(torus(0.052 - i * 0.006, 0.005, 16, 5), [0, y - 0.016, 0.02], [Math.PI / 2, 0, 0]));
+      b.add(barrel, 'chrome', xf(torus(0.09 - i * 0.006, 0.014, 16, 6), [0, y, 0.02], [Math.PI / 2, 0, 0]));
+      b.add(barrel, 'glow', xf(torus(0.073 - i * 0.006, 0.008, 16, 5), [0, y - 0.016, 0.02], [Math.PI / 2, 0, 0]));
     }
-    for (const sx of [-1, 1]) b.add(barrel, 'primary', xf(chamferBox(0.035, 0.47, 0.08, 0.015), [sx * 0.075, -0.34, 0.02]));
+    for (const sx of [-1, 1]) b.add(barrel, 'primary', xf(chamferBox(0.024, 0.28, 0.035, 0.01), [sx * 0.1, -0.27, 0.02]));
+    b.add(barrel,'glow',xf(cyl(0.024,0.024,0.43,12),[0,-0.37,0.02]));
     chargeGlow = new THREE.Mesh(cyl(0.022, 0.022, 0.43, 12), glowMat);
     chargeGlow.position.set(0, -0.37, 0.02);
     chargeGlow.scale.y = 0.001;
@@ -160,7 +161,7 @@ export function buildPodDock(def: VisualPod, rig: Rig, b: PartBuilder, glowMat: 
   dock.name = 'podDock';
   mount.add(dock);
   if (def.model === 'seeker' || def.model === 'turret' || def.model === 'interceptor') {
-    const pod = buildPodMesh(def, glowMat, 0.75);
+    const pod = buildPodMesh(def, glowMat, def.model === 'turret' ? 1.35 : def.model === 'interceptor' ? 1.15 : 0.75, true);
     pod.position.set(0, 0.08, -0.02);
     dock.add(pod);
   } else {
@@ -176,7 +177,7 @@ export function buildPodDock(def: VisualPod, rig: Rig, b: PartBuilder, glowMat: 
 const podMatCache = new Map<number, THREE.Material[]>();
 
 /** Standalone pod mesh: used both for the docked pod and the in-flight drone. */
-export function buildPodMesh(def: VisualPod, glowMat: THREE.Material | null, scale = 1): THREE.Group {
+export function buildPodMesh(def: VisualPod, glowMat: THREE.Material | null, scale = 1, docked = false): THREE.Group {
   let mats = podMatCache.get(def.color);
   if (!mats) {
     mats = [
@@ -199,14 +200,15 @@ export function buildPodMesh(def: VisualPod, glowMat: THREE.Material | null, sca
       b.add(g, 'glow', xf(cyl(0.015, 0.015, 0.006, 10), [0, 0.1, 0.275], [Math.PI / 2, 0, 0]));
       for (let i = 0; i < 3; i++) {
         const a = i * Math.PI * 2 / 3;
-        b.add(g, 'dark', xf(chamferBox(0.04, 0.045, 0.22, 0.012), [Math.sin(a) * 0.11, -0.05, Math.cos(a) * 0.11], [-0.25, a, 0]));
-        b.add(g, 'chrome', xf(chamferBox(0.07, 0.025, 0.08, 0.012), [Math.sin(a) * 0.2, -0.08, Math.cos(a) * 0.2], [0, a, 0]));
+        b.add(g, 'dark', xf(chamferBox(0.045, docked ? 0.24 : 0.045, docked ? 0.045 : 0.26, 0.012), [Math.sin(a) * 0.13, docked ? 0.04 : -0.05, Math.cos(a) * 0.13], [docked ? 0.2 : -0.25, a, 0]));
+        b.add(g, 'chrome', xf(chamferBox(0.07, 0.025, 0.08, 0.012), [Math.sin(a) * (docked ? 0.13 : 0.23), docked ? 0.16 : -0.08, Math.cos(a) * (docked ? 0.13 : 0.23)], [0, a, 0]));
       }
     } else {
-      b.add(g, 'primary', chamferBox(0.16, 0.09, 0.23, 0.035));
+      b.add(g, 'primary', lathe([[0.04,-0.06],[0.14,-0.025],[0.16,0],[0.12,0.06],[0.045,0.08]],20));
+      b.add(g,'glow',xf(torus(0.145,0.009,24,6),[0,0,0],[Math.PI/2,0,0]));
       b.add(g, 'glow', xf(chamferBox(0.075, 0.025, 0.016, 0.006), [0, 0, 0.125]));
       for (const sx of [-1, 1]) {
-        b.add(g, 'dark', xf(chamferBox(0.21, 0.025, 0.09, 0.015), [sx * 0.13, 0, -0.025], [0, -sx * 0.25, 0]));
+        b.add(g, 'dark', xf(chamferBox(0.29, 0.025, 0.1, 0.015), [sx * 0.13, 0, -0.025], [0, -sx * 0.25, 0]));
         b.add(g, 'chrome', xf(torus(0.062, 0.014, 16, 6), [sx * 0.22, 0, -0.025], [Math.PI / 2, 0, 0]));
         b.add(g, 'glow', xf(cyl(0.039, 0.039, 0.008, 12), [sx * 0.22, -0.012, -0.025]));
         b.add(g, 'dark', xf(cyl(0.014, 0.018, 0.14, 10), [sx * 0.06, -0.04, 0.13], [Math.PI / 2, 0, 0]));
