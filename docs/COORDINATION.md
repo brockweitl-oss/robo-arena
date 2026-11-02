@@ -100,3 +100,6 @@ Owner closed PT3. Frozen pt4-4d05592 is live on5320 with save origin preserved;1
 
 
 - PR #49 projectile follow-up: Claude implemented pool lifecycle, exact skill width and reflected launch/cable fixes; Codex independently reviewed. 160 tests, TypeScript, build, e2e passed; 1080p medium 60 FPS, zero browser warnings/errors. Matched captures: docs/screenshots/pr49/. No gameplay changes.
+### Renderer lifecycle follow-up (#52)
+
+- `codex/render-review-fixes`: retain postprocessing passes across quality changes; Claude CLI implementation independently reviewed by Codex. TypeScript, 157 unit tests and production build pass. Browser quality-churn/e2e validation pending coordinated GPU slot; no deployment.
