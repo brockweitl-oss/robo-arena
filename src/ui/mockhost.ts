@@ -54,7 +54,7 @@ function fakeResult(cfg: MatchConfig): MatchResult {
     playerMaxHp: pMax,
     rivalHp: outcome === 'win' ? (ko ? 0 : rnd(50, 300)) : rnd(200, rMax),
     rivalMaxHp: rMax,
-    player: { damageDealt: rnd(400, 1300), hits: rnd(8, 30), knockdowns: rnd(0, 4), shots: rnd(30, 90), dodges: rnd(2, 12) },
+    player: { damageDealt: rnd(400, 1300), hits: rnd(8, 30), knockdowns: rnd(0, 4), shots: rnd(30, 90), dodges: rnd(2, 12), parries: rnd(0, 3), deflects: rnd(0, 6), perfectDodges: rnd(1, 8), podsUsed: rnd(0, 4) },
     rival: { damageDealt: rnd(300, 1100), hits: rnd(6, 26), knockdowns: rnd(0, 3), shots: rnd(25, 80), dodges: rnd(1, 10) },
   };
 }

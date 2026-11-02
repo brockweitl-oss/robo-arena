@@ -94,6 +94,7 @@ export class Game implements MenuHost {
     if (this.gr.quality !== s.quality) this.gr.setQuality(s.quality);
     if (this.match) this.match.cam.shakeEnabled = s.cameraShake;
     this.hud.damageNumbers = s.damageNumbers;
+    this.input.setBindings(s.bindings);
   }
 
   async startMatch(cfg: MatchConfig): Promise<MatchResult> {
@@ -131,7 +132,7 @@ export class Game implements MenuHost {
       this.lastScreen = key;
       track('screen', { kind, rival: opts.rivalId, loadout: kind === 'garage' ? opts.loadout : undefined });
     }
-    this.showroom.set(kind, { loadout: opts.loadout ?? this.save.loadout, ...opts });
+    this.showroom.set(kind, { loadout: opts.loadout ?? this.save.loadout, paint: { ...this.save.paint }, ...opts });
   }
 
   rotatePreview(d: number) {

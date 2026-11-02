@@ -15,8 +15,10 @@ import { ALL_PARTS, BODIES, LEGS, resolveLoadout, type AnyPart, type Slot, deriv
 import { RIVALS, PLAYER_PAINT, PLAYER_ROBOT_NAME, rivalById, type Paint, type Rival } from '../data/characters';
 import { ARENA_IDS, ARENA_INFO, type ArenaId } from '../arena/index';
 import { defaultSave, isUnlocked, type Settings } from '../core/save';
+import { pilotLevel } from '../game/progression';
 import type { MatchConfig, MatchResult } from '../game/types';
 import type { MusicTrack } from '../audio/audio';
+import { MetaUI } from './meta';
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -77,7 +79,7 @@ function unlockSource(slot: Slot, id: string): Rival | undefined {
 }
 
 function emblem(p: Paint, unknown = false, cls = ''): HTMLElement {
-  const e = h('div', `ra-emblem ${unknown ? 'unknown' : ''} ${cls}`, h('span', '', unknown ? '?' : p.emblem));
+  const e = h('div', `ra-emblem ${unknown ? 'unknown' : ''} ${!unknown && p.emblem.length > 2 ? 'l3' : ''} ${cls}`, h('span', '', unknown ? '?' : p.emblem));
   if (!unknown) {
     e.style.setProperty('--p', hex(p.primary));
     e.style.setProperty('--s', hex(p.secondary));
@@ -171,6 +173,10 @@ function hints(list: [HintKey, string][]): HTMLElement {
   return bar;
 }
 
+/** Shared widgets for the meta screens (src/ui/meta.ts). */
+export { h, svg, btn, nav, stagger, hints, emblem, hex, clamp, wait, ratingBar, SLOTS, SLOT_ICON, SLOT_LABEL, LOCK_ICON, CHECK_ICON };
+export type { Kid, Layer, LayerOpts };
+
 /* ------------------------------------------------------------------ Menus */
 
 export class Menus implements MenuLayer {
@@ -191,6 +197,10 @@ export class Menus implements MenuLayer {
   private mainIdx = 0;
   private gSlot: Slot = 'gun';
   private fb = { rival: RIVALS[0].id, arena: RIVALS[0].arena as string, time: 90 };
+  /** G6 meta screens (profile, shop, rewards, share codes, controls). */
+  private meta: MetaUI;
+  /** True while the Controls panel is capturing a binding (navigation paused). */
+  private keyCapture = false;
 
   constructor(private host: MenuHost, private root: HTMLElement) {
     root.classList.add('ra-root');
@@ -229,6 +239,20 @@ export class Menus implements MenuLayer {
       if (this.active) e.preventDefault();
     });
     window.addEventListener('resize', () => this.resizeFn?.());
+    this.meta = new MetaUI({
+      host,
+      setScreen: (el, o) => this.setScreen(el, o),
+      pushLayer: (el, o) => this.pushLayer(el, o),
+      popLayer: (L) => this.popLayer(L),
+      focus: (el) => this.setFocusKeep(el),
+      confirmBox: (...a) => this.confirmBox(...a),
+      toast: (t) => this.toast(t),
+      header: (k, t, x) => this.header(k, t, x),
+      music: (t) => this.music(t),
+      isScreen: (el) => this.screen?.el === el,
+      setCapture: (on) => { this.keyCapture = on; },
+      setResize: (fn) => { this.resizeFn = fn; },
+    });
     this.sync();
   }
 
@@ -471,7 +495,7 @@ export class Menus implements MenuLayer {
   }
 
   private input(k: Input) {
-    if (!this.active) return;
+    if (!this.active || this.keyCapture) return;
     const L = this.top!;
     const now = performance.now();
     if (L.any) {
@@ -515,6 +539,8 @@ export class Menus implements MenuLayer {
 
   private onKey = (e: KeyboardEvent) => {
     if (!this.active) return;
+    // let text fields (build-code import) receive typing; Esc still backs out
+    if (e.target instanceof HTMLInputElement && e.code !== 'Escape') return;
     this.root.classList.remove('pad');
     const L = this.top!;
     if (L.any) {
@@ -652,6 +678,8 @@ export class Menus implements MenuLayer {
       ['Story Ladder', champ ? 'You hold the crown. Defend it.' : 'Climb the circuit. Five rivals stand between you and the crown.', champ ? 'CHAMPION' : `Ladder ${done}/${RIVALS.length}`, () => this.showLadder()],
       ['Free Battle', 'Any rival, any arena, your rules.', null, () => this.showFree()],
       ['Garage', 'Swap guns, bombs, pods, frames and legs.', `${s.unlocked.length} parts`, () => this.showGarage(() => this.showMain())],
+      ['Profile', 'Pilot card, achievements, challenges and part mastery.', `Lv ${pilotLevel(s)}`, () => this.meta.showProfile(() => this.showMain())],
+      ['Shop', 'Spend credits on paint, decals, trails and victory poses.', `${s.credits.toLocaleString('en-US')} CR`, () => this.meta.showShop(() => this.showMain())],
       ['Settings', 'Audio, camera, graphics and controls.', null, () => this.showSettings(() => this.showMain())],
     ];
     const list = h('div', 'mm-list');
@@ -685,9 +713,10 @@ export class Menus implements MenuLayer {
     });
     const L = resolveLoadout(s.loadout);
     const card = h('div', 'ra-panel mm-card',
-      h('div', 'mm-card-top', emblem(PLAYER_PAINT), h('div', '', h('div', 'mm-card-name', PLAYER_ROBOT_NAME), h('div', 'mm-card-sub', L.body.name))),
+      h('div', 'mm-card-top', emblem(s.paint), h('div', '', h('div', 'mm-card-name', PLAYER_ROBOT_NAME), h('div', 'mm-card-sub', L.body.name))),
       h('div', 'mm-card-row', h('span', '', 'Circuit'), pips),
       h('div', 'mm-card-row', h('span', '', 'Record'), h('b', '', `${s.totals.wins}W · ${s.totals.losses}L`)),
+      h('div', 'mm-card-row', h('span', '', 'Credits'), h('b', '', `${s.credits.toLocaleString('en-US')} CR`)),
       h('div', 'mm-card-parts', ...SLOTS.map((sl) => h('div', 'mm-card-part', svg(SLOT_ICON[sl]), h('span', '', resolveLoadout(s.loadout)[sl].name)))),
     );
     stagger([card], 380);
@@ -890,6 +919,7 @@ export class Menus implements MenuLayer {
     }
     s.totals.knockdowns += res.player?.knockdowns ?? 0;
     this.host.persist();
+    const rewards = this.meta.matchEnd(res);
 
     this.backdrop('versus', { loadout: s.loadout, rivalId: r.id });
     this.music(win ? 'victory' : 'results');
@@ -910,7 +940,7 @@ export class Menus implements MenuLayer {
       return h('div', `res-hp ${side} ${pct < 0.3 ? 'low' : ''}`, h('div', 'res-hp-track', fill), h('span', '', `${Math.max(0, Math.round(hp))} / ${Math.round(max)}`));
     };
     const top = h('div', 'res-top',
-      h('div', 'res-side l', emblem(PLAYER_PAINT), h('div', '', h('div', 'res-name', PLAYER_ROBOT_NAME), hpBar(res.playerHp, res.playerMaxHp, 'l'))),
+      h('div', 'res-side l', emblem(s.paint), h('div', '', h('div', 'res-name', PLAYER_ROBOT_NAME), hpBar(res.playerHp, res.playerMaxHp, 'l'))),
       h('div', 'res-mid', 'HP'),
       h('div', 'res-side r', h('div', '', h('div', 'res-name', r.robotName), hpBar(res.rivalHp, res.rivalMaxHp, 'r')), emblem(r.paint)));
     const rows: [string, keyof MatchResult['player']][] = [['Damage dealt', 'damageDealt'], ['Hits', 'hits'], ['Knockdowns', 'knockdowns'], ['Dodges', 'dodges'], ['Shots fired', 'shots']];
@@ -951,6 +981,7 @@ export class Menus implements MenuLayer {
     stagger([bar], 800);
     el.append(h('div', 'vig vig-top'), h('div', 'vig vig-bot'), banner, panel, bar, hints([['move', 'Move'], ['confirm', 'Select']]));
     this.setScreen(el, { back: championNow ? undefined : () => this.showMain(), initial: acts[0] });
+    this.meta.rewardsStrip(el, rewards);
 
     // count-up numbers
     const t0 = performance.now() + 600;
@@ -1179,7 +1210,7 @@ export class Menus implements MenuLayer {
     const preview = h('div', 'gar-preview', h('div', 'gar-ring'), h('div', 'gar-drag', svg('<svg viewBox="0 0 24 24"><path d="M12 5c-4 0-7.5 1.6-9 4l-2-1v5h5L4 11.5C5.2 9.5 8.3 8 12 8s6.8 1.5 8 3.5L18 13h5V8l-2 1c-1.5-2.4-5-4-9-4z"/></svg>'), h('span', 'k-kb', 'Drag to rotate'), h('span', 'k-pad', 'R-Stick to rotate')));
     const sendBackdrop = () => {
       const r = preview.getBoundingClientRect();
-      this.backdrop('garage', { loadout: { ...s.loadout }, paint: PLAYER_PAINT, previewRect: { x: r.left, y: r.top, w: r.width, h: r.height } });
+      this.backdrop('garage', { loadout: { ...s.loadout }, paint: { ...s.paint }, previewRect: { x: r.left, y: r.top, w: r.width, h: r.height } });
     };
     // drag-rotate
     let dragging = false, lx = 0;
@@ -1319,7 +1350,8 @@ export class Menus implements MenuLayer {
     }
 
     const backBtn = btn('Back', () => { this.host.sfx('ui_back'); leave(); }, 'big');
-    const left = h('div', 'ra-panel gar-left', tabs, h('div', 'gar-list-h', h('span', '', `Parts`), count), list, h('div', 'gar-left-foot', backBtn));
+    const shareBtn = btn('Build Code', () => { this.host.sfx('ui_select'); this.meta.openShareCode(() => { sendBackdrop(); renderList(this.gSlot); renderSummary(); }); }, 'big');
+    const left = h('div', 'ra-panel gar-left', tabs, h('div', 'gar-list-h', h('span', '', `Parts`), count), list, h('div', 'gar-left-foot', backBtn, shareBtn));
     const right = h('div', 'gar-right', detail, summary);
     stagger([left], 80);
     stagger([right], 200);
@@ -1454,11 +1486,12 @@ export class Menus implements MenuLayer {
     group('Display');
     choice<Settings['quality']>('Graphics quality', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], () => st.quality, (v) => (st.quality = v));
     choice('Damage numbers', [[false, 'Off'], [true, 'On']], () => st.damageNumbers, (v) => (st.damageNumbers = v));
+    this.meta.assistRows(group, slider, st);
 
     const actions: HTMLElement[] = [btn('Back', () => { this.host.sfx('ui_back'); onBack(); }, 'big')];
     if (!inPause) {
       actions.push(btn('Reset Progress', async () => {
-        const ok = await this.confirmBox('Reset all progress?', 'Ladder progress, unlocked parts, loadout and record will be erased. Settings are kept. This cannot be undone.', 'Erase', 'Cancel', true);
+        const ok = await this.confirmBox('Reset all progress?', 'Ladder progress, unlocked parts, loadout, record, credits, cosmetics, mastery and achievements will be erased. Settings are kept. This cannot be undone.', 'Erase', 'Cancel', true);
         if (!ok) return;
         const d = defaultSave();
         s.unlocked = d.unlocked;
@@ -1466,6 +1499,7 @@ export class Menus implements MenuLayer {
         s.ladder = d.ladder;
         s.beaten = d.beaten;
         s.totals = d.totals;
+        Object.assign(s, { credits: d.credits, paint: d.paint, mastery: d.mastery, cosmetics: d.cosmetics, challenges: d.challenges, achievements: d.achievements, stats: d.stats });
         this.host.persist();
         this.toast('Progress reset');
       }, 'big danger'));
@@ -1476,7 +1510,8 @@ export class Menus implements MenuLayer {
     const ctl = (rows: [string, string][]) => h('div', 'ctl-list', ...rows.map(([k, a]) => h('div', 'ctl-row', h('span', 'ctl-k', ...k.split(' / ').flatMap((x, i) => (i ? [h('em', '', '/'), h('kbd', '', x)] : [h('kbd', '', x)]))), h('span', 'ctl-a', a))));
     const kb = ctl([['WASD', 'Move'], ['Mouse', 'Camera'], ['Space', 'Jump · double jump · hold to hover'], ['Shift', 'Dash'], ['LMB', 'Fire gun'], ['RMB', 'Throw bomb'], ['E / MMB', 'Launch pod'], ['Q', 'Charge attack'], ['Tab / F', 'Toggle lock-on'], ['Esc', 'Pause']]);
     const gp = ctl([['L-Stick', 'Move'], ['R-Stick', 'Camera'], ['A', 'Jump · double jump · hover'], ['B', 'Dash'], ['RT', 'Fire gun'], ['LT', 'Throw bomb'], ['RB', 'Launch pod'], ['X', 'Charge attack'], ['R3', 'Toggle lock-on'], ['Start', 'Pause']]);
-    const right = h('div', 'ra-panel ctl-panel', h('div', 'set-panel-h', 'Controls'), h('div', 'ctl-cols', h('div', '', h('div', 'ctl-h', 'Keyboard + Mouse'), kb), h('div', '', h('div', 'ctl-h', 'Gamepad'), gp)));
+    void kb; void gp;
+    const right = this.meta.controlsPanel(st, apply);
     stagger([left], 80);
     stagger([right], 180);
     const wrap = h('div', 'set-wrap', left, right);

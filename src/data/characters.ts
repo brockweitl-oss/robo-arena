@@ -9,6 +9,8 @@ export interface Paint {
   glow: number;
   /** Optional decal number/emblem drawn on the chest. */
   emblem: string;
+  /** Optional dash-afterimage trail color (cosmetic; rendered by effects when supported). */
+  trail?: number;
 }
 
 export type AIPersonality = 'rookie' | 'rusher' | 'bomber' | 'duelist' | 'trickster' | 'champion';
