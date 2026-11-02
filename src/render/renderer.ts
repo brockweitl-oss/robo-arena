@@ -13,7 +13,9 @@ import {
   VignetteEffect,
   ChromaticAberrationEffect,
   BlendFunction,
+  NoiseEffect,
 } from 'postprocessing';
+import { GradeEffect } from './grade';
 
 export type Quality = 'low' | 'medium' | 'high';
 
@@ -52,10 +54,14 @@ export class GameRenderer {
   private vignette: VignetteEffect;
   private effectPass!: EffectPass;
   private chromaPass!: EffectPass;
+  private gradePass!: EffectPass;
   private smaaPass: EffectPass | null = null;
   private smaa: SMAAEffect;
   private tone: ToneMappingEffect;
   private chromaAmount = 0;
+  /** Cinematic grade after tone mapping (AgX alone reads flat). */
+  private grade = new GradeEffect();
+  private grain = new NoiseEffect({ premultiply: true });
 
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -104,6 +110,7 @@ export class GameRenderer {
       modulationOffset: 0.25,
     });
     this.chroma.blendMode.blendFunction = BlendFunction.NORMAL;
+    this.grain.blendMode.opacity.value = 0.35;
     this.rebuildPasses();
 
     window.addEventListener('resize', () => this.resize());
@@ -112,6 +119,7 @@ export class GameRenderer {
   private rebuildPasses() {
     if (this.effectPass) this.composer.removePass(this.effectPass);
     if (this.chromaPass) this.composer.removePass(this.chromaPass);
+    if (this.gradePass) this.composer.removePass(this.gradePass);
     if (this.smaaPass) this.composer.removePass(this.smaaPass);
     this.smaaPass = null;
     const effects: any[] = [];
@@ -119,6 +127,11 @@ export class GameRenderer {
     effects.push(this.tone, this.vignette);
     this.effectPass = new EffectPass(this.camera, ...effects);
     this.composer.addPass(this.effectPass);
+    // Grade on tone-mapped (display-range) colour, in its own pass.
+    const grade: any[] = [this.grade];
+    if (this.quality !== 'low') grade.push(this.grain);
+    this.gradePass = new EffectPass(this.camera, ...grade);
+    this.composer.addPass(this.gradePass);
     // Chromatic aberration (convolution-free) + SMAA run after tone mapping.
     this.chromaPass = new EffectPass(this.camera, this.chroma);
     this.composer.addPass(this.chromaPass);
