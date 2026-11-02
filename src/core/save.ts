@@ -24,6 +24,11 @@ export interface SaveData {
   beaten: string[];
   settings: Settings;
   totals: { wins: number; losses: number; knockdowns: number };
+  /** Rival+ ladder progress (index of the next Rival+ fight) and beaten Rival+ ids. */
+  plusLadder: number;
+  plusBeaten: string[];
+  /** Best survival run (rounds won). */
+  survivalBest: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -48,6 +53,9 @@ export function defaultSave(): SaveData {
     beaten: [],
     settings: { ...DEFAULT_SETTINGS },
     totals: { wins: 0, losses: 0, knockdowns: 0 },
+    plusLadder: 0,
+    plusBeaten: [],
+    survivalBest: 0,
   };
 }
 

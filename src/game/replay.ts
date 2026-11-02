@@ -30,6 +30,12 @@ export function packInput(i: FighterInput): [number, number, number] {
   return [q(i.moveX), q(i.moveZ), b];
 }
 
+/** Round an input to exactly what a replay can store, in place. Apply before the sim sees it. */
+export function quantizeInput(i: FighterInput): FighterInput {
+  const [x, z, b] = packInput(i);
+  return unpackInput(x, z, b, i.faceTarget, i);
+}
+
 export function unpackInput(x: number, z: number, b: number, faceTarget: boolean, out = emptyInput()): FighterInput {
   const s = (v: number) => ((v << 24) >> 24) / 127;
   out.moveX = s(x);

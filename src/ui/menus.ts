@@ -12,7 +12,10 @@ import './menus.css';
 
 import type { MenuHost, MenuLayer } from './host';
 import { ALL_PARTS, BODIES, LEGS, resolveLoadout, type AnyPart, type Slot, deriveStats, SET_BONUS } from '../data/parts';
-import { RIVALS, PLAYER_PAINT, PLAYER_ROBOT_NAME, rivalById, type Paint, type Rival } from '../data/characters';
+import { RIVALS, RIVALS_PLUS, PLAYER_PAINT, PLAYER_ROBOT_NAME, rivalById, type Paint, type Rival } from '../data/characters';
+import { gradeMatch } from '../game/grades';
+import { saveReplay, loadReplays, downloadReplay, parseReplay, type Replay } from '../game/replay';
+import { connectedPads } from '../core/padInput';
 import { ARENA_IDS, ARENA_INFO, type ArenaId } from '../arena/index';
 import { defaultSave, isUnlocked, type Settings } from '../core/save';
 import type { MatchConfig, MatchResult } from '../game/types';
@@ -651,6 +654,7 @@ export class Menus implements MenuLayer {
     const items: [string, string, string | null, () => void][] = [
       ['Story Ladder', champ ? 'You hold the crown. Defend it.' : 'Climb the circuit. Five rivals stand between you and the crown.', champ ? 'CHAMPION' : `Ladder ${done}/${RIVALS.length}`, () => this.showLadder()],
       ['Free Battle', 'Any rival, any arena, your rules.', null, () => this.showFree()],
+      ['Modes', 'Rival+ ladder, survival, practice room, local versus and replays.', champ ? 'RIVAL+' : null, () => this.showModes()],
       ['Garage', 'Swap guns, bombs, pods, frames and legs.', `${s.unlocked.length} parts`, () => this.showGarage(() => this.showMain())],
       ['Settings', 'Audio, camera, graphics and controls.', null, () => this.showSettings(() => this.showMain())],
     ];
@@ -854,7 +858,13 @@ export class Menus implements MenuLayer {
     this.musicNow = null;
     if (res.quit) {
       if (cfg.mode === 'ladder') this.showLadder();
-      else this.showFree();
+      else if (cfg.mode === 'free') this.showFree();
+      else this.showModes();
+      return;
+    }
+    if (res.replay && cfg.mode !== 'replay') saveReplay(res.replay);
+    if (cfg.mode === 'replay' || cfg.mode === 'practice') {
+      this.showModes();
       return;
     }
     this.showResults(res);
@@ -888,6 +898,22 @@ export class Menus implements MenuLayer {
     } else if (res.outcome === 'lose') {
       s.totals.losses++;
     }
+    const plus = cfg.mode === 'rivalplus';
+    const pidx = cfg.plusIndex ?? 0;
+    if (win && plus) {
+      if (!s.plusBeaten.includes(r.id)) {
+        s.plusBeaten.push(r.id);
+        for (const u of r.unlocks) {
+          if (!s.unlocked.includes(u)) {
+            s.unlocked.push(u);
+            newParts.push(u);
+          }
+        }
+      }
+      s.plusLadder = Math.max(s.plusLadder, pidx + 1);
+    }
+    const survival = cfg.mode === 'survival' ? cfg.survival : undefined;
+    if (survival && !win) s.survivalBest = Math.max(s.survivalBest, survival.round - 1);
     s.totals.knockdowns += res.player?.knockdowns ?? 0;
     this.host.persist();
 
@@ -930,12 +956,36 @@ export class Menus implements MenuLayer {
     });
     const line = win ? r.defeatLine : res.outcome === 'lose' ? r.taunt : r.taunt;
     const quote = h('div', 'res-quote', emblem(r.paint, false, 'mini'), h('div', '', h('div', 'res-quote-name', r.pilot), h('div', 'res-quote-text', `“${line}”`)));
-    const panel = h('div', 'ra-panel res-panel', top, stats, quote);
+    const g = gradeMatch(res);
+    const gradeEl = h('div', `res-grade g-${g.grade}`, h('div', 'res-grade-letter', g.grade), h('div', 'res-grade-parts', ...g.parts.map((p) => h('div', '', h('span', '', p.label), h('b', '', `${p.points}/${p.max}`)))));
+    // counter-hint after a loss: what to try next
+    let hintEl: HTMLElement | null = null;
+    if (!win && r.hint) {
+      const sug = r.suggest ? part(r.suggest) : undefined;
+      const owned = r.suggest ? s.unlocked.includes(r.suggest) : false;
+      hintEl = h('div', 'res-hint', h('b', '', 'TIP'), h('span', '', r.hint), sug ? h('em', '', owned ? `Try: ${sug.name}` : `Try: ${sug.name} (locked)`) : null);
+    }
+    const panel = h('div', 'ra-panel res-panel', top, stats, gradeEl, hintEl, quote);
 
     const acts: HTMLElement[] = [];
     const retryCfg = () => ({ ...cfg, playerLoadout: { ...s.loadout } });
     if (championNow) {
       acts.push(btn('Continue', () => { this.host.sfx('ui_select'); this.showEnding(); }, 'primary big'));
+    } else if (plus) {
+      if (win && pidx + 1 < RIVALS_PLUS.length) acts.push(btn('Next Rival+', () => { this.host.sfx('ui_select'); this.showPlusIntro(pidx + 1); }, 'primary big'));
+      acts.push(btn(win ? 'Fight Again' : 'Retry', () => { this.host.sfx('ui_select'); this.runMatch(retryCfg()); }, win && pidx + 1 < RIVALS_PLUS.length ? 'big' : 'primary big'));
+      acts.push(btn('Modes', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big'));
+    } else if (survival) {
+      if (win) {
+        const heal = Math.min(res.playerMaxHp, res.playerHp + res.playerMaxHp * 0.25);
+        acts.push(btn(`Round ${survival.round + 1}`, () => { this.host.sfx('ui_select'); this.runMatch(this.survivalCfg(survival.round + 1, heal)); }, 'primary big'));
+      } else {
+        acts.push(btn('New Run', () => { this.host.sfx('ui_select'); this.runMatch(this.survivalCfg(1, 99999)); }, 'primary big'));
+      }
+      acts.push(btn('Modes', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big'));
+    } else if (cfg.mode === 'versus') {
+      acts.push(btn('Rematch', () => { this.host.sfx('ui_select'); this.runMatch(retryCfg()); }, 'primary big'));
+      acts.push(btn('Modes', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big'));
     } else if (ladder) {
       if (win && idx + 1 < RIVALS.length) acts.push(btn('Next Fight', () => { this.host.sfx('ui_select'); this.showIntro(idx + 1); }, 'primary big'));
       acts.push(btn(win ? 'Fight Again' : 'Retry', () => { this.host.sfx('ui_select'); this.runMatch(retryCfg()); }, win && idx + 1 < RIVALS.length ? 'big' : 'primary big'));
@@ -945,6 +995,10 @@ export class Menus implements MenuLayer {
       acts.push(btn('Rematch', () => { this.host.sfx('ui_select'); this.runMatch(retryCfg()); }, 'primary big'));
       acts.push(btn('Change Setup', () => { this.host.sfx('ui_select'); this.showFree(); }, 'big'));
       acts.push(btn('Main Menu', () => { this.host.sfx('ui_back'); this.showMain(); }, 'big'));
+    }
+    if (res.replay) {
+      const rp = res.replay;
+      acts.push(btn('Watch Replay', () => { this.host.sfx('ui_select'); this.watchReplay(rp); }, 'big'));
     }
     const bar = h('div', 'ra-actions res-acts', ...acts);
     stagger([panel], 450);
@@ -1166,6 +1220,179 @@ export class Menus implements MenuLayer {
     stagger([s1, s2, s3, bar], 100, 70);
     el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
     this.setScreen(el, { back: () => this.showMain(), initial: tileEls[Math.max(0, RIVALS.findIndex((r) => r.id === fb.rival))] });
+  }
+
+  /* ---------------- modes: Rival+, survival, practice, versus, replays */
+
+  private survivalCfg(round: number, startHp: number): MatchConfig {
+    // escalating opponents: early rounds draw from the story ladder, later from Rival+
+    const pool = round <= 3 ? RIVALS.slice(0, 3) : round <= 6 ? RIVALS : [...RIVALS.slice(2), ...RIVALS_PLUS];
+    const r = pool[(round * 7 + Math.floor(Math.random() * pool.length)) % pool.length];
+    const arenas = ARENA_IDS as readonly string[];
+    return { mode: 'survival', playerLoadout: { ...this.host.save.loadout }, rivalId: r.id, arenaId: arenas[round % arenas.length], timeLimit: 120, survival: { round, startHp } };
+  }
+
+  private showPlusIntro(i: number) {
+    const r = RIVALS_PLUS[i];
+    const a = ARENA_INFO[r.arena as ArenaId];
+    const cfg: MatchConfig = { mode: 'rivalplus', playerLoadout: { ...this.host.save.loadout }, rivalId: r.id, arenaId: r.arena, plusIndex: i, timeLimit: 120 };
+    this.showVersus(r, {
+      line: r.intro,
+      kicker: `Rival+ · ${i + 1} / ${RIVALS_PLUS.length}`,
+      info: [a?.name ?? r.arena, a?.subtitle ?? ''],
+      onFight: () => this.runMatch(cfg),
+      onBack: () => this.showModes(),
+      onGarage: () => this.showGarage(() => this.showPlusIntro(i)),
+    });
+  }
+
+  private watchReplay(rp: Replay) {
+    this.runMatch({ ...rp.config, mode: 'replay', replay: rp });
+  }
+
+  private showModes() {
+    this.backdrop('title');
+    this.music('menu');
+    const s = this.host.save;
+    const champ = s.ladder >= RIVALS.length;
+    const el = h('div', 'scr-free scr-modes');
+    const hd = this.header('Modes', 'More Ways to Fight');
+    const card = (title: string, desc: string, tag: string, act: (() => void) | null) => {
+      const c = nav(h('div', `ra-tile md-card ${act ? '' : 'locked'}`, h('div', 'md-title', title), h('div', 'md-desc', desc), h('div', 'md-tag', tag)), {
+        act: () => {
+          if (!act) {
+            this.host.sfx('ui_error');
+            return;
+          }
+          this.host.sfx('ui_select');
+          act();
+        },
+      });
+      return c;
+    };
+    const plusNext = Math.min(s.plusLadder, RIVALS_PLUS.length - 1);
+    const pads = connectedPads().length;
+    const cards = [
+      card('Rival+ Ladder', 'Every rival returns with a sharper AI and a 2.0 build. Wins unlock the new parts.', champ ? `${Math.min(s.plusLadder, RIVALS_PLUS.length)} / ${RIVALS_PLUS.length}` : 'Beat the champion to unlock', champ ? () => this.showPlusIntro(plusNext) : null),
+      card('Survival', 'Fight until you fall. You heal 25% between rounds, and the opponents get tougher.', `Best: ${s.survivalBest} rounds`, () => this.runMatch(this.survivalCfg(1, 99999))),
+      card('Practice Room', 'A training dummy that never breaks. Live damage, combo and DPS readouts.', 'No clock', () => this.showPractice()),
+      card('Local Versus', 'Two players on one screen. Player 2 needs a gamepad.', pads ? `${pads} pad${pads > 1 ? 's' : ''} connected` : 'Connect a gamepad', () => this.showLocalVersus()),
+      card('Replays', 'Rewatch your last fights, or download and import replay files.', `${loadReplays().length} saved`, () => this.showReplays()),
+    ];
+    const grid = h('div', 'md-grid', ...cards);
+    const back = btn('Back', () => { this.host.sfx('ui_back'); this.showMain(); }, 'big');
+    const panel = h('div', 'ra-panel fb-panel', grid, h('div', 'ra-actions', back));
+    stagger(cards, 100, 60);
+    el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
+    this.setScreen(el, { back: () => this.showMain(), initial: cards[0] });
+  }
+
+  private showPractice() {
+    this.backdrop('garage', { loadout: this.host.save.loadout });
+    const el = h('div', 'scr-free scr-modes');
+    const hd = this.header('Practice Room', 'Training Dummy');
+    let arena: string = ARENA_IDS[0];
+    const arenaBtn = btn(`Arena: ${ARENA_INFO[arena as ArenaId].name}`, () => {
+      const ids = ARENA_IDS as readonly string[];
+      arena = ids[(ids.indexOf(arena) + 1) % ids.length];
+      arenaBtn.querySelector('span')!.textContent = `Arena: ${ARENA_INFO[arena as ArenaId].name}`;
+      this.host.sfx('ui_move');
+    }, 'big');
+    const go = (dummy: 'idle' | 'move' | 'shoot' | 'full') => () => {
+      this.host.sfx('ui_select');
+      this.runMatch({ mode: 'practice', playerLoadout: { ...this.host.save.loadout }, rivalId: 'dex', arenaId: arena, practice: { dummy } });
+    };
+    const opts = [
+      btn('Dummy: Stand Still', go('idle'), 'primary big'),
+      btn('Dummy: Move Only', go('move'), 'big'),
+      btn('Dummy: Shoot Only', go('shoot'), 'big'),
+      btn('Dummy: Full AI', go('full'), 'big'),
+    ];
+    const note = h('div', 'md-desc', 'Both robots refill automatically. Press Esc and choose Quit to leave.');
+    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', ...opts, arenaBtn, note), h('div', 'ra-actions', btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big')));
+    el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
+    this.setScreen(el, { back: () => this.showModes(), initial: opts[0] });
+  }
+
+  private showLocalVersus() {
+    const s = this.host.save;
+    const champ = s.ladder >= RIVALS.length;
+    const pool = [...RIVALS, ...(champ ? RIVALS_PLUS : [])];
+    let pick = 0;
+    let arena: string = ARENA_IDS[0];
+    const el = h('div', 'scr-free scr-modes');
+    const hd = this.header('Local Versus', 'Player 1 vs Player 2');
+    const label = h('div', 'md-title', '');
+    const sub = h('div', 'md-desc', '');
+    const refresh = () => {
+      const r = pool[pick];
+      label.textContent = `P2: ${r.robotName}`;
+      const L = resolveLoadout(r.loadout);
+      sub.textContent = `${L.body.name} · ${L.legs.name} · ${L.gun.name} / ${L.bomb.name} / ${L.pod.name}`;
+      this.backdrop('versus', { loadout: s.loadout, rivalId: r.id });
+    };
+    const prev = btn('◀ Robot', () => { pick = (pick + pool.length - 1) % pool.length; this.host.sfx('ui_move'); refresh(); }, 'big');
+    const next = btn('Robot ▶', () => { pick = (pick + 1) % pool.length; this.host.sfx('ui_move'); refresh(); }, 'big');
+    const arenaBtn = btn(`Arena: ${ARENA_INFO[arena as ArenaId].name}`, () => {
+      const ids = ARENA_IDS as readonly string[];
+      arena = ids[(ids.indexOf(arena) + 1) % ids.length];
+      arenaBtn.querySelector('span')!.textContent = `Arena: ${ARENA_INFO[arena as ArenaId].name}`;
+      this.host.sfx('ui_move');
+    }, 'big');
+    const pads = connectedPads().length;
+    const start = btn('Fight!', () => {
+      if (connectedPads().length === 0) {
+        this.host.sfx('ui_error');
+        this.toast('Connect a gamepad for Player 2 (press any button on it)');
+        return;
+      }
+      this.host.sfx('ui_select');
+      const r = pool[pick];
+      this.runMatch({ mode: 'versus', playerLoadout: { ...s.loadout }, rivalId: r.id, arenaId: arena, timeLimit: 120, versus: { p2Loadout: { ...r.loadout }, p2Paint: r.paint, p2Name: r.robotName } });
+    }, 'primary big');
+    const info = h('div', 'md-desc', pads >= 2 ? 'Two pads: Player 1 uses pad 1, Player 2 uses pad 2.' : 'Player 1: keyboard and mouse. Player 2: gamepad. Shared camera.');
+    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', label, sub, h('div', 'ra-actions', prev, next), arenaBtn, info), h('div', 'ra-actions', start, btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big')));
+    el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
+    this.setScreen(el, { back: () => this.showModes(), initial: start });
+    refresh();
+  }
+
+  private showReplays() {
+    this.backdrop('title');
+    const el = h('div', 'scr-free scr-modes');
+    const hd = this.header('Replays', 'Your Recent Fights');
+    const list = loadReplays();
+    const rows = list.map((rp) => {
+      const r = rivalById(rp.config.rivalId);
+      const sm = rp.summary;
+      const when = new Date(rp.date).toLocaleString();
+      const title = `${(sm?.outcome ?? '').toUpperCase()} vs ${r.robotName}`;
+      const row = h('div', 'md-row',
+        h('div', '', h('div', 'md-title', title), h('div', 'md-desc', `${ARENA_INFO[rp.config.arenaId as ArenaId]?.name ?? rp.config.arenaId} · ${sm ? fmtTime(sm.time) : ''} · ${when}`)),
+        h('div', 'ra-actions', btn('Watch', () => { this.host.sfx('ui_select'); this.watchReplay(rp); }, 'primary'), btn('Download', () => { this.host.sfx('ui_select'); downloadReplay(rp); }, '')));
+      return row;
+    });
+    const file = h('input') as HTMLInputElement;
+    file.type = 'file';
+    file.accept = '.json,application/json';
+    file.style.display = 'none';
+    file.addEventListener('change', async () => {
+      const f = file.files?.[0];
+      if (!f) return;
+      const rp = parseReplay(await f.text());
+      if (!rp) {
+        this.host.sfx('ui_error');
+        this.toast('That file is not a Robo Arena replay');
+        return;
+      }
+      saveReplay(rp);
+      this.showReplays();
+    });
+    const importBtn = btn('Import Replay File', () => { this.host.sfx('ui_select'); file.click(); }, 'big');
+    const back = btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big');
+    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col ra-scroll', ...(rows.length ? rows : [h('div', 'md-desc', 'No replays yet. Every finished fight is saved here automatically.')])), h('div', 'ra-actions', importBtn, back), file);
+    el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
+    this.setScreen(el, { back: () => this.showModes(), initial: rows[0]?.querySelector<HTMLElement>('.ra-btn') ?? importBtn });
   }
 
   /* ---------------- garage */

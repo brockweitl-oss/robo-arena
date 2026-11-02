@@ -303,3 +303,47 @@ describe('G1 review regressions (Codex, PR #17)', () => {
     expect(air).toBeGreaterThan(ground * 1.1);
   });
 });
+
+describe('G5 replays + grades', () => {
+  it('a recorded match replays to the identical final state', async () => {
+    const { InputRecorder, InputPlayer, quantizeInput } = await import('../../src/game/replay');
+    const { AIPilot } = await import('../../src/game/ai');
+    const play = (record: InstanceType<typeof InputRecorder> | null, player: InstanceType<typeof InputPlayer> | null) => {
+      const a = new Fighter(0, resolveLoadout(DEFAULT_LOADOUT));
+      const b = new Fighter(1, resolveLoadout({ ...DEFAULT_LOADOUT, gun: 'homer', legs: 'sprint' }));
+      a.pos.set(0, 0, 8);
+      b.pos.set(0, 0, -8);
+      const w = new World(testArena(), a, b, { seed: 777 });
+      w.combatEnabled = true;
+      const ai = new AIPilot('duelist', 0.8, 4242);
+      for (let i = 0; i < 1200; i++) {
+        let pin: FighterInput;
+        if (player) pin = player.next();
+        else {
+          // deterministic pseudo-human input
+          pin = { ...emptyInput(), moveX: Math.sin(i * 0.05), moveZ: Math.cos(i * 0.031), jumpPressed: i % 97 === 0, jumpHeld: i % 97 < 20, dashPressed: i % 61 === 0, gunPressed: i % 45 === 0, gunHeld: i % 45 < 5, bombPressed: i % 200 === 50, podPressed: i % 300 === 10, chargePressed: i % 150 === 75, faceTarget: i % 400 < 200 };
+          quantizeInput(pin);
+          record!.push(pin);
+        }
+        w.step([pin, ai.think(w, b, a)]);
+      }
+      return [a.pos.toArray().map((v) => v.toFixed(4)), b.pos.toArray().map((v) => v.toFixed(4)), a.hp, b.hp, w.time.toFixed(3)];
+    };
+    const rec = new InputRecorder();
+    const original = play(rec, null);
+    const replayed = play(null, new InputPlayer(rec.encode()));
+    expect(replayed).toEqual(original);
+  });
+
+  it('grades reward clean, fast wins and cap losses at C', async () => {
+    const { gradeMatch } = await import('../../src/game/grades');
+    const base = { config: { mode: 'free', playerLoadout: DEFAULT_LOADOUT, rivalId: 'dex', arenaId: 'foundry' } as any, finish: 'ko' as const, playerMaxHp: 1000, rivalHp: 0, rivalMaxHp: 1000 };
+    const stats = (o: Partial<{ dodges: number; parries: number; knockdowns: number }>) => ({ damageDealt: 0, hits: 0, knockdowns: o.knockdowns ?? 0, shots: 0, dodges: o.dodges ?? 0, parries: o.parries ?? 0 });
+    const great = gradeMatch({ ...base, outcome: 'win', time: 35, playerHp: 950, player: stats({ dodges: 6, parries: 2 }), rival: stats({ knockdowns: 3 }) });
+    const scrappy = gradeMatch({ ...base, outcome: 'win', time: 115, playerHp: 80, player: stats({}), rival: stats({}) });
+    const loss = gradeMatch({ ...base, outcome: 'lose', time: 60, playerHp: 0, player: stats({ dodges: 20 }), rival: stats({ knockdowns: 5 }) });
+    expect(great.grade).toBe('S');
+    expect(scrappy.grade).toBe('C');
+    expect(loss.grade).toBe('C');
+  });
+});

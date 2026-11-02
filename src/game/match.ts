@@ -19,7 +19,7 @@ import { audio, type LoopHandle } from '../audio/audio';
 import type { MatchConfig, MatchResult } from './types';
 import { groundHeightBelow, segmentHit } from './collision';
 import { track } from '../core/telemetry';
-import { InputRecorder, InputPlayer, type Replay } from './replay';
+import { InputRecorder, InputPlayer, quantizeInput, type Replay } from './replay';
 import { PadInput, connectedPads } from '../core/padInput';
 
 type Phase = 'intro' | 'ready' | 'fight' | 'ko' | 'timeup' | 'outro' | 'done';
@@ -137,6 +137,7 @@ export class Match {
   readonly done: Promise<MatchResult>;
   private disposed = false;
   private worldSeed: number;
+  private readySteps = 0;
   private aiSeed: number;
   private recorders: InputRecorder[] | null = null;
   private players: InputPlayer[] | null = null;
@@ -351,10 +352,16 @@ export class Match {
           else if (this.practiceMode === 'shoot') aiIn = { ...aiIn, moveX: 0, moveZ: 0, dashPressed: false, jumpPressed: false, chargePressed: false };
         }
         if (this.recorders) {
+          // the sim must see exactly what the replay stores
+          quantizeInput(this.pInput);
           this.recorders[0].push(this.pInput);
-          this.recorders[1]?.push(aiIn);
+          if (this.recorders[1]) {
+            aiIn = quantizeInput({ ...aiIn });
+            this.recorders[1].push(aiIn);
+          }
         }
         this.world.step([this.pInput, aiIn]);
+        if (this.phase === 'ready') this.readySteps++;
         if (this.practiceMode) {
           for (const f of [pf, rf]) if (f.hp < f.maxHp * 0.5) f.hp = f.maxHp;
         }
@@ -587,7 +594,8 @@ export class Match {
         host.input.enabled = true;
         host.input.requestLock();
       }
-      if (t > 1.1) {
+      // fight starts after a fixed number of sim ticks (not wall-clock time) so replays line up exactly
+      if (this.readySteps >= 66) {
         host.hud.announce('GO!', { color: '#ff6a1f' });
         audio.play('announce_go');
         for (const s of this.sides) s.fighter.locked = false;
