@@ -28,6 +28,8 @@ console.log('relay 120 inputs in', Date.now() - t0, 'ms');
 const third = await open('/room/' + ma.code); assert((await third.next()).reason === 'full', 'third rejected');
 ra.ws.close(); const left = await rb.next(); assert(left.t === 'left', 'left notice');
 
+// ranked writes to the leaderboard: only against a local `wrangler dev`
+if (!/127\.0\.0\.1|localhost/.test(base)) { console.log('PASS (ranked skipped: not local)'); process.exit(0); }
 // ranked: both report the same winner -> ratings move; keys stay private
 const ka = 'key-a-' + Math.random().toString(36).slice(2, 14), kb = 'key-b-' + Math.random().toString(36).slice(2, 14);
 const qa = await open('/quick?ranked=1&key=' + ka); await qa.next();
