@@ -23,6 +23,8 @@ const SIDES: Side[] = ['L', 'R'];
 function nozzle(rig: Rig, b: B, parent: THREE.Object3D, p: [number, number, number], radius: number, tilt = -.35) {
   const bell = lathe([[radius*.5,.05],[radius*.55,.015],[radius,-.07],[radius*.85,-.08],[radius*.58,-.015]], 16);
   b.add(parent,'dark',xf(bell,p,[tilt,0,0]));
+  // Outer lip shares the exit transform with the inner ring and exhaust anchor.
+  b.add(parent,'trim',xf(torus(radius*1.08,.009,16,5),[p[0],p[1]-.07*Math.cos(tilt),p[2]-.07*Math.sin(tilt)],[Math.PI/2+tilt,0,0]));
   b.add(parent,'chrome',xf(torus(radius*.92,.006,16,5),[p[0],p[1]-.07*Math.cos(tilt),p[2]-.07*Math.sin(tilt)],[Math.PI/2+tilt,0,0]));
   b.add(parent,'glowHot',xf(cyl(radius*.46,radius*.46,.008,12),[p[0],p[1]-.025,p[2]],[tilt,0,0]));
   rig.addNozzle(parent,[p[0],p[1]-.07*Math.cos(tilt),p[2]-.07*Math.sin(tilt)],[tilt,0,0],'back');
@@ -165,9 +167,6 @@ function backpack(rig:Rig,b:B,frame:Frame) {
     b.add(bk,'dark',xf(armorLoft([[-.17,.038,.04],[-.08,.052,.05],[.12,.042,.045],[.18,.025,.03]],12),[x,0,-.07],[slim?-.25:-.1,0,-sx*.12]));
     b.add(bk,'primary',xf(ridgeShell([[-.045,.17],[.045,.13],[.065,-.06],[.02,-.15],[-.045,-.10]],.025,.015),[x,0,-.12],[slim?-.25:-.1,Math.PI,-sx*.12]));
     nozzle(rig,b,bk,[x,-.13,-.08],heavy?.085:slim?.06:.055,-.45);
-    // Bright metal lip and dark inset distinguish propulsion from the armor plates.
-    const nr=heavy?.085:slim?.06:.055;
-    b.add(bk,'trim',xf(torus(nr*1.08,.009,16,5),[x,-.177,-.106],[Math.PI/2-.45,0,0]));
     if(slim) {
       // Three separate flight feathers with swept tips and exposed root hinges.
       for(let i=0;i<3;i++) {

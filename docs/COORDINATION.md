@@ -42,7 +42,7 @@ Shared bar for every visual PR: before/after screenshots from the gameplay camer
 
 Current follow-up: #43 merged at `ed193d0` after Claude code/image review and replay/fullscreen verification; #46 merged at `1505bef` with the Proving Grounds layout unchanged. The owner now says arenas are good and directs further work to **mech models**, with sleek powered armor and anime/real-robot influence. Issue #47 (`codex/reference-suits`) uses original generated references in `docs/visuals/mech-reference`; it preserves rig/gameplay contracts. No further arena scope is planned.
 
-Claude's consolidated VFX follow-up is #45 (supersedes #41), with #42 for rendering. They remain review work until checked and merged into the same main. Existing local frozen port 5320 is not automatically updated by a source merge; promote a verified final artifact there without changing the save origin.
+Claude's consolidated VFX #45, rendering #42, and competitive depth #48 have merged into the same main. Follow-up review fixes cover projectile pooling/reflection/width (#49) and render-pass lifetime. The reference-suit branch is rebased onto that combined main. Existing local frozen port 5320 is not automatically updated by a source merge; promote a verified final artifact there without changing the save origin.
 
 Codex's `codex/unified-visual-replay` starts from the combined `main`, including skill shots (ruleset 5). The completed V14 skill VFX and replay presentation edits predate the folder split above; issue #40 records this one-time handoff for Claude review. Subsequent VFX/render changes remain Claude-owned. No gameplay balance or simulation timing changes are included.
 
