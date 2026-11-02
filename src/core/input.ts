@@ -44,6 +44,8 @@ export class Input {
   private padMoveY = 0;
   private padLookX = 0;
   private padLookY = 0;
+  /** Gamepad index reserved for player 2 in local versus (-1 = none). */
+  ignorePad = -1;
   /** True while gameplay input is enabled (in a match, unpaused). */
   enabled = false;
   lastDevice: 'kbm' | 'pad' = 'kbm';
@@ -143,7 +145,7 @@ export class Input {
   pollPad() {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     let pad: Gamepad | null = null;
-    for (const p of pads) if (p && p.connected) { pad = p; break; }
+    for (const p of pads) if (p && p.connected && p.index !== this.ignorePad) { pad = p; break; }
     if (!pad) {
       this.padMoveX = this.padMoveY = this.padLookX = this.padLookY = 0;
       return;

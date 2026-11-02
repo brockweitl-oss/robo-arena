@@ -71,6 +71,10 @@ const CSS = /* css */ `
 .hud-threat { position:absolute; width:0; height:0; border-left:11px solid transparent; border-right:11px solid transparent; border-bottom:20px solid var(--c); filter:drop-shadow(0 0 6px var(--c)); opacity:0; transition:opacity .1s; }
 .hud-downlbl2 { font:700 10px 'Chakra Petch'; letter-spacing:.2em; opacity:.65; margin-top:2px; }
 .hud-pan.r .hud-downlbl2 { text-align:right; }
+.hud-practice { position:absolute; top:120px; right:28px; padding:12px 16px; background:#0b0d12cc; border-right:3px solid #37e8ff; font:700 14px 'Chakra Petch'; letter-spacing:.08em; display:none; min-width:190px; }
+.hud-practice.on { display:block; }
+.hud-practice div { display:flex; justify-content:space-between; gap:18px; }
+.hud-practice b { font-family:'Russo One'; color:#37e8ff; }
 .hud-vign { position:absolute; inset:0; box-shadow:inset 0 0 160px #ff1a1a; opacity:0; transition:opacity .2s; }
 @keyframes hudPulse { from{filter:brightness(1)} to{filter:brightness(1.6)} }
 @keyframes hudSpin { to { transform:rotate(360deg) } }
@@ -134,6 +138,7 @@ export class HUD {
       <div class="hud-buffs"></div>
       ${[0, 1, 2, 3].map(() => '<div class="hud-threat"></div>').join('')}
       <div class="hud-hint"></div>
+      <div class="hud-practice"></div>
       <div class="hud-ann"></div>`;
     parent.appendChild(this.el);
     for (const pan of Array.from(this.el.querySelectorAll<HTMLElement>('.hud-pan'))) {
@@ -239,6 +244,17 @@ export class HUD {
     el.style.transform = `translate(${W / 2 + Math.cos(a) * k - 11}px, ${H / 2 + Math.sin(a) * k - 10}px) rotate(${a + Math.PI / 2}rad)`;
   }
 
+  setPractice(on: boolean) {
+    const el = this.el.querySelector<HTMLElement>('.hud-practice')!;
+    el.classList.toggle('on', on);
+    el.innerHTML = '';
+  }
+
+  practiceInfo(i: { last: number; combo: number; dps: number; down: number }) {
+    const el = this.el.querySelector<HTMLElement>('.hud-practice')!;
+    el.innerHTML = `<div>LAST HIT<b>${i.last}</b></div><div>COMBO (2s)<b>${i.combo}</b></div><div>DPS (5s)<b>${i.dps.toFixed(0)}</b></div><div>DOWN<b>${i.down}%</b></div>`;
+  }
+
   hurtFlash(v: number) {
     this.vign.style.opacity = String(v);
     setTimeout(() => (this.vign.style.opacity = '0'), 120);
@@ -264,7 +280,7 @@ export class HUD {
       s.down.classList.toggle('hot', dn > 0.7);
     });
     const tl = Math.max(0, Math.ceil(timeLeft));
-    this.timer.textContent = String(tl);
+    this.timer.textContent = Number.isFinite(timeLeft) ? String(tl) : '∞';
     this.timer.classList.toggle('warn', tl <= 10);
     const p = fighters[0];
     for (const w of this.weaps) {

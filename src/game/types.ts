@@ -1,7 +1,9 @@
 import type { Loadout } from '../data/parts';
+import type { Paint } from '../data/characters';
+import type { Replay } from './replay';
 
 export interface MatchConfig {
-  mode: 'ladder' | 'free';
+  mode: 'ladder' | 'free' | 'rivalplus' | 'survival' | 'practice' | 'versus' | 'replay';
   playerLoadout: Loadout;
   rivalId: string;
   arenaId: string;
@@ -11,6 +13,16 @@ export interface MatchConfig {
   timeLimit?: number;
   /** Pick-ups mode (power-ups spawn mid-arena). */
   pickups?: boolean;
+  /** Rival+ ladder index (rivalplus mode). */
+  plusIndex?: number;
+  /** Survival: round number (1-based) and the HP the player carries in. */
+  survival?: { round: number; startHp: number };
+  /** Practice room dummy behaviour. */
+  practice?: { dummy: 'idle' | 'move' | 'shoot' | 'full' };
+  /** Local versus: player 2's build (gamepad). */
+  versus?: { p2Loadout: Loadout; p2Paint: Paint; p2Name: string };
+  /** Replay playback. */
+  replay?: Replay;
 }
 
 export interface MatchStats {
@@ -19,6 +31,11 @@ export interface MatchStats {
   knockdowns: number;
   shots: number;
   dodges: number;
+  parries?: number;
+  deflects?: number;
+  perfectDodges?: number;
+  podsUsed?: number;
+  bombsUsed?: number;
 }
 
 export interface MatchResult {
@@ -38,4 +55,6 @@ export interface MatchResult {
   quit?: boolean;
   /** Player chose Restart from the pause menu (host restarts automatically). */
   restart?: boolean;
+  /** Recording of the match (absent for practice/replay playback). */
+  replay?: Replay;
 }
