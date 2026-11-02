@@ -1,0 +1,170 @@
+{
+  "results": [
+    {
+      "body": "striker",
+      "pose": "front",
+      "fps": 58.97965202281764,
+      "meshes": 136,
+      "tris": 20186,
+      "calls": 1
+    },
+    {
+      "body": "striker",
+      "pose": "back",
+      "fps": 59.755004487300766,
+      "meshes": 136,
+      "tris": 20186,
+      "calls": 1
+    },
+    {
+      "body": "striker",
+      "pose": "run",
+      "fps": 59.886216183540064,
+      "meshes": 136,
+      "tris": 20186,
+      "calls": 1
+    },
+    {
+      "body": "striker",
+      "pose": "fire",
+      "fps": 60.41996830998622,
+      "meshes": 136,
+      "tris": 20186,
+      "calls": 1
+    },
+    {
+      "body": "wisp",
+      "pose": "front",
+      "fps": 59.63621906936424,
+      "meshes": 159,
+      "tris": 22046,
+      "calls": 1
+    },
+    {
+      "body": "wisp",
+      "pose": "back",
+      "fps": 59.71337579901213,
+      "meshes": 159,
+      "tris": 22046,
+      "calls": 1
+    },
+    {
+      "body": "wisp",
+      "pose": "run",
+      "fps": 60.336300692383794,
+      "meshes": 159,
+      "tris": 22046,
+      "calls": 1
+    },
+    {
+      "body": "wisp",
+      "pose": "fire",
+      "fps": 60.612082679521706,
+      "meshes": 159,
+      "tris": 22046,
+      "calls": 1
+    },
+    {
+      "body": "regent",
+      "pose": "front",
+      "fps": 60.039370078740156,
+      "meshes": 143,
+      "tris": 20802,
+      "calls": 1
+    },
+    {
+      "body": "regent",
+      "pose": "back",
+      "fps": 59.826503135202415,
+      "meshes": 143,
+      "tris": 20802,
+      "calls": 1
+    },
+    {
+      "body": "regent",
+      "pose": "run",
+      "fps": 60.569953337083135,
+      "meshes": 143,
+      "tris": 20802,
+      "calls": 1
+    },
+    {
+      "body": "regent",
+      "pose": "fire",
+      "fps": 59.70743358397972,
+      "meshes": 143,
+      "tris": 20802,
+      "calls": 1
+    },
+    {
+      "body": "ironclad",
+      "pose": "front",
+      "fps": 60.03346127913124,
+      "meshes": 143,
+      "tris": 23090,
+      "calls": 1
+    },
+    {
+      "body": "ironclad",
+      "pose": "back",
+      "fps": 60.18153118166869,
+      "meshes": 143,
+      "tris": 23090,
+      "calls": 1
+    },
+    {
+      "body": "ironclad",
+      "pose": "run",
+      "fps": 59.98033433067889,
+      "meshes": 143,
+      "tris": 23090,
+      "calls": 1
+    },
+    {
+      "body": "ironclad",
+      "pose": "fire",
+      "fps": 59.910134797803316,
+      "meshes": 143,
+      "tris": 23090,
+      "calls": 1
+    },
+    {
+      "pose": "match",
+      "fps": 60
+    }
+  ],
+  "errors": [],
+  "viewport": [
+    1600,
+    1000
+  ],
+  "quality": "medium",
+  "notes": [
+    "Viewer calls reflects final postprocessing pass, not aggregate match draw calls.",
+    "FPS is short viewer counter sample, not a 1080p benchmark.",
+    "Before images are pre-refinement armor with skill emitters already integrated; baseline gameplay images at docs/visuals/skills are from fd2613e."
+  ],
+  "screenshots": [
+    "after/ironclad-back.jpg",
+    "after/ironclad-fire.jpg",
+    "after/ironclad-front.jpg",
+    "after/ironclad-run.jpg",
+    "after/match.jpg",
+    "after/regent-back.jpg",
+    "after/regent-fire.jpg",
+    "after/regent-front.jpg",
+    "after/regent-run.jpg",
+    "after/striker-back.jpg",
+    "after/striker-fire.jpg",
+    "after/striker-front.jpg",
+    "after/striker-run.jpg",
+    "after/wisp-back.jpg",
+    "after/wisp-fire.jpg",
+    "after/wisp-front.jpg",
+    "after/wisp-run.jpg",
+    "before/ironclad-front.jpg",
+    "before/regent-front.jpg",
+    "before/striker-front.jpg",
+    "before/wisp-front.jpg"
+  ]
+}

@@ -16,8 +16,6 @@ export class PartThumbnails {
 
   image(slot: Slot, id: string): HTMLImageElement {
     const image = document.createElement('img'); image.className = 'gp-thumb'; image.alt = `${id} ${slot} model`; image.width = 144; image.height = 96;
-    // skill emitters have no mesh yet; the card shows its icon instead
-    if (slot === 'skill') { image.hidden = true; return image; }
     const key = `${slot}:${id}`;
     if (cache.has(key)) { image.src = cache.get(key)!; return image; }
     const timer = window.setTimeout(() => {
@@ -43,10 +41,10 @@ export class PartThumbnails {
     const model = new RobotModel(resolveLoadout({ ...DEFAULT_LOADOUT, [slot]: id }), PLAYER_PAINT);
     const rig = model.rig; model.root.updateMatrixWorld(true);
     const subject = new THREE.Group();
-    const nodes = slot === 'gun' ? [rig.gunMount] : slot === 'bomb' ? [rig.bombMount] : slot === 'pod' ? [rig.podMount] : slot === 'legs' ? [rig.thigh.L, rig.thigh.R] : [rig.waist];
+    const nodes = slot === 'skill' ? [rig.skillMount] : slot === 'gun' ? [rig.gunMount] : slot === 'bomb' ? [rig.bombMount] : slot === 'pod' ? [rig.podMount] : slot === 'legs' ? [rig.thigh.L, rig.thigh.R] : [rig.waist];
     for (const node of nodes) {
       const world = node.matrixWorld.clone(); node.removeFromParent(); node.matrixAutoUpdate = false; node.matrix.copy(world); subject.add(node);
-      if (slot === 'body') node.traverse(o => { if (['gun', 'bomb', 'pod'].includes(o.name)) o.visible = false; });
+      if (slot === 'body') node.traverse(o => { if (['gun', 'bomb', 'pod', 'skill'].includes(o.name)) o.visible = false; });
     }
     if (slot === 'gun') subject.rotation.z = 1.05;
     subject.updateMatrixWorld(true);

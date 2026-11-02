@@ -246,6 +246,17 @@ export function makeMaterials(paint: VisualPaint, seed = 1): MatSet {
     carbon: { metalness: .36, roughness: .4, clearcoat: .45 },
   };
   const finish = paint.finish && finishes[paint.finish];
+  // Roughness multiplies its scalar in Three.js: keep this near white so matte
+  // stays matte and increasing wear never switches to a darker, glossier map.
+  const paintRoughness = decalTexture((g, size) => {
+    g.fillStyle = '#f5f5f5'; g.fillRect(0, 0, size, size);
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
+      const value = 238 + ((x * 17 + y * 31 + seed * 7) % 18);
+      g.fillStyle = `rgb(${value},${value},${value})`;
+      g.fillRect(x * size / 32, y * size / 32, size / 32, size / 32);
+    }
+  }, 128, `paint-roughness-normalized:${seed}`);
+  paintRoughness.colorSpace = THREE.NoColorSpace;
   const carbon = paint.finish === 'carbon' ? decalTexture((g, size) => {
     g.fillStyle = '#72777e'; g.fillRect(0,0,size,size);
     const step=size/32;
@@ -257,18 +268,18 @@ export function makeMaterials(paint: VisualPaint, seed = 1): MatSet {
   if(carbon) { carbon.wrapS=carbon.wrapT=THREE.RepeatWrapping;carbon.repeat.set(10,10); }
   const painted = (color: number, rough = .4) => new THREE.MeshPhysicalMaterial({
     color: new THREE.Color(color).lerp(new THREE.Color(0x636a70),wear*.20),
-    map: carbon, metalness: finish?.metalness ?? .28,
+    map: carbon, metalness: finish?.metalness ?? .38,
     roughness: Math.min(.95,(finish?.roughness ?? rough)+wear*.18),
-    roughnessMap: wear > 0 ? grime : panel.rough,
+    roughnessMap: paintRoughness,
     normalMap: panel.normal, normalScale: new THREE.Vector2(.035+wear*.09,.035+wear*.09),
-    clearcoat: (finish?.clearcoat ?? .12)*(1-wear*.7), clearcoatRoughness: .22+wear*.45,
+    clearcoat: (finish?.clearcoat ?? 0)*(1-wear*.7), clearcoatRoughness: (finish ? .22 : .42)+wear*.35,
     envMapIntensity: 1.1,
   });
 
   const glowColor = new THREE.Color(paint.glow);
   const mats: MatSet = {
-    primary: painted(paint.primary, 0.55),
-    secondary: painted(paint.secondary, 0.52),
+    primary: painted(paint.primary, 0.62),
+    secondary: painted(paint.secondary, 0.58),
     trim: new THREE.MeshPhysicalMaterial({
       color: paint.trim,
       metalness: 0.55,

@@ -1,0 +1,29 @@
+{
+  "results": [
+    {
+      "skill": "lance",
+      "look": "lance",
+      "width": 0.64,
+      "frostVisible": false
+    },
+    {
+      "skill": "wave",
+      "look": "wave",
+      "width": 2.3,
+      "frostVisible": false
+    },
+    {
+      "skill": "hook",
+      "look": "hook",
+      "width": 0.9,
+      "frostVisible": false
+    },
+    {
+      "skill": "frost",
+      "look": "frost",
+      "width": 1,
+      "frostVisible": true
+    }
+  ],
+  "errors": []
+}

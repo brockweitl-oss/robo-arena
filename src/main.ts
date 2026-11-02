@@ -1,4 +1,5 @@
 import { Game } from './game/game';
+import { installFullscreen } from './core/fullscreen';
 import { RIVALS } from './data/characters';
 
 const style = document.createElement('style');
@@ -11,6 +12,8 @@ document.head.appendChild(style);
 
 const app = document.getElementById('app')!;
 const game = new Game(app);
+const disposeFullscreen = installFullscreen(app, () => game.gr.resize());
+if (import.meta.hot) import.meta.hot.dispose(disposeFullscreen);
 game.start();
 
 const params = new URLSearchParams(location.search);

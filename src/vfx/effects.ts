@@ -1,5 +1,7 @@
 import { PanelDebris } from './combatDetails';
 import { ComboEffects } from './comboEffects';
+import { SkillEffects, isSkillLook } from './skillEffects';
+import type { Fighter } from '../game/fighter';
 import * as THREE from 'three';
 import { PoseSnapshot } from './poseSnapshot';
 import { ParticleSystem } from './particles';
@@ -68,6 +70,7 @@ export class Effects {
   readonly smoke: ParticleSystem;
   readonly panels = new PanelDebris();
   private readonly combos: ComboEffects;
+  private readonly skills: SkillEffects;
   private rings: Ring[] = [];
   private decals: Decal[] = [];
   private flashes: Flash[] = [];
@@ -90,6 +93,8 @@ export class Effects {
     const q = quality === 'low' ? 0.5 : quality === 'medium' ? 0.8 : 1;
     this.scale = q;
     this.combos = new ComboEffects(quality);
+    this.skills = new SkillEffects(quality);
+    this.group.add(this.skills.group);
     this.group.add(this.combos.group);
     this.sparks = new ParticleSystem(Math.round(4000 * q), 'add');
     this.smoke = new ParticleSystem(Math.round(900 * q), 'smoke');
@@ -342,6 +347,8 @@ export class Effects {
   /** Compact primer mark and detonation burst; visual only, never changes simulation time. */
   comboPrime(pos: THREE.Vector3, color: number) { this.combos.prime(pos, color); }
   comboBurst(pos: THREE.Vector3, color: number) { this.combos.burst(pos, color); }
+  syncSkillStates(fighters: readonly Fighter[], anchors?: readonly THREE.Vector3[], roots?: readonly THREE.Vector3[], chests?: readonly THREE.Vector3[]) { this.skills.syncStates(fighters, anchors, roots, chests); }
+  skillImpact(look: string, attacker: number, victim: number, pos: THREE.Vector3, denied = false) { this.skills.impact(look, attacker, victim, pos, denied); }
   updateComboMarker(id: 0 | 1, pos: THREE.Vector3, remaining: number, duration: number, color: number) {
     this.combos.updateMarker(id, pos, remaining, duration, color);
   }
@@ -349,8 +356,10 @@ export class Effects {
   /* --------------------------------------------------------------- live entities */
 
   syncProjectiles(list: Projectile[], dt: number) {
+    this.skills.syncProjectiles(list);
     const seen = new Set<number>();
     for (const p of list) {
+      if (isSkillLook(p.spec.look)) continue;
       seen.add(p.id);
       let v = this.projViews.get(p.id);
       if (!v) {
@@ -512,6 +521,7 @@ export class Effects {
   /* --------------------------------------------------------------- update */
 
   update(dt: number) {
+    this.skills.update(dt);
     this.time += dt;
     this.panels.update(dt);
     this.combos.update(dt);
@@ -594,6 +604,7 @@ export class Effects {
   }
 
   clear() {
+    this.skills.clear();
     this.panels.clear();
     this.combos.clear();
     this.sparks.clear();
@@ -616,6 +627,7 @@ export class Effects {
     for (const list of this.ghosts.values()) for (const g of list) { g.mat.dispose(); g.snapshot.geometry.dispose(); }
     this.panels.dispose();
     this.combos.dispose();
+    this.skills.dispose();
     this.coreGeo.dispose(); this.ringGeo.dispose();
     Object.values(this.bombGeo).forEach(g => g.dispose());
     this.bombShellMat.dispose(); this.bombBandMats.forEach(m => m.dispose());

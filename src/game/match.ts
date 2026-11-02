@@ -13,6 +13,7 @@ import { Fighter, emptyInput, GUARD_DOT, type FighterInput } from './fighter';
 import { World, SIM_DT, type GameEvent } from './world';
 import { AIPilot } from './ai';
 import { ChaseCamera } from './camera';
+import { ReplayCamera } from '../render/replayCamera';
 import { Effects } from '../vfx/effects';
 import { TacticsView } from '../vfx/tacticsView';
 import { audio, type LoopHandle } from '../audio/audio';
@@ -110,10 +111,14 @@ export interface MatchHost {
 }
 
 export class Match {
+  private readonly skillAnchors = [new THREE.Vector3(), new THREE.Vector3()];
+  private readonly skillRoots = [new THREE.Vector3(), new THREE.Vector3()];
+  private readonly skillChests = [new THREE.Vector3(), new THREE.Vector3()];
   readonly scene = new THREE.Scene();
   readonly arena: ArenaBuild;
   readonly world: World;
   readonly cam: ChaseCamera;
+  private replayCamera: ReplayCamera | null = null;
   readonly fx: Effects;
   private tactics!: TacticsView;
   private sides: [Side, Side];
@@ -295,6 +300,10 @@ export class Match {
     for (const sd of this.sides) sd.model.root.visible = true;
     host.gr.renderer.compile(s, host.gr.camera);
     for (const sd of this.sides) sd.model.root.visible = false;
+    if (cfg.replay) {
+      this.replayCamera = new ReplayCamera(host.gr.camera, this.arena.colliders);
+      this.replayCamera.attach(host.hud.el.parentElement!, host.gr.renderer.domElement);
+    }
   }
 
   private get player() {
@@ -314,7 +323,7 @@ export class Match {
       if (a === 'resume') {
         this.host.input.clear();
         this.host.input.enabled = this.phase === 'fight' || this.phase === 'ready';
-        if (this.host.input.enabled) this.host.input.requestLock();
+        if (this.host.input.enabled && !this.players) this.host.input.requestLock();
       } else this.end({ quit: a === 'quit', restart: a === 'restart' });
     });
   }
@@ -398,9 +407,13 @@ export class Match {
     for (const s of this.sides) this.updateSide(s, dt, alpha);
     for (const s of this.sides) {
       const p = s.fighter.primer;
-      const anchor = s.model.rig.lockPoint.getWorldPosition(_v2); anchor.y += .28;
+      const anchor = s.model.rig.lockPoint.getWorldPosition(_v2);
+      this.skillChests[s.fighter.id].copy(anchor); anchor.y += .28;
       this.fx.updateComboMarker(s.fighter.id as 0 | 1, anchor, p?.remaining ?? 0, p?.duration ?? 2, p?.armed ? 0xffd36a : 0x5adfff);
+      s.model.rig.skillMuzzle.getWorldPosition(this.skillAnchors[s.fighter.id]);
+      s.model.root.getWorldPosition(this.skillRoots[s.fighter.id]);
     }
+    this.fx.syncSkillStates(this.world.fighters, this.skillAnchors, this.skillRoots, this.skillChests);
     this.fx.syncProjectiles(this.world.projectiles, dt);
     this.fx.syncBombs(this.world.bombs, dt);
     this.fx.syncPods(this.world.pods, dt);
@@ -412,7 +425,9 @@ export class Match {
     const rf = this.sides[1].fighter;
     const pPos = this.player.model.root.position;
     const rPos = this.sides[1].model.root.position;
-    if (this.phase === 'intro') {
+    if (this.replayCamera) {
+      this.replayCamera.update(dtReal, pPos, rPos);
+    } else if (this.phase === 'intro') {
       this.cam.update(dtReal, this.player.capsule.group.position, this.sides[1].capsule.group.position, look, host.settings.invertY, this.arena.colliders, true);
     } else {
       this.cam.update(dtReal, pPos, rPos, this.phase === 'fight' || this.phase === 'ready' ? look : { dx: 0, dy: 0 }, host.settings.invertY, this.arena.colliders, !pf.grounded);
@@ -451,7 +466,7 @@ export class Match {
       const dps = this.practiceLog.filter((h) => now - h.t < 5).reduce((a, h) => a + h.dmg, 0) / 5;
       host.hud.practiceInfo({ last: last ? last.dmg : 0, combo: recent.reduce((a, h) => a + h.dmg, 0), dps, down: Math.round((rf.down / rf.endurance) * 100) });
     }
-    if (this.cfg.versus && this.phase !== 'intro') this.versusCamera(pPos, rPos);
+    if (this.cfg.versus && !this.replayCamera && this.phase !== 'intro') this.versusCamera(pPos, rPos);
     if (this.phase === 'fight' && pf.hp / pf.maxHp < 0.25) {
       this.lowHpT -= dtReal;
       if (this.lowHpT <= 0) {
@@ -465,6 +480,7 @@ export class Match {
   private updateSide(s: Side, dt: number, alpha: number) {
     const f = s.fighter;
     const m = s.model;
+    m.setSkillCharge(f.castT >= 0 ? .25 + .75 * (1 - Math.min(1, f.castT / f.lo.skill.cast)) : 0);
     if (s.capsule.openT >= 0 && s.capsule.group.visible) {
       s.capsule.openT += dt;
       s.capsule.setOpen(s.capsule.openT / 0.6);
@@ -769,9 +785,9 @@ export class Match {
     if (p === 'ready') {
       this.host.hud.announce('READY', { color: '#37e8ff' });
       audio.play('announce_ready');
-      this.host.hud.showHint(this.host.input.lastDevice === 'pad' ? 'RT auto-gun · Hold Y + R-stick: aim skill, release: fire · LT bomb · RB pod · B dash · X charge' : 'Click to capture mouse · LMB auto-gun · Hold R + mouse: aim skill, release: fire · Hold RMB: aim bomb · E pod · Shift dash · Q charge', 5);
+      this.host.hud.showHint(this.players ? 'Replay · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc pause' : this.host.input.lastDevice === 'pad' ? 'RT auto-gun · Hold Y + R-stick: aim skill, release: fire · LT bomb · RB pod · B dash · X charge' : 'Click to capture mouse · LMB auto-gun · Hold R + mouse: aim skill, release: fire · Hold RMB: aim bomb · E pod · Shift dash · Q charge', 5);
       this.host.input.enabled = true;
-      this.host.input.requestLock();
+      if (!this.players) this.host.input.requestLock();
     }
     if (p === 'fight') this.host.input.enabled = true;
   }
@@ -1039,15 +1055,15 @@ export class Match {
               // telegraph: charge sound + glint (the enemy's lane shows on the ground during the cast)
               audio.play('gun_rail_charge', { pos: f.pos, volume: 0.8, pitch: 1.3 });
               s.model.root.updateMatrixWorld(true);
-              fx.chargeGlint(s.model.rig.muzzle.getWorldPosition(new THREE.Vector3()), f.lo.skill.color);
+              fx.chargeGlint(s.model.rig.skillMuzzle.getWorldPosition(_v2), f.lo.skill.color);
               break;
             }
             case 'skill': {
               const sk = f.lo.skill;
               audio.play(sk.model === 'wave' ? 'gun_scatter' : 'gun_rail', { pos: f.pos, volume: 1, pitch: sk.model === 'hook' ? 0.7 : sk.model === 'frost' ? 1.3 : 1 });
-              s.anim.event({ type: 'fire' });
+              s.anim.event({ type: 'skill' });
               s.model.root.updateMatrixWorld(true);
-              const mp = s.model.rig.muzzle.getWorldPosition(new THREE.Vector3());
+              const mp = s.model.rig.skillMuzzle.getWorldPosition(_v2);
               fx.muzzle(mp, new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)), sk.color, true);
               break;
             }
@@ -1171,6 +1187,9 @@ export class Match {
         }
         case 'hit': {
           const v = this.sides[e.victim];
+          if (e.source === 'skill' && e.damage > 0 && !e.blocked && !e.parried && this.sides[e.attacker]) {
+            fx.skillImpact(e.skillLook ?? '', e.attacker, e.victim, e.pos, !!e.skillReflected || e.ko || e.knockdown);
+          }
           if (e.victim === 0) {
             this.tel.dmgTaken[e.source] = (this.tel.dmgTaken[e.source] ?? 0) + e.damage;
             this.tel.hitsTaken++;
@@ -1248,6 +1267,7 @@ export class Match {
 
   dispose() {
     this.disposed = true;
+    this.replayCamera?.dispose();
     for (const s of this.sides) {
       s.thruster.stop();
       s.model.dispose();

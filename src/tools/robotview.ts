@@ -43,6 +43,7 @@ export function robotView(params: URLSearchParams) {
     ...(params.get('gun') ? { gun: params.get('gun')! } : {}),
     ...(params.get('bomb') ? { bomb: params.get('bomb')! } : {}),
     ...(params.get('pod') ? { pod: params.get('pod')! } : {}),
+    ...(params.get('skill') ? { skill: params.get('skill')! } : {}),
   });
   const model = new RobotModel(lo, rival ? rival.paint : PLAYER_PAINT);
   scene.add(model.root);

@@ -63,6 +63,8 @@ export class Rig {
   readonly bombMount = new THREE.Group();
   readonly bombMuzzle = new THREE.Object3D();
   readonly podMount = new THREE.Group();
+  readonly skillMount = new THREE.Group();
+  readonly skillMuzzle = new THREE.Object3D();
   readonly antennas: THREE.Group[] = [];
   /** Extra hanging parts for spring secondary motion (capes, tassets). */
   readonly danglers: THREE.Group[] = [];
@@ -86,6 +88,9 @@ export class Rig {
     this.neck.position.y = s.neckY;
     this.neck.add(this.head);
     this.chest.add(this.back);
+    this.chest.add(this.skillMount);
+    this.skillMount.name = 'skill';
+    this.skillMount.add(this.skillMuzzle);
     this.chest.add(this.bombMount);
     this.bombMount.add(this.bombMuzzle);
     this.back.add(this.podMount);
