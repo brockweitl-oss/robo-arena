@@ -1,0 +1,7 @@
+power-armor-combined garden {
+  frames: 1450,
+  fps: 127.8551724137931,
+  calls: 668.6889655172414,
+  cpuMs: 5.5748965518227935,
+  geos: [ 371, 417 ]
+} []

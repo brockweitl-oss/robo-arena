@@ -54,6 +54,8 @@ Codex's `codex/unified-visual-replay` starts from the combined `main`, including
 
 ## Status board
 
+Current owner correction (#56): the reference suits remained too skinny and skeletal. `codex/enclosed-power-armor` replaces visible rod-like limb cores with enclosed, wearer-sized armor volumes, fuller torso/hips, protected joints and substantial boots. Frames and legs only; original designs, with rig dimensions and combat contracts preserved. This supersedes the earlier preference for exposed actuators and very slim limbs.
+
 | Task | Owner | Status | Note |
 |---|---|---|---|
 | V1 Mech art overhaul (Vanguard/Strider/Paladin/Titan) | Codex | merged | #10; reviewed by Claude; art follow-up #15 |

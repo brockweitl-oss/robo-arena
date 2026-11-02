@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Rig, Side } from './rig';
 import { PartBuilder, ridgeShell, armorLoft, petal, rbox, plate, armorShell, chamferBox, trap, cyl, sphere, torus, xf, vents, piston, boltRing, lathe } from './kit';
+import type { MatKey } from './kit';
 import type { LegsDef } from '../data/parts';
 
 export interface LegLengths {
@@ -32,53 +33,57 @@ function stride(rig: Rig, b: PartBuilder, side: Side, bulk: number) {
   const sx = side === 'L' ? 1 : -1;
   const T = rig.spec.thigh, S = rig.spec.shin, k = bulk;
   const th = rig.thigh[side], kn = rig.knee[side], an = rig.ankle[side];
-  // Dark load-bearing frame stays visible at the hip, inner thigh and knee.
-  b.add(th, 'joint', xf(cyl(.042*k, .034*k, T*.90, 12), [0,-T*.47,-.012]));
-  b.add(th, 'chrome', xf(cyl(.052*k,.052*k,.11*k,12),[0,-T*.075,0],[0,0,Math.PI/2]));
-  const thighProfile: [number,number][] = [[-.067*k,T*.32],[.055*k,T*.34],[.085*k,T*.16],[.045*k,-T*.30],[.005*k,-T*.40],[-.049*k,-T*.22],[-.078*k,T*.08]];
-  b.add(th,'primary',xf(ridgeShell(thighProfile,.022,.027),[sx*.012,-T*.46,.043*k],[0,sx*.12,0]));
-  // Separate outer plate overlaps the crown without closing the exposed mechanical gap.
-  b.add(th,'secondary',xf(ridgeShell([[-.028*k,T*.24],[.035*k,T*.28],[.048*k,T*.05],[.005*k,-T*.29],[-.033*k,-T*.17]],.016,.018),[sx*.072*k,-T*.40,.016],[0,sx*.75,sx*-.06]));
-  b.add(th,'trim',xf(plate([[-.009,T*.16],[.012,T*.18],[.009,-T*.11],[-.006,-T*.20]],.005,.002),[sx*.052*k,-T*.44,.079*k],[0,sx*.16,0]));
-  const hyd = piston(new THREE.Vector3(sx*.062*k,-.05,-.045),new THREE.Vector3(sx*.048*k,-T*.88,-.03),.013);
-  b.add(th,'dark',hyd.body); b.add(th,'chrome',hyd.rod);
-  // Rear armor covers the structural core while the outer hydraulic remains serviceable.
-  b.add(th,'primary',xf(ridgeShell([[-.052*k,T*.27],[.052*k,T*.27],[.061*k,T*.08],[.036*k,-T*.29],[0,-T*.35],[-.036*k,-T*.29]],.014,.010),[-sx*.010*k,-T*.47,-.052*k],[0,Math.PI,0]));
-  b.add(th,'secondary',xf(plate([[-.025*k,T*.12],[.025*k,T*.12],[.019*k,-T*.12],[-.019*k,-T*.12]],.006,.002),[-sx*.010*k,-T*.43,-.071*k],[0,Math.PI,0]));
-  b.add(kn,'joint',xf(cyl(.052*k,.052*k,.124*k,16),[0,0,0],[0,0,Math.PI/2]));
-  for (const x of [-1,1]) {
-    b.add(kn,'chrome',xf(cyl(.029,.029,.012,12),[x*.065*k,0,0],[0,0,Math.PI/2]));
-    b.add(kn,'dark',xf(cyl(.013,.013,.014,10),[x*.072*k,0,0],[0,0,Math.PI/2]));
-  }
-  // Two distinct floating knee layers: angular shield above a narrow dark hinge.
-  b.add(kn,'dark',xf(ridgeShell([[-.064*k,.053],[0,.086],[.064*k,.053],[.043*k,-.075],[0,-.105],[-.043*k,-.075]],.018,.014),[0,.005,.047*k]));
-  b.add(kn,'secondary',xf(ridgeShell([[-.048*k,.052],[0,.080],[.048*k,.052],[.034*k,-.048],[0,-.125],[-.034*k,-.048]],.014,.010),[0,.018,.073*k],[-.08,0,0]));
-  b.add(kn,'primary',xf(ridgeShell([[-.030*k,.015],[.030*k,.015],[.021*k,-.055],[0,-.11],[-.021*k,-.055]],.010,.007),[0,-.070,.063*k]));
-  // Split greave plates surround a recessed luminous channel; no smooth boot-like calf.
-  b.add(kn,'joint',xf(cyl(.033*k,.044*k,S*.84,12),[0,-S*.49,-.008]));
-  b.add(kn,'dark',xf(ridgeShell([[-.043*k,S*.31],[.043*k,S*.31],[.026*k,-S*.34],[-.026*k,-S*.34]],.014,.008),[0,-S*.50,.051*k]));
-  for (const sideSign of [-1,1]) {
-    const points: [number,number][] = [[.014*k,S*.37],[.057*k,S*.39],[.081*k,S*.17],[.051*k,-S*.29],[.018*k,-S*.39],[.010*k,-S*.12]];
-    // Reverse winding after mirroring so every shell remains front-facing.
-    const mirrored = points.map(([x,y]) => [x*sideSign,y] as [number,number]);
-    if (sideSign < 0) mirrored.reverse();
-    b.add(kn,sideSign === sx ? 'primary' : 'secondary',xf(ridgeShell(mirrored,.016,.012),[0,-S*.52,.049*k],[0,sideSign*.12,0]));
-  }
-  b.add(kn,'glow',xf(plate([[-.004,S*.23],[.004,S*.23],[.004,-S*.19],[0,-S*.27],[-.004,-S*.19]],.004,.001),[0,-S*.49,.071*k]));
-  const rear = piston(new THREE.Vector3(sx*.055*k,-.04,-.066),new THREE.Vector3(sx*.045*k,-S*.88,-.04),.012);
-  b.add(kn,'dark',rear.body); b.add(kn,'chrome',rear.rod);
-  // Two rear calf flanks leave a deliberate central channel, not a fully bare endoskeleton.
-  for (const sign of [-1,1]) {
-    b.add(kn,'primary',xf(ridgeShell([[-.020*k,S*.27],[.020*k,S*.31],[.029*k,S*.12],[.018*k,-S*.28],[-.013*k,-S*.32],[-.022*k,-S*.10]],.012,.008),[sign*.028*k,-S*.50,-.050*k],[0,Math.PI+sign*.17,0]));
-  }
-  const A = rig.spec.ankleH, F = rig.spec.footLen*(.9+k*.1);
-  b.add(an,'joint',xf(cyl(.043*k,.043*k,.105*k,14),[0,0,0],[0,0,Math.PI/2]));
-  // A low sole with independent heel/toe armor and a mechanical instep bridge.
-  b.add(an,'dark',xf(plate([[-.052*k,-F*.40],[.052*k,-F*.40],[.062*k,-F*.20],[.052*k,F*.28],[.030*k,F*.46],[-.030*k,F*.46],[-.052*k,F*.28],[-.062*k,-F*.20]],.021,.004),[0,-A+.011,F*.09],[-Math.PI/2,0,0]));
-  b.add(an,'secondary',xf(chamferBox(.092*k,.045,F*.18,.012),[0,-A+.033,-F*.22]));
-  b.add(an,'primary',xf(ridgeShell([[-.048*k,-F*.18],[.048*k,-F*.18],[.052*k,F*.10],[.026*k,F*.31],[-.026*k,F*.31],[-.052*k,F*.10]],.014,.012),[0,-A+.030,F*.19],[-Math.PI/2,0,0]));
-  b.add(an,'primary',xf(ridgeShell([[-.038*k,.055],[.038*k,.055],[.045*k,-.025],[.025*k,-.065],[-.025*k,-.065],[-.045*k,-.025]],.012,.009),[0,-.013,.052*k],[.36,0,0]));
-  for (const x of [-1,1]) b.add(an,'chrome',xf(cyl(.018,.018,.008,10),[x*.057*k,-.008,0],[0,0,Math.PI/2]));
+  // Leave at least 25 mm to the body centerline even on Titan/Anchor.
+  // Scale complete thigh layers together so fitted seams stay on the shell.
+  const thighWidth = Math.min(1, (rig.spec.hipX - .025) / (.119*k));
+  const addTh = (mat: MatKey, g: THREE.BufferGeometry) => b.add(th,mat,g.scale(thighWidth,1,1));
+  // Continuous wearable shells: generous muscle volume, tapered joint cuffs.
+  addTh('joint',xf(cyl(.066*k,.060*k,T*.97,12),[0,-T*.49,0]));
+  addTh('primary',armorLoft([
+    [-T*.95,.067*k,.067*k],[-T*.82,.084*k,.084*k],
+    [-T*.51,.108*k,.108*k,0,.006],[-T*.21,.119*k,.115*k],
+    [-T*.07,.099*k,.094*k],[-T*.035,.078*k,.077*k],
+  ],20));
+  // Flush front lamella and lateral seam follow the enclosed thigh rather than float.
+  addTh('secondary',xf(ridgeShell([[-.071*k,T*.29],[.071*k,T*.29],[.081*k,T*.08],[.049*k,-T*.32],[0,-T*.38],[-.049*k,-T*.32]],.014,.012),[0,-T*.47,.098*k]));
+  addTh('trim',xf(plate([[-.007,T*.19],[.007,T*.19],[.006,-T*.19],[-.006,-T*.19]],.004,.001),[sx*.090*k,-T*.39,.070*k],[0,sx*.60,0]));
+  // Short fitted rear cap breaks the uninterrupted oval without exposing the frame.
+  addTh('dark',xf(ridgeShell([[-.055*k,T*.13],[.055*k,T*.13],[.061*k,0],[.040*k,-T*.18],[-.040*k,-T*.18],[-.061*k,0]],.008,.007),[0,-T*.35,-.102*k],[0,Math.PI,0]));
+  addTh('secondary',xf(ridgeShell([[-.049*k,T*.115],[.049*k,T*.115],[.054*k,0],[.035*k,-T*.16],[-.035*k,-T*.16],[-.054*k,0]],.008,.007),[0,-T*.35,-.110*k],[0,Math.PI,0]));
+  b.add(kn,'joint',xf(cyl(.071*k,.071*k,.150*k,16),[0,0,0],[0,0,Math.PI/2]));
+  b.add(kn,'primary',xf(armorLoft([[-.064,.066*k,.064*k],[0,.084*k,.078*k],[.052,.074*k,.068*k]],16),[0,0,0]));
+  b.add(kn,'secondary',xf(ridgeShell([[-.067*k,.049],[0,.077],[.067*k,.049],[.054*k,-.052],[0,-.087],[-.054*k,-.052]],.022,.014),[0,.004,.076*k]));
+  // Calf is a closed shaped greave, with a deep rear muscle and narrow ankle.
+  b.add(kn,'primary',armorLoft([
+    [-S*.98,.060*k,.059*k],[-S*.86,.068*k,.069*k],
+    [-S*.63,.091*k,.101*k,0,-.010],[-S*.36,.110*k,.120*k,0,-.016],
+    [-S*.15,.098*k,.099*k],[-S*.075,.074*k,.075*k],
+  ],20));
+  b.add(kn,'secondary',xf(ridgeShell([[-.064*k,S*.30],[.064*k,S*.30],[.070*k,S*.10],[.041*k,-S*.36],[0,-S*.43],[-.041*k,-S*.36],[-.070*k,S*.10]],.018,.010),[0,-S*.50,.087*k]));
+  b.add(kn,'glow',xf(plate([[-.003,S*.20],[.003,S*.20],[.003,-S*.17],[-.003,-S*.17]],.004,.001),[0,-S*.44,.110*k]));
+  // Rear service hatch is inset visually into a broad armored calf.
+  b.add(kn,'dark',xf(plate([[-.033*k,S*.12],[.033*k,S*.12],[.027*k,-S*.15],[-.027*k,-S*.15]],.006,.003),[0,-S*.41,-.135*k],[0,Math.PI,0]));
+  b.add(kn,'secondary',xf(plate([[-.028*k,S*.10],[.028*k,S*.10],[.022*k,-S*.13],[-.022*k,-S*.13]],.006,.002),[0,-S*.41,-.141*k],[0,Math.PI,0]));
+  for (const sign of [-1,1]) b.add(kn,'trim',xf(plate([[-.003,S*.075],[.003,S*.075],[.003,-S*.075],[-.003,-S*.075]],.003,.001),[sign*.025*k,-S*.40,-.146*k],[0,Math.PI,0]));
+  const A=rig.spec.ankleH,F=rig.spec.footLen*(.9+k*.1);
+  // Leave a flat rear engine recess sized from the actual foot length, including
+  // short Feather feet. The nozzle's position and exhaust axis do not move.
+  const heelClear = (g: THREE.BufferGeometry) => {
+    const p=g.getAttribute('position'), back=-F*.28+.06;
+    for(let i=0;i<p.count;i++) p.setZ(i,Math.max(back,p.getZ(i)));
+    g.computeVertexNormals();
+    return g;
+  };
+  b.add(an,'joint',xf(cyl(.058*k,.058*k,.13*k,14),[0,0,0],[0,0,Math.PI/2]));
+  // Enclosed boot with raised instep and substantial toe; never a skeletal toe paddle.
+  b.add(an,'dark',xf(plate([[-.075*k,-F*.38],[.075*k,-F*.38],[.088*k,-F*.13],[.077*k,F*.42],[.049*k,F*.51],[-.049*k,F*.51],[-.077*k,F*.42],[-.088*k,-F*.13]],.028,.007),[0,-A+.014,F*.04],[-Math.PI/2,0,0]));
+  b.add(an,'primary',heelClear(xf(armorLoft([
+    [-F*.17,.058*k,.033],[-F*.10,.079*k,.050],
+    [0,.083*k,.058],[F*.25,.080*k,.040],[F*.43,.060*k,.025],
+    [F*.47,.045*k,.018],
+  ],20),[0,-A+.065,F*.04],[Math.PI/2,0,0])));
+  b.add(an,'secondary',heelClear(xf(armorLoft([[-.065,.064*k,.059*k],[-.012,.074*k,.072*k],[.040,.062*k,.059*k]],16),[0,0,.012])));
+  b.add(an,'primary',xf(ridgeShell([[-.048*k,.048],[.048*k,.048],[.062*k,-.028],[.042*k,-.061],[-.042*k,-.061],[-.062*k,-.028]],.016,.009),[0,-.009,.075*k],[.32,0,0]));
   // Existing mount/angle preserved exactly for procedural thruster animation.
   footNozzle(rig,b,an,[0,-A+.065,-F*.28],.034);
 }
@@ -90,7 +95,8 @@ function hopper(rig: Rig, b: PartBuilder, side: Side, bulk: number) {
   const M = rig.spec.meta;
   const k = bulk * 1.3;
   const th = rig.thigh[side];
-  // compact thigh with heavy muscle-armor
+  // Enclosed jump-suit thigh; reverse-joint dimensions remain unchanged.
+  b.add(th,'primary',armorLoft([[-T*.94,.068*k,.067*k],[-T*.58,.100*k,.100*k],[-T*.20,.106*k,.105*k],[-T*.05,.080*k,.079*k]],20));
   b.add(th, 'dark', xf(cyl(0.06 * k, 0.05 * k, T * 0.9, 12), [0, -T * 0.5, 0]));
   b.add(th, 'primary', xf(ridgeShell([[-0.075, 0.1], [0, 0.13], [0.075, 0.1], [0.06, -0.1], [0, -0.13], [-0.06, -0.1]], 0.028, 0.045), [sx * 0.01, -T * 0.4, 0.065*k], [0, 0, 0], k));
   b.add(th, 'trim', xf(chamferBox(0.03, T * 0.5, 0.09, 0.012), [sx * 0.095 * k, -T * 0.4, 0.0]));
@@ -98,7 +104,8 @@ function hopper(rig: Rig, b: PartBuilder, side: Side, bulk: number) {
   const kn = rig.knee[side];
   b.add(kn, 'joint', xf(cyl(0.065 * k, 0.065 * k, 0.13 * k, 16), [0, 0, 0], [0, 0, Math.PI / 2]));
   b.add(kn, 'secondary', xf(plate([[-0.06, -0.05], [0.06, -0.05], [0.07, 0.04], [0, 0.09], [-0.07, 0.04]], 0.05, 0.012), [0, 0.0, 0.07 * k], [0.3, 0, 0], k));
-  // long shin with exposed spring coil
+  // Calf casing wraps the spring assembly; only its rear service strip remains visible.
+  b.add(kn,'primary',armorLoft([[-S*.95,.057*k,.064*k],[-S*.70,.079*k,.082*k],[-S*.35,.100*k,.096*k],[-S*.08,.073*k,.075*k]],20));
   b.add(kn, 'dark', xf(cyl(0.035, 0.035, S * 0.92, 10), [0, -S * 0.5, -0.02]));
   for (let i = 0; i < 9; i++) b.add(kn, 'chrome', xf(torus(0.055 * k, 0.009, 16, 6), [0, -S * (0.2 + i * 0.07), -0.02], [Math.PI / 2, 0, 0]));
   b.add(kn, 'primary', xf(ridgeShell([[-.025*k,S*.4],[.025*k,S*.4],[.072*k,S*.12],[.035*k,-S*.4],[-.035*k,-S*.4],[-.072*k,S*.12]],.02,.035), [0,-S*.48,.047*k]));
@@ -109,14 +116,15 @@ function hopper(rig: Rig, b: PartBuilder, side: Side, bulk: number) {
   b.add(an, 'joint', xf(cyl(0.06 * k, 0.06 * k, 0.13 * k, 14), [0, 0, 0], [0, 0, Math.PI / 2]));
   b.add(an, 'secondary', xf(sphere(0.055 * k, 12, 10), [0, 0.0, -0.05], [0, 0, 0], [1, 1, 1.2]));
   // metatarsal strut
-  b.add(an, 'primary', xf(armorLoft([[-M*.42,.03*k,.035*k],[-M*.12,.052*k,.056*k],[M*.35,.037*k,.04*k],[M*.42,.025*k,.025*k]],14),[0,-M*.5,0]));
+  b.add(an, 'primary', xf(armorLoft([[-M*.46,.045*k,.050*k],[-M*.12,.071*k,.075*k],[M*.35,.057*k,.061*k],[M*.46,.044*k,.045*k]],14),[0,-M*.5,0]));
   const pp = piston(new THREE.Vector3(0, -0.02, -0.07), new THREE.Vector3(0, -M + 0.02, -0.05), 0.014);
   b.add(an, 'dark', pp.body);
   b.add(an, 'chrome', pp.rod);
-  // splayed three-toe foot
+  // Armored toe bridge encloses the splayed jump-foot mechanism.
   const ft = rig.hock[side];
   const A = rig.spec.ankleH;
   b.add(ft, 'joint', xf(sphere(0.05 * k, 12, 10), [0, 0, 0]));
+  b.add(ft,'primary',xf(armorLoft([[-.09,.065*k,.035],[-.02,.098*k,.065],[.13,.105*k,.054],[.24,.076*k,.033],[.28,.045*k,.020]],20),[0,-A+.070,0],[Math.PI/2,0,0]));
   b.add(ft, 'dark', xf(rbox(0.14 * k, 0.08, 0.14, 0.03), [0, -A + 0.045, 0.0]));
   for (const [ang, len] of [[0, 0.32], [0.45, 0.25], [-0.45, 0.25]] as [number, number][]) {
     const toe = xf(petal(.073*k,len,.07,.015),[Math.sin(ang)*len*.45,-A+.04,Math.cos(ang)*len*.45],[-Math.PI/2,0,-ang]);
@@ -130,7 +138,7 @@ function hopper(rig: Rig, b: PartBuilder, side: Side, bulk: number) {
 export function buildLegs(model: VisualLeg, rig: Rig, b: PartBuilder, bulk: number) {
   for (const side of ['L', 'R'] as Side[]) {
     const sx = side === 'L' ? 1 : -1;
-    const k = bulk * (model === 'sprint' ? 0.76 : model === 'anchor' ? 1.22 : model === 'feather' ? 0.72 : 1);
+    const k = bulk * (model === 'sprint' ? 0.90 : model === 'anchor' ? 1.22 : model === 'feather' ? 0.86 : 1);
     (model === 'hopper' ? hopper : stride)(rig, b, side, k);
     if (model === 'sprint') {
       b.add(rig.knee[side], 'secondary', xf(armorShell([[-0.05,0.08],[0,0.13],[0.05,0.08],[0.028,-0.22],[0,-0.3],[-0.028,-0.22]],0.035,0.022),[0,-0.12,0.13*k]));

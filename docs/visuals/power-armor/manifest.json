@@ -1,0 +1,257 @@
+{
+  "baseCommit": "25b97f6",
+  "source": "Final enclosed power armor with reviewed thigh, heel, upper-arm and weapon-clearance fixes",
+  "viewport": [
+    1600,
+    1000
+  ],
+  "quality": "medium",
+  "before": "Previous reference-suit front captures",
+  "results": [
+    {
+      "body": "striker",
+      "pose": "front",
+      "fps": 59.582919563058596,
+      "meshes": 134,
+      "tris": 17766,
+      "calls": 1
+    },
+    {
+      "body": "striker",
+      "pose": "side",
+      "fps": 59.482502227781936,
+      "meshes": 134,
+      "tris": 17766,
+      "calls": 1
+    },
+    {
+      "body": "striker",
+      "pose": "back",
+      "fps": 59.731209556993534,
+      "meshes": 134,
+      "tris": 17766,
+      "calls": 1
+    },
+    {
+      "body": "striker",
+      "pose": "run",
+      "fps": 59.99400059135867,
+      "meshes": 134,
+      "tris": 17766,
+      "calls": 1
+    },
+    {
+      "body": "striker",
+      "pose": "fire",
+      "fps": 60.47987309713244,
+      "meshes": 134,
+      "tris": 17766,
+      "calls": 1
+    },
+    {
+      "body": "wisp",
+      "pose": "front",
+      "fps": 60.24691358024692,
+      "meshes": 160,
+      "tris": 19970,
+      "calls": 1
+    },
+    {
+      "body": "wisp",
+      "pose": "side",
+      "fps": 60.294553718617124,
+      "meshes": 160,
+      "tris": 19970,
+      "calls": 1
+    },
+    {
+      "body": "wisp",
+      "pose": "back",
+      "fps": 60.46788263568928,
+      "meshes": 160,
+      "tris": 19970,
+      "calls": 1
+    },
+    {
+      "body": "wisp",
+      "pose": "run",
+      "fps": 59.94496855907704,
+      "meshes": 160,
+      "tris": 19970,
+      "calls": 1
+    },
+    {
+      "body": "wisp",
+      "pose": "fire",
+      "fps": 59.74905398466065,
+      "meshes": 160,
+      "tris": 19970,
+      "calls": 1
+    },
+    {
+      "body": "regent",
+      "pose": "front",
+      "fps": 59.98800241095962,
+      "meshes": 135,
+      "tris": 17378,
+      "calls": 1
+    },
+    {
+      "body": "regent",
+      "pose": "side",
+      "fps": 59.964021578474984,
+      "meshes": 135,
+      "tris": 17378,
+      "calls": 1
+    },
+    {
+      "body": "regent",
+      "pose": "back",
+      "fps": 59.8086124373486,
+      "meshes": 135,
+      "tris": 17378,
+      "calls": 1
+    },
+    {
+      "body": "regent",
+      "pose": "run",
+      "fps": 60.25286447476673,
+      "meshes": 135,
+      "tris": 17378,
+      "calls": 1
+    },
+    {
+      "body": "regent",
+      "pose": "fire",
+      "fps": 60.55191583150885,
+      "meshes": 135,
+      "tris": 17378,
+      "calls": 1
+    },
+    {
+      "body": "ironclad",
+      "pose": "front",
+      "fps": 60.19340832273488,
+      "meshes": 136,
+      "tris": 20366,
+      "calls": 1
+    },
+    {
+      "body": "ironclad",
+      "pose": "side",
+      "fps": 60.54590570719603,
+      "meshes": 136,
+      "tris": 20366,
+      "calls": 1
+    },
+    {
+      "body": "ironclad",
+      "pose": "back",
+      "fps": 60.240963846911384,
+      "meshes": 136,
+      "tris": 20366,
+      "calls": 1
+    },
+    {
+      "body": "ironclad",
+      "pose": "run",
+      "fps": 59.671805072103425,
+      "meshes": 136,
+      "tris": 20366,
+      "calls": 1
+    },
+    {
+      "body": "ironclad",
+      "pose": "fire",
+      "fps": 59.91611742988413,
+      "meshes": 136,
+      "tris": 20366,
+      "calls": 1
+    },
+    {
+      "pose": "match",
+      "fps": 58
+    }
+  ],
+  "errors": [],
+  "clearance": {
+    "results": [
+      {
+        "name": "anchor-run",
+        "url": "robot=ironclad&legs=anchor&anim=run&cam=1.8,1.7,2.6",
+        "fps": 60.44391597019205
+      },
+      {
+        "name": "anchor-fire",
+        "url": "robot=ironclad&legs=anchor&anim=fire&cam=1.8,1.7,2.6",
+        "fps": 59.97600959044408
+      },
+      {
+        "name": "anchor-back",
+        "url": "robot=ironclad&legs=anchor&anim=idle&cam=-1.8,1.7,-2.6",
+        "fps": 59.98800241095961
+      },
+      {
+        "name": "beam-fire",
+        "url": "robot=striker&gun=beam&anim=fire&cam=1.8,1.7,2.6",
+        "fps": 59.743104652841566
+      },
+      {
+        "name": "beam-down",
+        "url": "robot=striker&gun=beam&anim=down&cam=1.8,1.7,2.6",
+        "fps": 59.84440453963614
+      },
+      {
+        "name": "beam-getup",
+        "url": "robot=striker&gun=beam&anim=getup&cam=1.8,1.7,2.6",
+        "fps": 59.85634478108792
+      }
+    ],
+    "errors": []
+  },
+  "finalShortFootClearance": {
+    "results": [
+      {
+        "name": "wisp-feather-back",
+        "url": "robot=wisp&legs=feather&gun=beam&anim=idle&cam=-1.8,1.3,-2.6",
+        "fps": 59.2417061499808
+      },
+      {
+        "name": "wisp-feather-side",
+        "url": "robot=wisp&legs=feather&gun=beam&anim=idle&cam=3,1.3,.1",
+        "fps": 59.37067088017709
+      },
+      {
+        "name": "titan-feather-back",
+        "url": "robot=ironclad&legs=feather&anim=idle&cam=-1.8,1.3,-2.6",
+        "fps": 59.88023952095807
+      },
+      {
+        "name": "titan-feather-side",
+        "url": "robot=ironclad&legs=feather&anim=idle&cam=3,1.3,.1",
+        "fps": 60.17559434032124
+      },
+      {
+        "name": "sprint-back",
+        "url": "robot=striker&legs=sprint&anim=idle&cam=-1.8,1.3,-2.6",
+        "fps": 60.09260170564839
+      },
+      {
+        "name": "sprint-side",
+        "url": "robot=striker&legs=sprint&anim=idle&cam=3,1.3,.1",
+        "fps": 59.94604856486698
+      }
+    ],
+    "errors": []
+  },
+  "evidenceNote": "Main after set precedes final heel/rear-gauntlet recess tweaks; finalShortFootClearance verifies latest source.",
+  "validatedCommit": "2eef92e",
+  "finalGameplayImage": "after/match-final.jpg",
+  "finalValidation": {
+    "tests": 196,
+    "buildModules": 120,
+    "e2e": "PASS60fps",
+    "perfFps": 127.8551724137931,
+    "problems": []
+  }
+}
