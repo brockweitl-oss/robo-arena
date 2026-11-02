@@ -1,4 +1,5 @@
 import { PanelDebris } from './combatDetails';
+import { WeaponFx } from './weaponFx';
 import { ComboEffects } from './comboEffects';
 import { SkillEffects, isSkillLook } from './skillEffects';
 import type { Fighter } from '../game/fighter';
@@ -74,7 +75,9 @@ export class Effects {
   private readonly combos: ComboEffects;
   private readonly skills: SkillEffects;
   private readonly shots: ProjectileViews;
-  private readonly fireballs: Fireballs;
+  readonly fireballs: Fireballs;
+  /** Per-weapon / per-item signature effects. */
+  readonly weapons: WeaponFx;
   private rings: Ring[] = [];
   private decals: Decal[] = [];
   private flashes: Flash[] = [];
@@ -107,6 +110,7 @@ export class Effects {
     this.group.add(this.sparks.mesh, this.smoke.mesh);
     this.shots = new ProjectileViews(this.sparks, this.smoke);
     this.group.add(this.shots.group);
+    this.weapons = new WeaponFx(this);
     this.fireballs = new Fireballs(quality === 'low' ? 4 : 8, quality === 'high' ? 4 : 3);
     this.group.add(this.fireballs.group);
     scene.add(this.group);
@@ -425,16 +429,21 @@ export class Effects {
       g.rotation.y += b.spin.y * dt;
       const blink = (Math.sin(b.age * 30) > 0 ? 1 : 0.2) * 6;
       ((g.children[2] as THREE.Mesh).material as THREE.MeshBasicMaterial).color.set(b.def.color).multiplyScalar(blink);
-      if (Math.random() < 0.9) this.smoke.emit({ pos: b.pos, count: 1, size: [0.18, 0.26], grow: 2.4, life: [0.4, 0.7], color: 0x8a8580, alpha: 0.35, drag: 1.5, gravity: -0.5 });
-      this.sparks.emit({ pos: b.pos, count: 1, size: [0.25, 0.35], life: [0.08, 0.14], color: b.def.color, intensity: 2 });
+      this.weapons.bombTrail(b.def.model, b.pos, b.vel, b.def.color);
+      // skip off the floor (vertical velocity flips upward near the ground)
+      const vy = this.bombVy.get(b.id);
+      if (vy !== undefined && vy < -1 && b.vel.y > 0) this.weapons.bombBounce(b.pos, b.def.color);
+      this.bombVy.set(b.id, b.vel.y);
     }
     for (const [id, g] of this.bombViews) {
       if (seen.has(id)) continue;
       this.group.remove(g);
       ((g.children[2] as THREE.Mesh).material as THREE.Material).dispose();
       this.bombViews.delete(id);
+      this.bombVy.delete(id);
     }
   }
+  private bombVy = new Map<number, number>();
 
   // Shared bomb geometry (unit radius, scaled per bomb) and per-color materials: no per-shot allocations.
   private bombGeo = { shell: new THREE.SphereGeometry(1, 16, 12), band: new THREE.TorusGeometry(1, 0.18, 8, 20), lamp: new THREE.SphereGeometry(0.32, 10, 8) };
@@ -479,8 +488,7 @@ export class Effects {
       (v.light.material as THREE.MeshBasicMaterial).color.set(trig ? 0xffffff : p.def.color).multiplyScalar(Math.sin(p.age * rate) > 0 ? 7 : 1);
       if (trig) v.g.scale.setScalar(1.15 + Math.sin(p.age * 50) * 0.1);
       // small engine glow trail
-      _v.set(-Math.sin(p.heading) * 0.2, 0, -Math.cos(p.heading) * 0.2).add(p.pos);
-      this.sparks.emit({ pos: _v, count: 1, size: [0.12, 0.18], life: [0.1, 0.2], color: p.def.color, intensity: 2, speed: [0, 0.4] });
+      this.weapons.podTrail(p.def.model, p.pos, p.heading, p.def.color, p.age);
     }
     for (const [id, v] of this.podViews) {
       if (seen.has(id)) continue;
@@ -530,6 +538,7 @@ export class Effects {
 
   update(dt: number) {
     this.skills.update(dt);
+    this.weapons.update(dt);
     this.time += dt;
     this.panels.update(dt);
     this.combos.update(dt);
@@ -614,6 +623,7 @@ export class Effects {
 
   clear() {
     this.skills.clear();
+    this.weapons.clear();
     this.panels.clear();
     this.combos.clear();
     this.sparks.clear();

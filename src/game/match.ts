@@ -1216,7 +1216,7 @@ export class Match {
               s.model.root.updateMatrixWorld(true);
               const mp = s.model.rig.muzzle.getWorldPosition(new THREE.Vector3());
               const dir = f.chestPoint().sub(this.sideOf(1 - e.who).fighter.chestPoint()).negate().normalize();
-              fx.muzzle(mp, dir, gun.color, gun.model === 'rail');
+              fx.weapons.muzzle(gun.model, mp, dir, gun.color);
               if (gun.model === 'rail') {
               }
               break;
@@ -1275,6 +1275,7 @@ export class Match {
             case 'chargeLunge':
               audio.play('charge_swing', { pos: f.pos });
               fx.dashBurst(f.chestPoint(), new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)), s.paint.glow, f.grounded);
+              fx.weapons.chargeStart(f.lo.body.frame, f.chestPoint(), new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)), s.paint.glow);
               break;
             case 'parry':
               audio.play('shield_block', { pos: f.pos, pitch: 1.5 });
@@ -1388,7 +1389,7 @@ export class Match {
           break;
         case 'trapFire':
           audio.play('hazard_zap', { pos: e.trap.pos });
-          fx.explosion(e.trap.pos.clone().add(new THREE.Vector3(0, 0.2, 0)), 2, 0xffd23a, false, true);
+          fx.weapons.explosion('trap', e.trap.pos.clone().add(new THREE.Vector3(0, 0.2, 0)), 2, 0xffd23a, false, true);
           break;
         case 'pickupSpawn':
           audio.play('ui_unlock', { pos: e.pickup.pos, volume: 0.6 });
@@ -1400,11 +1401,11 @@ export class Match {
           this.host.hud.popup(this.worldToScreen(e.pickup.pos.clone().add(new THREE.Vector3(0, 1.2, 0))), `${e.who === this.me ? '' : 'RIVAL '}${e.pickup.kind.toUpperCase()}!`, 'tag');
           break;
         case 'impact':
-          fx.impact(e.pos, e.normal, e.color, e.proj.spec.look === 'rail' || e.proj.spec.look === 'beam' ? 1.6 : 0.8);
+          fx.weapons.impact(e.proj.spec.look, e.pos, e.normal, e.color);
           audio.play('hit_light', { pos: e.pos, volume: 0.35, pitch: 1.3 });
           break;
         case 'explosion': {
-          fx.explosion(e.pos, e.radius, e.color, e.big, e.onGround);
+          fx.weapons.explosion(e.look, e.pos, e.radius, e.color, e.big, e.onGround);
           audio.play(e.big ? 'explosion_big' : 'explosion_small', { pos: e.pos });
           const d = e.pos.distanceTo(this.player.fighter.pos);
           void d;
@@ -1430,6 +1431,7 @@ export class Match {
           }
           const isPV = e.victim === this.me;
           fx.hitSpark(e.pos, e.dir, e.color, e.heavy);
+          if (e.source !== 'skill' && !e.blocked && !e.parried) fx.weapons.hit(e.look, e.source, e.pos, e.dir, e.color, e.heavy);
           if (e.source === 'skill' && !e.blocked && !e.parried) fx.skillHit(e.pos, e.dir, e.color);
           audio.play(e.heavy ? 'hit_heavy' : 'hit_light', { pos: e.pos });
           v.anim.event({ type: 'hit', dir: e.dir, heavy: e.heavy });
