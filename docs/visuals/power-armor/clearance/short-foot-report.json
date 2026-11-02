@@ -1,0 +1,35 @@
+{
+  "results": [
+    {
+      "name": "wisp-feather-back",
+      "url": "robot=wisp&legs=feather&gun=beam&anim=idle&cam=-1.8,1.3,-2.6",
+      "fps": 59.2417061499808
+    },
+    {
+      "name": "wisp-feather-side",
+      "url": "robot=wisp&legs=feather&gun=beam&anim=idle&cam=3,1.3,.1",
+      "fps": 59.37067088017709
+    },
+    {
+      "name": "titan-feather-back",
+      "url": "robot=ironclad&legs=feather&anim=idle&cam=-1.8,1.3,-2.6",
+      "fps": 59.88023952095807
+    },
+    {
+      "name": "titan-feather-side",
+      "url": "robot=ironclad&legs=feather&anim=idle&cam=3,1.3,.1",
+      "fps": 60.17559434032124
+    },
+    {
+      "name": "sprint-back",
+      "url": "robot=striker&legs=sprint&anim=idle&cam=-1.8,1.3,-2.6",
+      "fps": 60.09260170564839
+    },
+    {
+      "name": "sprint-side",
+      "url": "robot=striker&legs=sprint&anim=idle&cam=3,1.3,.1",
+      "fps": 59.94604856486698
+    }
+  ],
+  "errors": []
+}

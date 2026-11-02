@@ -10,7 +10,7 @@ Rig joints, leg lengths, collision dimensions, weapon mounts and thruster anchor
 
 ## Evidence
 
-`docs/visuals/power-armor/before/` contains the previous reference-suit front images. `after/` contains actual runtime front, side, back, run and fire views for all four classes, plus a gameplay image. These are runtime screenshots, not generated concept images. Captures use 1600×1000 at medium quality; exact FPS and browser diagnostics are in `after/report.json`.
+`docs/visuals/power-armor/before/` contains the previous reference-suit front images. `after/` contains actual runtime front, side, back, run and fire views for all four classes, plus a gameplay image. The main 21-image after set records the enclosed-body pass before the final small heel and rear-gauntlet recess adjustments. The latest Feather/Sprint rear and side images in `clearance/` verify those final adjustments, including Wisp with a beam weapon. The 1080p benchmark below predates only those small recess fixes; the final unit/build and smoke checks include them. These are runtime screenshots, not generated concept images. Captures use 1600×1000 at medium quality; exact FPS and browser diagnostics are in `after/report.json`.
 
 ## Validation
 
@@ -22,6 +22,7 @@ Rig joints, leg lengths, collision dimensions, weapon mounts and thruster anchor
 - The measured FPS target passes on this machine; aggregate draw calls remain above the original 150–250 target.
 
 Short FPS samples are machine-specific. Aggregate draw calls include all render passes; viewer counters alone do not measure aggregate match cost.
+
 
 
 
