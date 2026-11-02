@@ -12,11 +12,16 @@ import './menus.css';
 
 import type { MenuHost, MenuLayer } from './host';
 import { ALL_PARTS, BODIES, LEGS, resolveLoadout, type AnyPart, type Slot, deriveStats, SET_BONUS } from '../data/parts';
-import { RIVALS, PLAYER_PAINT, PLAYER_ROBOT_NAME, rivalById, type Paint, type Rival } from '../data/characters';
+import { RIVALS, RIVALS_PLUS, PLAYER_PAINT, PLAYER_ROBOT_NAME, rivalById, type Paint, type Rival } from '../data/characters';
+import { gradeMatch } from '../game/grades';
+import { saveReplay, loadReplays, downloadReplay, parseReplay, type Replay } from '../game/replay';
+import { connectedPads } from '../core/padInput';
 import { ARENA_IDS, ARENA_INFO, type ArenaId } from '../arena/index';
 import { defaultSave, isUnlocked, type Settings } from '../core/save';
+import { pilotLevel } from '../game/progression';
 import type { MatchConfig, MatchResult } from '../game/types';
 import type { MusicTrack } from '../audio/audio';
+import { MetaUI } from './meta';
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -77,7 +82,7 @@ function unlockSource(slot: Slot, id: string): Rival | undefined {
 }
 
 function emblem(p: Paint, unknown = false, cls = ''): HTMLElement {
-  const e = h('div', `ra-emblem ${unknown ? 'unknown' : ''} ${cls}`, h('span', '', unknown ? '?' : p.emblem));
+  const e = h('div', `ra-emblem ${unknown ? 'unknown' : ''} ${!unknown && p.emblem.length > 2 ? 'l3' : ''} ${cls}`, h('span', '', unknown ? '?' : p.emblem));
   if (!unknown) {
     e.style.setProperty('--p', hex(p.primary));
     e.style.setProperty('--s', hex(p.secondary));
@@ -171,6 +176,10 @@ function hints(list: [HintKey, string][]): HTMLElement {
   return bar;
 }
 
+/** Shared widgets for the meta screens (src/ui/meta.ts). */
+export { h, svg, btn, nav, stagger, hints, emblem, hex, clamp, wait, ratingBar, SLOTS, SLOT_ICON, SLOT_LABEL, LOCK_ICON, CHECK_ICON };
+export type { Kid, Layer, LayerOpts };
+
 /* ------------------------------------------------------------------ Menus */
 
 export class Menus implements MenuLayer {
@@ -191,6 +200,10 @@ export class Menus implements MenuLayer {
   private mainIdx = 0;
   private gSlot: Slot = 'gun';
   private fb = { rival: RIVALS[0].id, arena: RIVALS[0].arena as string, time: 90 };
+  /** G6 meta screens (profile, shop, rewards, share codes, controls). */
+  private meta: MetaUI;
+  /** True while the Controls panel is capturing a binding (navigation paused). */
+  private keyCapture = false;
 
   constructor(private host: MenuHost, private root: HTMLElement) {
     root.classList.add('ra-root');
@@ -229,6 +242,20 @@ export class Menus implements MenuLayer {
       if (this.active) e.preventDefault();
     });
     window.addEventListener('resize', () => this.resizeFn?.());
+    this.meta = new MetaUI({
+      host,
+      setScreen: (el, o) => this.setScreen(el, o),
+      pushLayer: (el, o) => this.pushLayer(el, o),
+      popLayer: (L) => this.popLayer(L),
+      focus: (el) => this.setFocusKeep(el),
+      confirmBox: (...a) => this.confirmBox(...a),
+      toast: (t) => this.toast(t),
+      header: (k, t, x) => this.header(k, t, x),
+      music: (t) => this.music(t),
+      isScreen: (el) => this.screen?.el === el,
+      setCapture: (on) => { this.keyCapture = on; },
+      setResize: (fn) => { this.resizeFn = fn; },
+    });
     this.sync();
   }
 
@@ -471,7 +498,7 @@ export class Menus implements MenuLayer {
   }
 
   private input(k: Input) {
-    if (!this.active) return;
+    if (!this.active || this.keyCapture) return;
     const L = this.top!;
     const now = performance.now();
     if (L.any) {
@@ -515,6 +542,8 @@ export class Menus implements MenuLayer {
 
   private onKey = (e: KeyboardEvent) => {
     if (!this.active) return;
+    // let text fields (build-code import) receive typing; Esc still backs out
+    if (e.target instanceof HTMLInputElement && e.code !== 'Escape') return;
     this.root.classList.remove('pad');
     const L = this.top!;
     if (L.any) {
@@ -651,7 +680,10 @@ export class Menus implements MenuLayer {
     const items: [string, string, string | null, () => void][] = [
       ['Story Ladder', champ ? 'You hold the crown. Defend it.' : 'Climb the circuit. Five rivals stand between you and the crown.', champ ? 'CHAMPION' : `Ladder ${done}/${RIVALS.length}`, () => this.showLadder()],
       ['Free Battle', 'Any rival, any arena, your rules.', null, () => this.showFree()],
+      ['Modes', 'Rival+ ladder, survival, practice room, local versus and replays.', champ ? 'RIVAL+' : null, () => this.showModes()],
       ['Garage', 'Swap guns, bombs, pods, frames and legs.', `${s.unlocked.length} parts`, () => this.showGarage(() => this.showMain())],
+      ['Profile', 'Pilot card, achievements, challenges and part mastery.', `Lv ${pilotLevel(s)}`, () => this.meta.showProfile(() => this.showMain())],
+      ['Shop', 'Spend credits on paint, decals, trails and victory poses.', `${s.credits.toLocaleString('en-US')} CR`, () => this.meta.showShop(() => this.showMain())],
       ['Settings', 'Audio, camera, graphics and controls.', null, () => this.showSettings(() => this.showMain())],
     ];
     const list = h('div', 'mm-list');
@@ -685,9 +717,10 @@ export class Menus implements MenuLayer {
     });
     const L = resolveLoadout(s.loadout);
     const card = h('div', 'ra-panel mm-card',
-      h('div', 'mm-card-top', emblem(PLAYER_PAINT), h('div', '', h('div', 'mm-card-name', PLAYER_ROBOT_NAME), h('div', 'mm-card-sub', L.body.name))),
+      h('div', 'mm-card-top', emblem(s.paint), h('div', '', h('div', 'mm-card-name', PLAYER_ROBOT_NAME), h('div', 'mm-card-sub', L.body.name))),
       h('div', 'mm-card-row', h('span', '', 'Circuit'), pips),
       h('div', 'mm-card-row', h('span', '', 'Record'), h('b', '', `${s.totals.wins}W · ${s.totals.losses}L`)),
+      h('div', 'mm-card-row', h('span', '', 'Credits'), h('b', '', `${s.credits.toLocaleString('en-US')} CR`)),
       h('div', 'mm-card-parts', ...SLOTS.map((sl) => h('div', 'mm-card-part', svg(SLOT_ICON[sl]), h('span', '', resolveLoadout(s.loadout)[sl].name)))),
     );
     stagger([card], 380);
@@ -846,7 +879,8 @@ export class Menus implements MenuLayer {
   /* ---------------- match & results */
 
   private async runMatch(cfg: MatchConfig) {
-    cfg = { ...cfg, playerLoadout: { ...this.host.save.loadout } };
+    // replays must keep the recorded build; everything else uses the current garage loadout
+    cfg = { ...cfg, playerLoadout: cfg.mode === 'replay' ? { ...cfg.playerLoadout } : { ...this.host.save.loadout } };
     this.hideAll();
     this.musicNow = null;
     let res: MatchResult = await this.host.startMatch(cfg);
@@ -854,7 +888,13 @@ export class Menus implements MenuLayer {
     this.musicNow = null;
     if (res.quit) {
       if (cfg.mode === 'ladder') this.showLadder();
-      else this.showFree();
+      else if (cfg.mode === 'free') this.showFree();
+      else this.showModes();
+      return;
+    }
+    if (res.replay && cfg.mode !== 'replay') saveReplay(res.replay);
+    if (cfg.mode === 'replay' || cfg.mode === 'practice') {
+      this.showModes();
       return;
     }
     this.showResults(res);
@@ -888,8 +928,26 @@ export class Menus implements MenuLayer {
     } else if (res.outcome === 'lose') {
       s.totals.losses++;
     }
+    const plus = cfg.mode === 'rivalplus';
+    const pidx = cfg.plusIndex ?? 0;
+    if (win && plus) {
+      if (!s.plusBeaten.includes(r.id)) {
+        s.plusBeaten.push(r.id);
+        for (const u of r.unlocks) {
+          if (!s.unlocked.includes(u)) {
+            s.unlocked.push(u);
+            newParts.push(u);
+          }
+        }
+      }
+      s.plusLadder = Math.max(s.plusLadder, pidx + 1);
+    }
+    const survival = cfg.mode === 'survival' ? cfg.survival : undefined;
+    // best run counts completed rounds, saved after every round (a run abandoned mid-way still counts)
+    if (survival) s.survivalBest = Math.max(s.survivalBest, win ? survival.round : survival.round - 1);
     s.totals.knockdowns += res.player?.knockdowns ?? 0;
     this.host.persist();
+    const rewards = this.meta.matchEnd(res);
 
     this.backdrop('versus', { loadout: s.loadout, rivalId: r.id });
     this.music(win ? 'victory' : 'results');
@@ -910,7 +968,7 @@ export class Menus implements MenuLayer {
       return h('div', `res-hp ${side} ${pct < 0.3 ? 'low' : ''}`, h('div', 'res-hp-track', fill), h('span', '', `${Math.max(0, Math.round(hp))} / ${Math.round(max)}`));
     };
     const top = h('div', 'res-top',
-      h('div', 'res-side l', emblem(PLAYER_PAINT), h('div', '', h('div', 'res-name', PLAYER_ROBOT_NAME), hpBar(res.playerHp, res.playerMaxHp, 'l'))),
+      h('div', 'res-side l', emblem(s.paint), h('div', '', h('div', 'res-name', PLAYER_ROBOT_NAME), hpBar(res.playerHp, res.playerMaxHp, 'l'))),
       h('div', 'res-mid', 'HP'),
       h('div', 'res-side r', h('div', '', h('div', 'res-name', r.robotName), hpBar(res.rivalHp, res.rivalMaxHp, 'r')), emblem(r.paint)));
     const rows: [string, keyof MatchResult['player']][] = [['Damage dealt', 'damageDealt'], ['Hits', 'hits'], ['Knockdowns', 'knockdowns'], ['Dodges', 'dodges'], ['Shots fired', 'shots']];
@@ -930,12 +988,36 @@ export class Menus implements MenuLayer {
     });
     const line = win ? r.defeatLine : res.outcome === 'lose' ? r.taunt : r.taunt;
     const quote = h('div', 'res-quote', emblem(r.paint, false, 'mini'), h('div', '', h('div', 'res-quote-name', r.pilot), h('div', 'res-quote-text', `“${line}”`)));
-    const panel = h('div', 'ra-panel res-panel', top, stats, quote);
+    const g = gradeMatch(res);
+    const gradeEl = h('div', `res-grade g-${g.grade}`, h('div', 'res-grade-letter', g.grade), h('div', 'res-grade-parts', ...g.parts.map((p) => h('div', '', h('span', '', p.label), h('b', '', `${p.points}/${p.max}`)))));
+    // counter-hint after a loss: what to try next
+    let hintEl: HTMLElement | null = null;
+    if (!win && r.hint) {
+      const sug = r.suggest ? part(r.suggest) : undefined;
+      const owned = r.suggest ? s.unlocked.includes(r.suggest) : false;
+      hintEl = h('div', 'res-hint', h('b', '', 'TIP'), h('span', '', r.hint), sug ? h('em', '', owned ? `Try: ${sug.name}` : `Try: ${sug.name} (locked)`) : null);
+    }
+    const panel = h('div', 'ra-panel res-panel', top, stats, gradeEl, hintEl, quote);
 
     const acts: HTMLElement[] = [];
     const retryCfg = () => ({ ...cfg, playerLoadout: { ...s.loadout } });
     if (championNow) {
       acts.push(btn('Continue', () => { this.host.sfx('ui_select'); this.showEnding(); }, 'primary big'));
+    } else if (plus) {
+      if (win && pidx + 1 < RIVALS_PLUS.length) acts.push(btn('Next Rival+', () => { this.host.sfx('ui_select'); this.showPlusIntro(pidx + 1); }, 'primary big'));
+      acts.push(btn(win ? 'Fight Again' : 'Retry', () => { this.host.sfx('ui_select'); this.runMatch(retryCfg()); }, win && pidx + 1 < RIVALS_PLUS.length ? 'big' : 'primary big'));
+      acts.push(btn('Modes', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big'));
+    } else if (survival) {
+      if (win) {
+        const heal = Math.min(res.playerMaxHp, res.playerHp + res.playerMaxHp * 0.25);
+        acts.push(btn(`Round ${survival.round + 1}`, () => { this.host.sfx('ui_select'); this.runMatch(this.survivalCfg(survival.round + 1, heal)); }, 'primary big'));
+      } else {
+        acts.push(btn('New Run', () => { this.host.sfx('ui_select'); this.runMatch(this.survivalCfg(1, 99999)); }, 'primary big'));
+      }
+      acts.push(btn('Modes', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big'));
+    } else if (cfg.mode === 'versus') {
+      acts.push(btn('Rematch', () => { this.host.sfx('ui_select'); this.runMatch(retryCfg()); }, 'primary big'));
+      acts.push(btn('Modes', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big'));
     } else if (ladder) {
       if (win && idx + 1 < RIVALS.length) acts.push(btn('Next Fight', () => { this.host.sfx('ui_select'); this.showIntro(idx + 1); }, 'primary big'));
       acts.push(btn(win ? 'Fight Again' : 'Retry', () => { this.host.sfx('ui_select'); this.runMatch(retryCfg()); }, win && idx + 1 < RIVALS.length ? 'big' : 'primary big'));
@@ -946,11 +1028,16 @@ export class Menus implements MenuLayer {
       acts.push(btn('Change Setup', () => { this.host.sfx('ui_select'); this.showFree(); }, 'big'));
       acts.push(btn('Main Menu', () => { this.host.sfx('ui_back'); this.showMain(); }, 'big'));
     }
+    if (res.replay) {
+      const rp = res.replay;
+      acts.push(btn('Watch Replay', () => { this.host.sfx('ui_select'); this.watchReplay(rp); }, 'big'));
+    }
     const bar = h('div', 'ra-actions res-acts', ...acts);
     stagger([panel], 450);
     stagger([bar], 800);
     el.append(h('div', 'vig vig-top'), h('div', 'vig vig-bot'), banner, panel, bar, hints([['move', 'Move'], ['confirm', 'Select']]));
     this.setScreen(el, { back: championNow ? undefined : () => this.showMain(), initial: acts[0] });
+    this.meta.rewardsStrip(el, rewards);
 
     // count-up numbers
     const t0 = performance.now() + 600;
@@ -1168,6 +1255,179 @@ export class Menus implements MenuLayer {
     this.setScreen(el, { back: () => this.showMain(), initial: tileEls[Math.max(0, RIVALS.findIndex((r) => r.id === fb.rival))] });
   }
 
+  /* ---------------- modes: Rival+, survival, practice, versus, replays */
+
+  private survivalCfg(round: number, startHp: number): MatchConfig {
+    // escalating opponents: early rounds draw from the story ladder, later from Rival+
+    const pool = round <= 3 ? RIVALS.slice(0, 3) : round <= 6 ? RIVALS : [...RIVALS.slice(2), ...RIVALS_PLUS];
+    const r = pool[(round * 7 + Math.floor(Math.random() * pool.length)) % pool.length];
+    const arenas = ARENA_IDS as readonly string[];
+    return { mode: 'survival', playerLoadout: { ...this.host.save.loadout }, rivalId: r.id, arenaId: arenas[round % arenas.length], timeLimit: 120, survival: { round, startHp } };
+  }
+
+  private showPlusIntro(i: number) {
+    const r = RIVALS_PLUS[i];
+    const a = ARENA_INFO[r.arena as ArenaId];
+    const cfg: MatchConfig = { mode: 'rivalplus', playerLoadout: { ...this.host.save.loadout }, rivalId: r.id, arenaId: r.arena, plusIndex: i, timeLimit: 120 };
+    this.showVersus(r, {
+      line: r.intro,
+      kicker: `Rival+ · ${i + 1} / ${RIVALS_PLUS.length}`,
+      info: [a?.name ?? r.arena, a?.subtitle ?? ''],
+      onFight: () => this.runMatch(cfg),
+      onBack: () => this.showModes(),
+      onGarage: () => this.showGarage(() => this.showPlusIntro(i)),
+    });
+  }
+
+  private watchReplay(rp: Replay) {
+    this.runMatch({ ...rp.config, mode: 'replay', replay: rp });
+  }
+
+  private showModes() {
+    this.backdrop('title');
+    this.music('menu');
+    const s = this.host.save;
+    const champ = s.ladder >= RIVALS.length;
+    const el = h('div', 'scr-free scr-modes');
+    const hd = this.header('Modes', 'More Ways to Fight');
+    const card = (title: string, desc: string, tag: string, act: (() => void) | null) => {
+      const c = nav(h('div', `ra-tile md-card ${act ? '' : 'locked'}`, h('div', 'md-title', title), h('div', 'md-desc', desc), h('div', 'md-tag', tag)), {
+        act: () => {
+          if (!act) {
+            this.host.sfx('ui_error');
+            return;
+          }
+          this.host.sfx('ui_select');
+          act();
+        },
+      });
+      return c;
+    };
+    const plusNext = Math.min(s.plusLadder, RIVALS_PLUS.length - 1);
+    const pads = connectedPads().length;
+    const cards = [
+      card('Rival+ Ladder', 'Every rival returns with a sharper AI and a 2.0 build. Wins unlock the new parts.', champ ? `${Math.min(s.plusLadder, RIVALS_PLUS.length)} / ${RIVALS_PLUS.length}` : 'Beat the champion to unlock', champ ? () => this.showPlusIntro(plusNext) : null),
+      card('Survival', 'Fight until you fall. You heal 25% between rounds, and the opponents get tougher.', `Best: ${s.survivalBest} rounds`, () => this.runMatch(this.survivalCfg(1, 99999))),
+      card('Practice Room', 'A training dummy that never breaks. Live damage, combo and DPS readouts.', 'No clock', () => this.showPractice()),
+      card('Local Versus', 'Two players on one screen. Player 2 needs a gamepad.', pads ? `${pads} pad${pads > 1 ? 's' : ''} connected` : 'Connect a gamepad', () => this.showLocalVersus()),
+      card('Replays', 'Rewatch your last fights, or download and import replay files.', `${loadReplays().length} saved`, () => this.showReplays()),
+    ];
+    const grid = h('div', 'md-grid', ...cards);
+    const back = btn('Back', () => { this.host.sfx('ui_back'); this.showMain(); }, 'big');
+    const panel = h('div', 'ra-panel fb-panel', grid, h('div', 'ra-actions', back));
+    stagger(cards, 100, 60);
+    el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
+    this.setScreen(el, { back: () => this.showMain(), initial: cards[0] });
+  }
+
+  private showPractice() {
+    this.backdrop('garage', { loadout: this.host.save.loadout });
+    const el = h('div', 'scr-free scr-modes');
+    const hd = this.header('Practice Room', 'Training Dummy');
+    let arena: string = ARENA_IDS[0];
+    const arenaBtn = btn(`Arena: ${ARENA_INFO[arena as ArenaId].name}`, () => {
+      const ids = ARENA_IDS as readonly string[];
+      arena = ids[(ids.indexOf(arena) + 1) % ids.length];
+      arenaBtn.querySelector('span')!.textContent = `Arena: ${ARENA_INFO[arena as ArenaId].name}`;
+      this.host.sfx('ui_move');
+    }, 'big');
+    const go = (dummy: 'idle' | 'move' | 'shoot' | 'full') => () => {
+      this.host.sfx('ui_select');
+      this.runMatch({ mode: 'practice', playerLoadout: { ...this.host.save.loadout }, rivalId: 'dex', arenaId: arena, practice: { dummy } });
+    };
+    const opts = [
+      btn('Dummy: Stand Still', go('idle'), 'primary big'),
+      btn('Dummy: Move Only', go('move'), 'big'),
+      btn('Dummy: Shoot Only', go('shoot'), 'big'),
+      btn('Dummy: Full AI', go('full'), 'big'),
+    ];
+    const note = h('div', 'md-desc', 'Both robots refill automatically. Press Esc and choose Quit to leave.');
+    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', ...opts, arenaBtn, note), h('div', 'ra-actions', btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big')));
+    el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
+    this.setScreen(el, { back: () => this.showModes(), initial: opts[0] });
+  }
+
+  private showLocalVersus() {
+    const s = this.host.save;
+    const champ = s.ladder >= RIVALS.length;
+    const pool = [...RIVALS, ...(champ ? RIVALS_PLUS : [])];
+    let pick = 0;
+    let arena: string = ARENA_IDS[0];
+    const el = h('div', 'scr-free scr-modes');
+    const hd = this.header('Local Versus', 'Player 1 vs Player 2');
+    const label = h('div', 'md-title', '');
+    const sub = h('div', 'md-desc', '');
+    const refresh = () => {
+      const r = pool[pick];
+      label.textContent = `P2: ${r.robotName}`;
+      const L = resolveLoadout(r.loadout);
+      sub.textContent = `${L.body.name} · ${L.legs.name} · ${L.gun.name} / ${L.bomb.name} / ${L.pod.name}`;
+      this.backdrop('versus', { loadout: s.loadout, rivalId: r.id });
+    };
+    const prev = btn('◀ Robot', () => { pick = (pick + pool.length - 1) % pool.length; this.host.sfx('ui_move'); refresh(); }, 'big');
+    const next = btn('Robot ▶', () => { pick = (pick + 1) % pool.length; this.host.sfx('ui_move'); refresh(); }, 'big');
+    const arenaBtn = btn(`Arena: ${ARENA_INFO[arena as ArenaId].name}`, () => {
+      const ids = ARENA_IDS as readonly string[];
+      arena = ids[(ids.indexOf(arena) + 1) % ids.length];
+      arenaBtn.querySelector('span')!.textContent = `Arena: ${ARENA_INFO[arena as ArenaId].name}`;
+      this.host.sfx('ui_move');
+    }, 'big');
+    const pads = connectedPads().length;
+    const start = btn('Fight!', () => {
+      if (connectedPads().length === 0) {
+        this.host.sfx('ui_error');
+        this.toast('Connect a gamepad for Player 2 (press any button on it)');
+        return;
+      }
+      this.host.sfx('ui_select');
+      const r = pool[pick];
+      this.runMatch({ mode: 'versus', playerLoadout: { ...s.loadout }, rivalId: r.id, arenaId: arena, timeLimit: 120, versus: { p2Loadout: { ...r.loadout }, p2Paint: r.paint, p2Name: r.robotName } });
+    }, 'primary big');
+    const info = h('div', 'md-desc', pads >= 2 ? 'Two pads: Player 1 uses pad 1, Player 2 uses pad 2.' : 'Player 1: keyboard and mouse. Player 2: gamepad. Shared camera.');
+    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', label, sub, h('div', 'ra-actions', prev, next), arenaBtn, info), h('div', 'ra-actions', start, btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big')));
+    el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
+    this.setScreen(el, { back: () => this.showModes(), initial: start });
+    refresh();
+  }
+
+  private showReplays() {
+    this.backdrop('title');
+    const el = h('div', 'scr-free scr-modes');
+    const hd = this.header('Replays', 'Your Recent Fights');
+    const list = loadReplays();
+    const rows = list.map((rp) => {
+      const r = rivalById(rp.config.rivalId);
+      const sm = rp.summary;
+      const when = new Date(rp.date).toLocaleString();
+      const title = `${(sm?.outcome ?? '').toUpperCase()} vs ${r.robotName}`;
+      const row = h('div', 'md-row',
+        h('div', '', h('div', 'md-title', title), h('div', 'md-desc', `${ARENA_INFO[rp.config.arenaId as ArenaId]?.name ?? rp.config.arenaId} · ${sm ? fmtTime(sm.time) : ''} · ${when}`)),
+        h('div', 'ra-actions', btn('Watch', () => { this.host.sfx('ui_select'); this.watchReplay(rp); }, 'primary'), btn('Download', () => { this.host.sfx('ui_select'); downloadReplay(rp); }, '')));
+      return row;
+    });
+    const file = h('input') as HTMLInputElement;
+    file.type = 'file';
+    file.accept = '.json,application/json';
+    file.style.display = 'none';
+    file.addEventListener('change', async () => {
+      const f = file.files?.[0];
+      if (!f) return;
+      const rp = parseReplay(await f.text());
+      if (!rp) {
+        this.host.sfx('ui_error');
+        this.toast('That file is not a Robo Arena replay');
+        return;
+      }
+      saveReplay(rp);
+      this.showReplays();
+    });
+    const importBtn = btn('Import Replay File', () => { this.host.sfx('ui_select'); file.click(); }, 'big');
+    const back = btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big');
+    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col ra-scroll', ...(rows.length ? rows : [h('div', 'md-desc', 'No replays yet. Every finished fight is saved here automatically.')])), h('div', 'ra-actions', importBtn, back), file);
+    el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
+    this.setScreen(el, { back: () => this.showModes(), initial: rows[0]?.querySelector<HTMLElement>('.ra-btn') ?? importBtn });
+  }
+
   /* ---------------- garage */
 
   private showGarage(onBack: () => void) {
@@ -1179,7 +1439,7 @@ export class Menus implements MenuLayer {
     const preview = h('div', 'gar-preview', h('div', 'gar-ring'), h('div', 'gar-drag', svg('<svg viewBox="0 0 24 24"><path d="M12 5c-4 0-7.5 1.6-9 4l-2-1v5h5L4 11.5C5.2 9.5 8.3 8 12 8s6.8 1.5 8 3.5L18 13h5V8l-2 1c-1.5-2.4-5-4-9-4z"/></svg>'), h('span', 'k-kb', 'Drag to rotate'), h('span', 'k-pad', 'R-Stick to rotate')));
     const sendBackdrop = () => {
       const r = preview.getBoundingClientRect();
-      this.backdrop('garage', { loadout: { ...s.loadout }, paint: PLAYER_PAINT, previewRect: { x: r.left, y: r.top, w: r.width, h: r.height } });
+      this.backdrop('garage', { loadout: { ...s.loadout }, paint: { ...s.paint }, previewRect: { x: r.left, y: r.top, w: r.width, h: r.height } });
     };
     // drag-rotate
     let dragging = false, lx = 0;
@@ -1319,7 +1579,8 @@ export class Menus implements MenuLayer {
     }
 
     const backBtn = btn('Back', () => { this.host.sfx('ui_back'); leave(); }, 'big');
-    const left = h('div', 'ra-panel gar-left', tabs, h('div', 'gar-list-h', h('span', '', `Parts`), count), list, h('div', 'gar-left-foot', backBtn));
+    const shareBtn = btn('Build Code', () => { this.host.sfx('ui_select'); this.meta.openShareCode(() => { sendBackdrop(); renderList(this.gSlot); renderSummary(); }); }, 'big');
+    const left = h('div', 'ra-panel gar-left', tabs, h('div', 'gar-list-h', h('span', '', `Parts`), count), list, h('div', 'gar-left-foot', backBtn, shareBtn));
     const right = h('div', 'gar-right', detail, summary);
     stagger([left], 80);
     stagger([right], 200);
@@ -1454,11 +1715,12 @@ export class Menus implements MenuLayer {
     group('Display');
     choice<Settings['quality']>('Graphics quality', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], () => st.quality, (v) => (st.quality = v));
     choice('Damage numbers', [[false, 'Off'], [true, 'On']], () => st.damageNumbers, (v) => (st.damageNumbers = v));
+    this.meta.assistRows(group, slider, st);
 
     const actions: HTMLElement[] = [btn('Back', () => { this.host.sfx('ui_back'); onBack(); }, 'big')];
     if (!inPause) {
       actions.push(btn('Reset Progress', async () => {
-        const ok = await this.confirmBox('Reset all progress?', 'Ladder progress, unlocked parts, loadout and record will be erased. Settings are kept. This cannot be undone.', 'Erase', 'Cancel', true);
+        const ok = await this.confirmBox('Reset all progress?', 'Ladder progress, unlocked parts, loadout, record, credits, cosmetics, mastery and achievements will be erased. Settings are kept. This cannot be undone.', 'Erase', 'Cancel', true);
         if (!ok) return;
         const d = defaultSave();
         s.unlocked = d.unlocked;
@@ -1466,6 +1728,7 @@ export class Menus implements MenuLayer {
         s.ladder = d.ladder;
         s.beaten = d.beaten;
         s.totals = d.totals;
+        Object.assign(s, { credits: d.credits, paint: d.paint, mastery: d.mastery, cosmetics: d.cosmetics, challenges: d.challenges, achievements: d.achievements, stats: d.stats });
         this.host.persist();
         this.toast('Progress reset');
       }, 'big danger'));
@@ -1476,7 +1739,8 @@ export class Menus implements MenuLayer {
     const ctl = (rows: [string, string][]) => h('div', 'ctl-list', ...rows.map(([k, a]) => h('div', 'ctl-row', h('span', 'ctl-k', ...k.split(' / ').flatMap((x, i) => (i ? [h('em', '', '/'), h('kbd', '', x)] : [h('kbd', '', x)]))), h('span', 'ctl-a', a))));
     const kb = ctl([['WASD', 'Move'], ['Mouse', 'Camera'], ['Space', 'Jump · double jump · hold to hover'], ['Shift', 'Dash'], ['LMB', 'Fire gun'], ['RMB', 'Throw bomb'], ['E / MMB', 'Launch pod'], ['Q', 'Charge attack'], ['Tab / F', 'Toggle lock-on'], ['Esc', 'Pause']]);
     const gp = ctl([['L-Stick', 'Move'], ['R-Stick', 'Camera'], ['A', 'Jump · double jump · hover'], ['B', 'Dash'], ['RT', 'Fire gun'], ['LT', 'Throw bomb'], ['RB', 'Launch pod'], ['X', 'Charge attack'], ['R3', 'Toggle lock-on'], ['Start', 'Pause']]);
-    const right = h('div', 'ra-panel ctl-panel', h('div', 'set-panel-h', 'Controls'), h('div', 'ctl-cols', h('div', '', h('div', 'ctl-h', 'Keyboard + Mouse'), kb), h('div', '', h('div', 'ctl-h', 'Gamepad'), gp)));
+    void kb; void gp;
+    const right = this.meta.controlsPanel(st, apply);
     stagger([left], 80);
     stagger([right], 180);
     const wrap = h('div', 'set-wrap', left, right);

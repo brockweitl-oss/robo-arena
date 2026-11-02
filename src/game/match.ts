@@ -19,6 +19,8 @@ import { audio, type LoopHandle } from '../audio/audio';
 import type { MatchConfig, MatchResult } from './types';
 import { groundHeightBelow, segmentHit } from './collision';
 import { track } from '../core/telemetry';
+import { InputRecorder, InputPlayer, quantizeInput, type Replay } from './replay';
+import { PadInput, connectedPads } from '../core/padInput';
 
 type Phase = 'intro' | 'ready' | 'fight' | 'ko' | 'timeup' | 'outro' | 'done';
 
@@ -98,6 +100,8 @@ export interface MatchHost {
   input: Input;
   hud: HUD;
   settings: Settings;
+  /** The player's saved paint job (equipped cosmetics applied). */
+  playerPaint?: Paint;
   /** Show the pause menu; resolves with the chosen action. */
   pause(): Promise<'resume' | 'restart' | 'quit'>;
 }
@@ -123,7 +127,8 @@ export class Match {
   private fightTime = 0;
   private paused = false;
   private resolve!: (r: MatchResult) => void;
-  private hardLock = false;
+  /** Tab toggles free camera orbit; default is the auto-tracking camera. */
+  private freeCam = false;
   private pInput: FighterInput = emptyInput();
   private hazardWarned: boolean[] = [];
   private lowHpT = 0;
@@ -134,12 +139,22 @@ export class Match {
   private finish: 'ko' | 'time' = 'ko';
   readonly done: Promise<MatchResult>;
   private disposed = false;
+  private worldSeed: number;
+  private readySteps = 0;
+  private aimAssist = 1;
+  private aiSeed: number;
+  private recorders: InputRecorder[] | null = null;
+  private players: InputPlayer[] | null = null;
+  private p2: PadInput | null = null;
+  private p2In: FighterInput = emptyInput();
+  private practiceMode: 'idle' | 'move' | 'shoot' | 'full' | null = null;
+  private practiceLog: { t: number; dmg: number }[] = [];
   /** Play-test telemetry accumulators. */
   private tel = {
     used: { jump: 0, airjump: 0, dash: 0, airdash: 0, fire: 0, bomb: 0, pod: 0, charge: 0 } as Record<string, number>,
     dmgTaken: {} as Record<string, number>,
     dmgDealt: {} as Record<string, number>,
-    deflects: 0, parries: 0, confirms: 0, hitsTaken: 0, hitsDealt: 0, kdTaken: 0, kdDealt: 0, hazardHits: 0, dodges: 0, pauses: 0,
+    deflects: 0, parries: 0, confirms: 0, perfect: 0, hitsTaken: 0, hitsDealt: 0, kdTaken: 0, kdDealt: 0, hazardHits: 0, dodges: 0, pauses: 0,
     airT: 0, hoverT: 0, lockT: 0, fightT: 0,
     distSum: 0, distN: 0, dist: [0, 0, 0, 0] as number[],
     fpsMin: 999, fpsSum: 0, fpsN: 0, fpsAcc: 0, fpsFrames: 0,
@@ -160,15 +175,42 @@ export class Match {
 
     const rival = rivalById(cfg.rivalId);
     const pLo = resolveLoadout(cfg.playerLoadout);
-    const rLo = resolveLoadout(rival.loadout);
+    const vs = cfg.versus;
+    const rLo = resolveLoadout(vs ? vs.p2Loadout : rival.loadout);
     const pf = new Fighter(0, pLo);
     const rf = new Fighter(1, rLo);
-    this.world = new World(this.arena, pf, rf, { arenaId: cfg.arenaId, pickups: !!cfg.pickups, seed: 1 + Math.floor(Math.random() * 1e9) });
-    this.ai = new AIPilot(rival.ai, rival.skill, 1 + Math.floor(Math.random() * 2147483000));
-    // AI handicaps: softer tracking and range-based aim error keep shots dodgeable
-    rf.homingMul = 0.5;
-    rf.aimJitter = THREE.MathUtils.lerp(0.15, 0.09, rival.skill);
-    this.timeLeft = cfg.timeLimit ?? 120;
+    // seeds: from the replay being watched, or fresh (recorded for this match's replay)
+    this.worldSeed = cfg.replay ? cfg.replay.worldSeed : 1 + Math.floor(Math.random() * 1e9);
+    this.aiSeed = cfg.replay ? cfg.replay.aiSeed : 1 + Math.floor(Math.random() * 2147483000);
+    this.world = new World(this.arena, pf, rf, { arenaId: cfg.arenaId, pickups: !!cfg.pickups, seed: this.worldSeed });
+    const practice = cfg.practice?.dummy;
+    this.ai = new AIPilot(rival.ai, practice ? 0.5 : rival.skill, this.aiSeed);
+    if (cfg.replay) {
+      this.players = cfg.replay.streams.map((s) => new InputPlayer(s));
+    } else if (cfg.mode !== 'practice') {
+      this.recorders = vs ? [new InputRecorder(), new InputRecorder()] : [new InputRecorder()];
+    }
+    if (vs) {
+      // player 2 on a gamepad; with two pads, player 1 uses the first and player 2 the second
+      const pads = connectedPads();
+      this.p2 = new PadInput(pads.length >= 2 ? pads[1] : pads[0] ?? 0);
+      host.input.ignorePad = pads.length >= 2 ? -1 : (pads[0] ?? -1);
+    }
+    if (cfg.survival) pf.hp = Math.max(1, Math.min(pf.maxHp, cfg.survival.startHp));
+    if (practice) {
+      // practice room: both robots refill; no clock
+      rf.maxHp = rf.hp = 9999;
+      this.practiceMode = practice;
+    }
+    // replays use the assist recorded with them, never the current setting (determinism)
+    this.aimAssist = cfg.replay ? cfg.replay.aimAssist ?? 1 : host.settings.aimAssist ?? 1;
+    pf.homingMul = this.aimAssist;
+    // AI handicaps: softer tracking and range-based aim error keep shots dodgeable (not for a human player 2)
+    if (!vs) {
+      rf.homingMul = 0.5;
+      rf.aimJitter = THREE.MathUtils.lerp(0.15, 0.09, rival.skill);
+    }
+    this.timeLeft = practice ? Infinity : cfg.timeLimit ?? 120;
     if (new URLSearchParams(location.search).has('autoplay')) this.autoPilot = new AIPilot('champion', 1, 99);
     this.fx = new Effects(s, q);
     this.cam = new ChaseCamera(host.gr.camera);
@@ -202,16 +244,26 @@ export class Match {
       return side;
     };
     const [sp0, sp1] = this.arena.spawns;
-    this.sides = [mkSide(pf, pLo, PLAYER_PAINT, sp0, sp1), mkSide(rf, rLo, rival.paint, sp1, sp0)];
+    this.sides = [mkSide(pf, pLo, host.playerPaint ?? PLAYER_PAINT, sp0, sp1), mkSide(rf, rLo, vs ? vs.p2Paint : rival.paint, sp1, sp0)];
     this.cam.snapBehind(sp0, sp1);
     this.hazardWarned = this.arena.hazards.map(() => false);
     this.tactics = new TacticsView(this.world, this.fx, s);
 
-    host.hud.setup(pf, rf, [PLAYER_ROBOT_NAME, 'YOU', rival.robotName, rival.pilot], host.input.lastDevice === 'pad');
+    const names: [string, string, string, string] = vs
+      ? [PLAYER_ROBOT_NAME, 'P1', vs.p2Name, 'P2']
+      : practice ? [PLAYER_ROBOT_NAME, 'YOU', 'Training Dummy', 'PRACTICE'] : [rival.robotName, rival.pilot, '', ''];
+    if (!vs && !practice) {
+      names[2] = names[0];
+      names[3] = names[1];
+      names[0] = PLAYER_ROBOT_NAME;
+      names[1] = cfg.replay ? 'REPLAY' : cfg.survival ? `ROUND ${cfg.survival.round}` : 'YOU';
+    }
+    host.hud.setup(pf, rf, names, host.input.lastDevice === 'pad');
+    host.hud.setPractice(!!practice);
     host.hud.damageNumbers = host.settings.damageNumbers;
     host.hud.show(true);
     host.hud.clearAnnounce();
-    audio.playMusic(rival.id === 'sable' ? 'champion' : (this.arena.info.music as any));
+    audio.playMusic(rival.id.startsWith('sable') ? 'champion' : (this.arena.info.music as any));
     const amb = ({ foundry: 'ambience_foundry', garden: 'ambience_garden', orbital: 'ambience_orbital' } as const)[cfg.arenaId as 'foundry'];
     if (amb) this.ambience = audio.loop(amb);
     audio.play('capsule_launch', { volume: 0.9 });
@@ -219,8 +271,9 @@ export class Match {
     host.input.enabled = false;
     host.input.onPause = () => this.togglePause();
     host.input.onLockToggle = () => {
-      this.hardLock = !this.hardLock;
-      this.cam.lock = this.hardLock;
+      this.freeCam = !this.freeCam;
+      this.cam.lock = !this.freeCam;
+      host.hud.showHint(this.freeCam ? 'Free camera: mouse / right stick to look. Tab: back to auto camera' : 'Auto camera: tracks your opponent', 2.5);
       audio.play('ui_move');
     };
     this.done = new Promise((r) => (this.resolve = r));
@@ -262,6 +315,7 @@ export class Match {
     if (this.disposed) return;
     const host = this.host;
     host.input.pollPad();
+    this.p2?.poll();
     const look = host.input.consumeLook(dtReal, host.settings.sensitivity);
     if (this.paused) {
       host.gr.render(dtReal);
@@ -288,12 +342,39 @@ export class Match {
         for (const s of this.sides) s.prevPos.copy(s.fighter.pos);
         const pf = this.player.fighter;
         const rf = this.sides[1].fighter;
-        host.input.sample(this.cam.moveYaw, this.hardLock, this.pInput);
+        host.input.sample(this.cam.moveYaw, false, this.pInput);
         if (this.autoPilot && !pf.locked) Object.assign(this.pInput, this.autoPilot.think(this.world, pf, rf));
-        const aiIn = rf.locked ? emptyInput() : this.ai.think(this.world, rf, pf);
+        let aiIn: FighterInput;
+        if (this.players) {
+          // replay playback: recorded inputs; AI re-thinks deterministically from the recorded seed
+          Object.assign(this.pInput, this.players[0].next());
+          aiIn = this.players[1] ? this.players[1].next() : rf.locked ? emptyInput() : this.ai.think(this.world, rf, pf);
+        } else if (this.p2) {
+          aiIn = this.p2.sample(this.cam.moveYaw, this.p2In);
+        } else if (this.practiceMode === 'idle' || rf.locked) {
+          aiIn = emptyInput();
+        } else {
+          aiIn = this.ai.think(this.world, rf, pf);
+          if (this.practiceMode === 'move') aiIn = { ...aiIn, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, chargePressed: false };
+          else if (this.practiceMode === 'shoot') aiIn = { ...aiIn, moveX: 0, moveZ: 0, dashPressed: false, jumpPressed: false, chargePressed: false };
+        }
+        if (this.recorders) {
+          // the sim must see exactly what the replay stores
+          quantizeInput(this.pInput);
+          this.recorders[0].push(this.pInput);
+          if (this.recorders[1]) {
+            aiIn = quantizeInput({ ...aiIn });
+            this.recorders[1].push(aiIn);
+          }
+        }
         this.world.step([this.pInput, aiIn]);
+        if (this.phase === 'ready') this.readySteps++;
+        if (this.practiceMode) {
+          for (const f of [pf, rf]) if (f.hp < f.maxHp * 0.5) f.hp = f.maxHp;
+        }
         this.handleEvents(this.world.events);
         if (this.phase === 'fight') {
+          if (this.players && this.players[0].done) this.onTimeUp();
           this.fightTime += SIM_DT;
           this.timeLeft -= SIM_DT;
           if (this.timeLeft <= 0) this.onTimeUp();
@@ -347,8 +428,17 @@ export class Match {
       for (const b of this.world.bombs) if (b.owner === 1) add(b.target, b.def.color);
       for (const p of this.world.pods) if (p.owner === 1 && p.pos.distanceTo(pf.pos) < 14) add(p.pos, p.def.color);
     }
-    host.hud.update(dtReal, [pf, rf], this.timeLeft, { x: (proj.x * 0.5 + 0.5) * W, y: (-proj.y * 0.5 + 0.5) * H, on: this.phase === 'fight' && rf.alive, behind }, this.hardLock, threats);
+    host.hud.update(dtReal, [pf, rf], this.timeLeft, { x: (proj.x * 0.5 + 0.5) * W, y: (-proj.y * 0.5 + 0.5) * H, on: this.phase === 'fight' && rf.alive, behind }, !this.freeCam, threats);
     if (this.phase === 'fight') this.telFrame(dtReal, pf, rf);
+    if (this.practiceMode) {
+      const now = this.world.time;
+      this.practiceLog = this.practiceLog.filter((h) => now - h.t < 6);
+      const recent = this.practiceLog.filter((h) => now - h.t < 2.0);
+      const last = this.practiceLog[this.practiceLog.length - 1];
+      const dps = this.practiceLog.filter((h) => now - h.t < 5).reduce((a, h) => a + h.dmg, 0) / 5;
+      host.hud.practiceInfo({ last: last ? last.dmg : 0, combo: recent.reduce((a, h) => a + h.dmg, 0), dps, down: Math.round((rf.down / rf.endurance) * 100) });
+    }
+    if (this.cfg.versus && this.phase !== 'intro') this.versusCamera(pPos, rPos);
     if (this.phase === 'fight' && pf.hp / pf.maxHp < 0.25) {
       this.lowHpT -= dtReal;
       if (this.lowHpT <= 0) {
@@ -507,11 +597,12 @@ export class Match {
       if (t < 0.02) {
         host.hud.announce('READY', { color: '#37e8ff' });
         audio.play('announce_ready');
-        host.hud.showHint(host.input.lastDevice === 'pad' ? 'RT gun · LT bomb · RB pod · A jump · B dash (dodge) · X charge (blocks & deflects shots)' : 'Click to capture mouse · LMB gun · RMB bomb · E pod · Shift dash (dodge) · Q charge (blocks & deflects shots)', 5);
+        host.hud.showHint(host.input.lastDevice === 'pad' ? 'RT gun · LT bomb · RB pod · A jump · B dash (dodge) · X charge (blocks & deflects shots)' : 'Click to capture mouse · LMB gun · RMB bomb · E pod · Shift dash (dodge) · Q charge (blocks & deflects shots) · Tab free camera', 5);
         host.input.enabled = true;
         host.input.requestLock();
       }
-      if (t > 1.1) {
+      // fight starts after a fixed number of sim ticks (not wall-clock time) so replays line up exactly
+      if (this.readySteps >= 66) {
         host.hud.announce('GO!', { color: '#ff6a1f' });
         audio.play('announce_go');
         for (const s of this.sides) s.fighter.locked = false;
@@ -559,6 +650,20 @@ export class Match {
   }
 
   private shotYaw: number | null = null;
+
+  /** Shared side-on camera that frames both robots (local versus). */
+  private versusCamera(a: THREE.Vector3, b: THREE.Vector3) {
+    const mid = a.clone().lerp(b, 0.5);
+    const sep = Math.hypot(a.x - b.x, a.z - b.z);
+    const axis = new THREE.Vector3(b.x - a.x, 0, b.z - a.z).normalize();
+    const side = new THREE.Vector3(-axis.z, 0, axis.x);
+    if (side.dot(new THREE.Vector3(0, 0, 1)) < 0) side.negate();
+    const dist = 9 + sep * 0.7;
+    this.cam.cine = { pos: mid.clone().addScaledVector(side, dist).add(new THREE.Vector3(0, 5 + sep * 0.25, 0)), look: mid.clone().add(new THREE.Vector3(0, 1, 0)), k: 4 };
+    // both players move relative to this camera
+    const cp = this.host.gr.camera.position;
+    this.cam.yaw = Math.atan2(mid.x - cp.x, mid.z - cp.z);
+  }
 
   /** Chromatic punch, only when screen effects are enabled. */
   private punch(v: number) {
@@ -625,7 +730,7 @@ export class Match {
     T.fightT += dt;
     if (!pf.grounded) T.airT += dt;
     if (pf.hovering) T.hoverT += dt;
-    if (this.hardLock) T.lockT += dt;
+    if (!this.freeCam) T.lockT += dt;
     const d = Math.hypot(pf.pos.x - rf.pos.x, pf.pos.z - rf.pos.z);
     T.distSum += d;
     T.distN++;
@@ -660,7 +765,7 @@ export class Match {
   }
 
   private onKO(loser: number) {
-    if (this.phase !== 'fight') return;
+    if (this.phase !== 'fight' || this.practiceMode) return;
     this.winner = 1 - loser;
     this.finish = 'ko';
     this.setPhase('ko');
@@ -707,6 +812,22 @@ export class Match {
     audio.play(this.winner === 0 || this.winner < 0 ? 'victory' : 'defeat');
   }
 
+  private buildReplay(php: number, rhp: number): Replay {
+    const { replay: _drop, ...config } = this.cfg;
+    void _drop;
+    return {
+      v: 1,
+      config: { ...config },
+      worldSeed: this.worldSeed,
+      aiSeed: this.aiSeed,
+      streams: this.recorders!.map((r) => r.encode()),
+      frames: this.recorders![0].frames,
+      date: new Date().toISOString(),
+      aimAssist: this.aimAssist,
+      summary: { outcome: this.winner < 0 ? 'draw' : this.winner === 0 ? 'win' : 'lose', finish: this.finish, time: +this.fightTime.toFixed(1), playerHp: Math.round(php), rivalHp: Math.round(rhp) },
+    };
+  }
+
   private end(o: { quit?: boolean; restart?: boolean }) {
     if (this.phase === 'done') return;
     this.setPhase('done');
@@ -733,10 +854,11 @@ export class Match {
       playerMaxHp: p.maxHp,
       rivalHp: r.hp,
       rivalMaxHp: r.maxHp,
-      player: { ...p.stats },
+      player: { ...p.stats, deflects: T.deflects, parries: p.stats.parries, perfectDodges: T.perfect, podsUsed: T.used.pod, bombsUsed: T.used.bomb },
       rival: { ...r.stats },
       quit: o.quit,
       restart: o.restart,
+      replay: this.recorders && !o.quit && !o.restart ? this.buildReplay(p.hp, r.hp) : undefined,
     });
   }
 
@@ -804,7 +926,7 @@ export class Match {
                 // telegraph: bright glint at the enemy muzzle
                 s.model.root.updateMatrixWorld(true);
                 const gp = s.model.rig.muzzle.getWorldPosition(new THREE.Vector3());
-                fx.sparks.emit({ pos: gp, count: 1, size: [1.6, 2.0], life: [0.25, 0.3], color: 0xffffff, color2: f.lo.gun.color, intensity: 3 });
+                fx.chargeGlint(gp, f.lo.gun.color);
               }
               break;
             case 'bomb': {
@@ -822,7 +944,7 @@ export class Match {
               break;
             case 'chargeStart':
               audio.play('charge_windup', { pos: f.pos });
-              if (!isP) fx.ring(f.chestPoint(), new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), f.yaw), 0xff3b3b, 0.3, 2.4, 0.3, 1);
+              if (!isP) fx.chargeWarning(f.chestPoint(), new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)));
               if (ev.wakeup) this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1, 0))), 'WAKE-UP!', 'tag');
               fx.sparks.emit({ pos: f.chestPoint(), count: 16, speed: [1, 3], size: [0.1, 0.16], life: [0.2, 0.35], color: s.paint.glow, intensity: 2.6, drag: 2 });
               break;
@@ -833,8 +955,7 @@ export class Match {
             case 'parry':
               audio.play('shield_block', { pos: f.pos, pitch: 1.5 });
               audio.play('hit_heavy', { pos: f.pos, volume: 0.6 });
-              fx.ring(f.chestPoint(), new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), f.yaw), 0xffffff, 0.3, 3, 0.35, 1);
-              fx.sparks.emit({ pos: f.chestPoint(), count: 30, speed: [6, 14], size: [0.06, 0.1], life: [0.2, 0.4], color: 0xffffff, color2: s.paint.glow, intensity: 3.5, stretch: 0.04, drag: 2 });
+              fx.parry(f.chestPoint(), new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)), s.paint.glow);
               this.slowmo(0.3, 0.28);
               if (isP) this.tel.parries++;
               this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1.2, 0))), 'PARRY!', 'tag');
@@ -842,7 +963,7 @@ export class Match {
               break;
             case 'guardBreak':
               audio.play('knockdown', { pos: f.pos, volume: 0.7, pitch: 1.3 });
-              fx.knockdownBurst(f.chestPoint(), 0xff3b3b);
+              fx.guardBreak(f.chestPoint());
               this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1.2, 0))), 'GUARD BREAK', 'tag');
               break;
             case 'knockdown': {
@@ -938,6 +1059,7 @@ export class Match {
             audio.play('shield_block', { pos: e.pos });
             this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 1.1, 0))), 'BLOCK', 'tag');
           }
+          if (e.attacker === 0 && this.practiceMode) this.practiceLog.push({ t: this.world.time, dmg: e.damage });
           if (e.attacker === 0 && !e.parried) {
             this.host.hud.confirm(e.heavy);
             audio.play('ui_move', { volume: e.heavy ? 0.9 : 0.6, pitch: e.heavy ? 1.6 : 2.2 });
@@ -948,6 +1070,7 @@ export class Match {
         case 'dodge':
           if (e.who === 0) {
             this.tel.dodges++;
+            if (e.perfect) this.tel.perfect++;
             this.host.hud.popup(this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 1, 0))), e.perfect ? 'PERFECT DODGE' : 'DODGE!', 'tag');
             fx.dodgeFlash(e.pos, 0x37e8ff);
             if (e.perfect) fx.ring(this.sides[0].fighter.pos.clone().add(new THREE.Vector3(0, 0.1, 0)), new THREE.Vector3(0, 1, 0), 0x37e8ff, 0.4, 2.6, 0.35, 1);
@@ -1005,6 +1128,7 @@ export class Match {
     this.arena.dispose();
     this.host.input.enabled = false;
     this.host.input.onPause = null;
+    this.host.input.ignorePad = -1;
     this.host.input.onLockToggle = null;
     this.host.input.releaseLock();
     this.host.hud.show(false);

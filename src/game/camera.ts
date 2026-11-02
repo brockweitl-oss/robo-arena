@@ -17,9 +17,10 @@ const wrap = (a: number) => {
  */
 export class ChaseCamera {
   yaw = 0;
-  pitch = 0.32;
-  dist = 7.0;
-  lock = false;
+  pitch = 0.42;
+  dist = 7.4;
+  /** Auto-tracking (Custom Robo style): stays behind the player, facing the opponent. Tab switches to free orbit. */
+  lock = true;
   shakeEnabled = true;
   private trauma = 0;
   private idleT = 0;
@@ -53,9 +54,12 @@ export class ChaseCamera {
     const toEnemy = Math.atan2(enemy.x - player.x, enemy.z - player.z);
     const lookActive = Math.abs(look.dx) + Math.abs(look.dy) > 0.0005;
     if (this.lock) {
-      this.yaw = this.yaw + wrap(toEnemy - this.yaw) * (1 - Math.exp(-7 * dt));
-      this.pitch = damp(this.pitch, 0.3, 4, dt);
-      // mouse adds a small offset only
+      // track the opponent; ease off when the robots are on top of each other so the view doesn't whip around
+      const sepXZ = Math.hypot(enemy.x - player.x, enemy.z - player.z);
+      const rate = 6 * Math.min(1, Math.max(0.15, (sepXZ - 1.5) / 4));
+      this.yaw = this.yaw + wrap(toEnemy - this.yaw) * (1 - Math.exp(-rate * dt));
+      this.pitch = damp(this.pitch, 0.42, 4, dt);
+      // mouse/stick nudges the view a little; tracking pulls it back
       this.yaw -= look.dx * 0.3;
     } else {
       this.yaw -= look.dx;

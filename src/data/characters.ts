@@ -9,6 +9,8 @@ export interface Paint {
   glow: number;
   /** Optional decal number/emblem drawn on the chest. */
   emblem: string;
+  /** Optional dash-afterimage trail color (cosmetic; rendered by effects when supported). */
+  trail?: number;
 }
 
 export type AIPersonality = 'rookie' | 'rusher' | 'bomber' | 'duelist' | 'trickster' | 'champion';
@@ -29,6 +31,12 @@ export interface Rival {
   defeatLine: string;
   /** Parts granted to the player on first win. */
   unlocks: string[];
+  /** Counter-hint shown after losing to this rival. */
+  hint?: string;
+  /** Part key suggested after a loss (e.g. 'legs:hopper'). */
+  suggest?: string;
+  /** Rival+ (post-story remix). */
+  plus?: boolean;
 }
 
 export const PLAYER_PAINT: Paint = {
@@ -45,6 +53,8 @@ export const PLAYER_ROBOT_NAME = 'Kestrel';
 export const RIVALS: Rival[] = [
   {
     id: 'dex',
+    hint: 'Bricktop charges in a straight line. Hold your charge to guard: a well-timed guard parries the ram and leaves him wide open.',
+    suggest: 'legs:hopper',
     pilot: 'Dex Marrow',
     robotName: 'Bricktop',
     title: 'Yard Brawler',
@@ -60,6 +70,8 @@ export const RIVALS: Rival[] = [
   },
   {
     id: 'mira',
+    hint: 'Lark bombs from the air. Watch the red landing rings, dash out of them, then punish her when she lands.',
+    suggest: 'gun:scatter',
     pilot: 'Mira Osei',
     robotName: 'Lark',
     title: 'Sky Artillerist',
@@ -75,6 +87,8 @@ export const RIVALS: Rival[] = [
   },
   {
     id: 'vance',
+    hint: 'Cobalt mirrors your build. Out-move him: dash the moment his shots leave the barrel to trigger perfect dodges.',
+    suggest: 'body:wisp',
     pilot: 'Vance Ito',
     robotName: 'Cobalt',
     title: 'Mirror Duelist',
@@ -90,6 +104,8 @@ export const RIVALS: Rival[] = [
   },
   {
     id: 'hex',
+    hint: 'Jinx lays mines and charges rail shots. Watch for the muzzle glint, then dash sideways. Shoot down her mines before they arm.',
+    suggest: 'pod:mine',
     pilot: 'Juno Hex',
     robotName: 'Jinx',
     title: 'Trap Artist',
@@ -105,6 +121,8 @@ export const RIVALS: Rival[] = [
   },
   {
     id: 'sable',
+    hint: 'Sovereign wins long gun duels. Break line of sight behind cover, lob bombs over it, and guard its shots back at it.',
+    suggest: 'body:ironclad',
     pilot: 'Sable Raine',
     robotName: 'Sovereign',
     title: 'Reigning Champion',
@@ -120,6 +138,53 @@ export const RIVALS: Rival[] = [
   },
 ];
 
+/**
+ * Rival+ (unlocked after the champion): the same pilots with sharper AI and
+ * remixed builds that use the 2.0 parts. Each win unlocks the parts they use.
+ */
+export const RIVALS_PLUS: Rival[] = [
+  {
+    ...RIVALS[0], id: 'dex+', plus: true, robotName: 'Bricktop EX', title: 'Yard Bulwark', skill: 0.55, arena: 'garden',
+    loadout: { gun: 'scatter', bomb: 'napalm', pod: 'turret', body: 'ironclad', legs: 'anchor' },
+    intro: "New season, new rig. Anchor legs, a turret and a fire pot. Bricktop doesn't move any more, and doesn't need to.",
+    defeatLine: 'Fine. Take the Anchor legs. Maybe you can make them work.',
+    unlocks: ['legs:anchor', 'bomb:napalm'],
+    hint: 'Bricktop EX holds ground. Stay out of the fire pool, kill the turret, and fight him from above.', suggest: 'legs:hopper',
+  },
+  {
+    ...RIVALS[1], id: 'mira+', plus: true, robotName: 'Lark EX', title: 'Storm Artillerist', skill: 0.7, arena: 'orbital',
+    loadout: { gun: 'homer', bomb: 'cluster', pod: 'mine', body: 'wisp', legs: 'feather' },
+    intro: 'Feather legs. I barely touch the ground now. Good luck catching me.',
+    defeatLine: "You caught me mid-air. Here, Feather legs and the Homer. They'll suit you.",
+    unlocks: ['legs:feather', 'gun:homer'],
+    hint: "Lark EX's curving shots lose a straight dash. Dash in a line, not sideways.", suggest: 'pod:interceptor',
+  },
+  {
+    ...RIVALS[2], id: 'vance+', plus: true, robotName: 'Cobalt EX', title: 'Afterimage', skill: 0.8, arena: 'garden',
+    loadout: { gun: 'pulse', bomb: 'bouncer', pod: 'seeker', body: 'striker', legs: 'sprint' },
+    intro: "Two dash charges. I'll be behind you before your shot lands.",
+    defeatLine: "I couldn't out-dash you. The Sprint legs and Skip Grenade are yours.",
+    unlocks: ['legs:sprint', 'bomb:bouncer'],
+    hint: 'Cobalt EX baits a dash, then dashes again. Guard when he closes; he relies on getting in point-blank.', suggest: 'gun:scatter',
+  },
+  {
+    ...RIVALS[3], id: 'hex+', plus: true, robotName: 'Jinx EX', title: 'Lockdown', skill: 0.85, arena: 'foundry',
+    loadout: { gun: 'beam', bomb: 'cluster', pod: 'turret', body: 'wisp', legs: 'stride' },
+    intro: "A beam that charges as long as I like and a turret watching your back door. Walk carefully.",
+    defeatLine: 'Okay, you can read a charge glint. The Beam and Tripod are yours.',
+    unlocks: ['gun:beam', 'pod:turret'],
+    hint: 'A charging beam glows. Dash the instant it fires, or guard to parry it straight back.', suggest: 'legs:sprint',
+  },
+  {
+    ...RIVALS[4], id: 'sable+', plus: true, robotName: 'Sovereign EX', title: 'Undisputed', skill: 1.0, arena: 'orbital',
+    loadout: { gun: 'rail', bomb: 'mortar', pod: 'interceptor', body: 'regent', legs: 'sprint' },
+    intro: 'You took my crown once. The Aegis drone eats your shots now, and every rail hit knocks you flat.',
+    defeatLine: "Twice. You're the real thing. The Aegis drone is yours, Champion.",
+    unlocks: ['pod:interceptor'],
+    hint: 'The Aegis drone shoots down shots near Sovereign. Overwhelm it with bombs and pods, or bait the rail and punish its recovery.', suggest: 'pod:mine',
+  },
+];
+
 export function rivalById(id: string): Rival {
-  return RIVALS.find((r) => r.id === id) ?? RIVALS[0];
+  return RIVALS.find((r) => r.id === id) ?? RIVALS_PLUS.find((r) => r.id === id) ?? RIVALS[0];
 }

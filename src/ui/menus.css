@@ -764,6 +764,27 @@
   .ra-root *, .ra-root *::before, .ra-root *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
 
+/* ---- modes, grades, counter-hints (Claude; Codex may restyle) ---- */
+.md-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(var(--u) * 17), 1fr)); gap: calc(var(--u) * 1); }
+.md-card { padding: calc(var(--u) * 1.2); display: flex; flex-direction: column; gap: calc(var(--u) * 0.5); min-height: calc(var(--u) * 9); }
+.md-card.locked { opacity: 0.5; }
+.md-title { font-family: 'Russo One', sans-serif; font-size: calc(var(--u) * 1.3); letter-spacing: 0.04em; text-transform: uppercase; }
+.md-desc { font-size: calc(var(--u) * 0.85); opacity: 0.75; line-height: 1.35; }
+.md-tag { margin-top: auto; font-size: calc(var(--u) * 0.75); letter-spacing: 0.16em; text-transform: uppercase; color: var(--c, #37e8ff); font-weight: 700; }
+.md-col { display: flex; flex-direction: column; gap: calc(var(--u) * 0.8); max-height: 60vh; }
+.md-row { display: flex; justify-content: space-between; align-items: center; gap: calc(var(--u) * 1); padding: calc(var(--u) * 0.7) 0; border-bottom: 1px solid #ffffff14; }
+.res-grade { display: flex; align-items: center; gap: calc(var(--u) * 1.4); padding: calc(var(--u) * 0.6) 0; }
+.res-grade-letter { font-family: 'Russo One', sans-serif; font-size: calc(var(--u) * 3.4); line-height: 1; width: calc(var(--u) * 4); text-align: center; text-shadow: 0 0 calc(var(--u) * 1.2) currentColor; }
+.res-grade.g-S .res-grade-letter { color: #ffd23a; }
+.res-grade.g-A .res-grade-letter { color: #37e8ff; }
+.res-grade.g-B .res-grade-letter { color: #9dff4a; }
+.res-grade.g-C .res-grade-letter { color: #b8c0d0; }
+.res-grade-parts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: calc(var(--u) * 0.2) calc(var(--u) * 1.4); flex: 1; font-size: calc(var(--u) * 0.85); }
+.res-grade-parts div { display: flex; justify-content: space-between; }
+.res-grade-parts span { opacity: 0.7; }
+.res-hint { display: flex; gap: calc(var(--u) * 0.8); align-items: baseline; flex-wrap: wrap; padding: calc(var(--u) * 0.7) calc(var(--u) * 0.9); background: #37e8ff14; border-left: 3px solid #37e8ff; font-size: calc(var(--u) * 0.9); line-height: 1.35; }
+.res-hint b { color: #37e8ff; letter-spacing: 0.18em; }
+.res-hint em { font-style: normal; color: #ffd23a; font-weight: 700; }
 /* Compact threat chevrons remain legible against bright explosions. */
 .hud .hud-threat { filter:drop-shadow(0 2px 1px #05090f) drop-shadow(0 0 4px var(--c)); border-left-width:8px; border-right-width:8px; border-bottom-width:16px; }
 .hud .hud-threat::after { content:''; position:absolute; left:-5px; top:7px; border-left:5px solid transparent; border-right:5px solid transparent; border-bottom:8px solid #111823; }
