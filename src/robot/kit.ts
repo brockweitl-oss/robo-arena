@@ -33,6 +33,24 @@ export function plate(points: [number, number][], depth: number, bevel = 0.012, 
   return g;
 }
 
+/** Faceted armor with a central ridge and depth taper, rather than a flat slab.
+ * Profile points on the centreline form the ridge; bevels remain real geometry.
+ */
+export function armorShell(points: [number, number][], depth: number, ridge = 0.025): Geo {
+  const g = plate(points, depth, 0.006);
+  const a = g.getAttribute('position');
+  const halfW = Math.max(...points.map(p => Math.abs(p[0])));
+  const minY = Math.min(...points.map(p => p[1]));
+  const height = Math.max(...points.map(p => p[1])) - minY;
+  for (let i = 0; i < a.count; i++) {
+    const x = a.getX(i), y = a.getY(i), z = a.getZ(i);
+    const taper = 0.72 + 0.28 * THREE.MathUtils.clamp((y - minY) / height, 0, 1);
+    a.setZ(i, z * taper + ridge * Math.max(0, 1 - Math.abs(x) / halfW));
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
 /** Box with chamfered (45°) vertical edges, extruded along Z. w = x, h = y, d = z. */
 export function chamferBox(w: number, h: number, d: number, c = 0.05, bevel = 0.01): Geo {
   const x = w / 2;

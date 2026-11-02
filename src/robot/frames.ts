@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Rig, Side } from './rig';
 import {
-  PartBuilder, rbox, plate, chamferBox, trap, cyl, sphere, lathe, torus, tube, xf, mirrorX, vents, piston, boltRing,
+  PartBuilder, rbox, plate, armorShell, chamferBox, trap, cyl, sphere, lathe, torus, tube, xf, mirrorX, vents, piston, boltRing,
 } from './kit';
 import type { BodyDef } from '../data/parts';
 
@@ -130,8 +130,12 @@ function forearm(rig: Rig, b: B, side: Side, o: { w: number; h: number; d: numbe
     b.add(e, 'secondary', xf(plate([[0, 0.12], [0.02, 0.12], [0.1, -0.14], [0.0, -0.06]], 0.02, 0.006), [sx * (o.w / 2), cy, 0], [0, sx > 0 ? -Math.PI / 2 : Math.PI / 2, 0]));
     b.add(e, 'glow', xf(rbox(0.012, o.h * 0.6, 0.012, 0.004), [sx * (o.w / 2 + 0.002), cy, o.d / 2 - 0.02]));
   }
+  for (let i = 0; i < 2; i++) {
+    const w = o.w * (0.52 - i * 0.07);
+    b.add(e, i === 0 ? 'primary' : 'trim', xf(armorShell([[-w, 0.05], [0, 0.075], [w, 0.05], [w * 0.7, -0.06], [0, -0.085], [-w * 0.7, -0.06]], 0.025, 0.018), [0, cy + 0.055 - i * 0.12, o.d / 2 + 0.02], [-0.1, 0, 0]));
+  }
   // energy line
-  b.add(e, 'glow', xf(rbox(0.01, o.h * 0.5, 0.01, 0.003), [0, cy + 0.01, o.d / 2 + 0.002]));
+  b.add(e, 'glow', xf(rbox(0.004, o.h * 0.5, 0.006, 0.001), [o.w * 0.35, cy + 0.01, o.d / 2 + 0.04]));
   rig.hand[side].position.y = -L - 0.02;
 }
 
@@ -157,7 +161,7 @@ function striker(rig: Rig, b: B) {
   abdomen(rig, b, 0.22);
   const c = rig.chest;
   // Chest core: broad V-taper hull
-  b.add(c, 'primary', plate([[-0.17, -0.17], [0.17, -0.17], [0.31, 0.0], [0.29, 0.14], [0.12, 0.2], [-0.12, 0.2], [-0.29, 0.14], [-0.31, 0.0]], 0.34, 0.025));
+  b.add(c, 'primary', plate([[-0.115, -0.17], [0.115, -0.17], [0.31, 0.0], [0.29, 0.14], [0.12, 0.2], [-0.12, 0.2], [-0.29, 0.14], [-0.31, 0.0]], 0.34, 0.025));
   // front orange collar plates (V)
   const collar = plate([[0.02, 0.2], [0.24, 0.13], [0.27, 0.02], [0.14, -0.04], [0.05, 0.09]], 0.05, 0.012);
   b.add(c, 'secondary', xf(collar.clone(), [0, 0, 0.165], [-0.06, 0, 0]));
@@ -194,7 +198,7 @@ function striker(rig: Rig, b: B) {
   // brow ridge
   b.add(h, 'primary', xf(trap(0.3, 0.26, 0.06, 0.1, 0.012), [0, 0.215, 0.11], [-0.25, 0, 0]));
   // visor band
-  b.add(h, 'visor', xf(rbox(0.27, 0.075, 0.08, 0.03), [0, 0.15, 0.115]));
+  b.add(h, 'visor', xf(chamferBox(0.25, 0.038, 0.06, 0.012, 0.004), [0, 0.15, 0.115]));
   for (const sx of [1, -1]) {
     // slanted eyes
     b.add(h, 'glowHot', xf(plate([[0, 0], [0.075, 0.012], [0.07, 0.03], [0.005, 0.022]], 0.01, 0.002), [sx * 0.012, 0.135, 0.156], [0, 0, 0], [sx, 1, 1]));
@@ -207,7 +211,9 @@ function striker(rig: Rig, b: B) {
   // mouth guard
   b.add(h, 'dark', xf(trap(0.12, 0.2, 0.07, 0.07, 0.01), [0, 0.07, 0.11]));
   for (const g of vents(0.08, 0.04, 2, 0.008)) b.add(h, 'chrome', xf(g, [0, 0.07, 0.148]));
-  // Split faceplate and offset tactical sensor: no ornamental V-fin.
+  // Swept dorsal blade follows the helmet rather than flaring into a V-fin.
+  b.add(h, 'secondary', xf(plate([[-0.11, 0], [0.09, 0], [-0.04, 0.065], [-0.14, 0.08]], 0.025, 0.004), [0, 0.27, 0], [0, Math.PI / 2, 0]));
+  // Split faceplate and offset tactical sensor.
   for (const sx of [-1, 1]) {
     b.add(h, 'primary', xf(plate([[0.012, 0.03], [0.1, 0.07], [0.11, 0.13], [0.025, 0.11]], 0.025, 0.005), [0, 0, 0.156], [0, 0, 0], [sx, 1, 1]));
   }
@@ -357,7 +363,7 @@ function regent(rig: Rig, b: B) {
   abdomen(rig, b, 0.22);
   const c = rig.chest;
   // knightly cuirass with gold trim
-  b.add(c, 'primary', plate([[-0.16, -0.18], [0.16, -0.18], [0.3, -0.02], [0.3, 0.13], [0.15, 0.21], [-0.15, 0.21], [-0.3, 0.13], [-0.3, -0.02]], 0.36, 0.025));
+  b.add(c, 'primary', plate([[-0.11, -0.18], [0.11, -0.18], [0.3, -0.02], [0.3, 0.13], [0.15, 0.21], [-0.15, 0.21], [-0.3, 0.13], [-0.3, -0.02]], 0.36, 0.025));
   const gold = plate([[0, 0.21], [0.15, 0.21], [0.3, 0.13], [0.3, 0.1], [0.14, 0.17], [0, 0.0], [-0.14, 0.17], [-0.3, 0.1], [-0.3, 0.13], [-0.15, 0.21]], 0.04, 0.01);
   b.add(c, 'secondary', xf(gold, [0, 0, 0.17]));
   b.add(c, 'secondary', xf(plate([[0, 0.0], [0.05, -0.08], [0, -0.17], [-0.05, -0.08]], 0.04, 0.01), [0, 0, 0.17]));
@@ -386,7 +392,9 @@ function regent(rig: Rig, b: B) {
   b.add(h, 'visor', xf(rbox(0.05, 0.11, 0.06, 0.015), [0, 0.11, 0.12]));
   b.add(h, 'glowHot', xf(rbox(0.18, 0.012, 0.01, 0.004), [0, 0.16, 0.152]));
   b.add(h, 'secondary', xf(chamferBox(0.28, 0.035, 0.29, 0.01), [0, 0.26, 0]));
-  // Single swept blade crest, integrated into the armored brow.
+  // Original staggered blade cluster with rearward-raked outer fins.
+  for (const sx of [-1, 1]) b.add(h, 'secondary', xf(plate([[-0.02, 0], [0.02, 0], [0.04, 0.1], [0.025, 0.13]], 0.025, 0.004), [sx * 0.085, 0.25, -0.04], [0.25, sx * 0.25, sx * 0.18], [sx, 1, 1]));
+  // Central blade, integrated into the armored brow.
   b.add(h, 'secondary', xf(plate([[-0.035, 0], [0.035, 0], [0.01, 0.17], [-0.025, 0.13]], 0.1, 0.006), [0, 0.27, -0.01]));
   for (const sx of [1, -1]) b.add(h, 'trim', xf(plate([[0, 0], [0.12, 0.0], [0.18, 0.1], [0.02, 0.05]], 0.02, 0.006), [sx * 0.13, 0.13, -0.04], [0, sx > 0 ? -Math.PI / 2 : Math.PI / 2, 0]));
   rig.lockPoint.position.set(0, 0.45, 0);
@@ -394,6 +402,7 @@ function regent(rig: Rig, b: B) {
   for (const side of ['L', 'R'] as Side[]) {
     const sx = side === 'L' ? 1 : -1;
     const pad = rig.pad[side];
+    b.add(pad, 'primary', xf(armorShell([[-0.06, 0], [0.09, -0.015], [0.14, 0.17], [0.06, 0.13]], 0.06, 0.015), [sx * 0.13, 0.08, -0.08], [0.2, 0, 0], [sx, 1, 1]));
     // Rectilinear shoulder armor with inset vernier exhausts.
     b.add(pad, 'primary', xf(chamferBox(0.29, 0.23, 0.32, 0.04, 0.009), [sx * 0.07, 0.04, 0]));
     b.add(pad, 'secondary', xf(chamferBox(0.3, 0.055, 0.33, 0.018), [sx * 0.07, 0.14, 0]));
@@ -415,7 +424,7 @@ export function buildFrame(frame: BodyDef['frame'], rig: Rig, b: PartBuilder) {
     const x = sx * (heavy ? 0.27 : frame === 'wisp' ? 0.16 : 0.23);
     const z = heavy ? 0.235 : frame === 'wisp' ? 0.155 : 0.195;
     // Separated lower-rib armor exposes the chassis between plates.
-    for (let i = 0; i < 3; i++) b.add(rig.chest, i === 2 ? 'trim' : 'primary', xf(chamferBox(heavy ? 0.15 : 0.1, 0.045, 0.045, 0.012, 0.004), [x, -0.04 - i * 0.055, z], [0, sx * 0.18, 0]));
+    for (let i = 0; i < 3; i++) b.add(rig.chest, i === 2 ? 'trim' : 'primary', xf(chamferBox(heavy ? 0.15 : 0.1, 0.045, 0.045, 0.012, 0.004), [x - sx * i * 0.022, -0.04 - i * 0.055, z], [0, sx * 0.18, 0]));
     const p = piston(new THREE.Vector3(sx * 0.12, -0.11, -0.1), new THREE.Vector3(sx * 0.21, 0.12, -0.12), heavy ? 0.025 : 0.014);
     b.add(rig.waist, 'dark', p.body);
     b.add(rig.waist, 'chrome', p.rod);
