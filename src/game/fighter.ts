@@ -20,6 +20,9 @@ export interface FighterInput {
   /** Face the target even while moving (hard lock / strafing). */
   faceTarget: boolean;
   bombTarget?: readonly [number, number, number];
+  /** Skill shot (released). A target is a manually aimed world point; none = quick-cast at the target. */
+  skillPressed?: boolean;
+  skillTarget?: readonly [number, number, number];
 }
 
 export const emptyInput = (): FighterInput => ({
@@ -52,7 +55,8 @@ export type FighterEvent =
   | { type: 'fire'; index: number } | { type: 'railCharge' } | { type: 'bomb' } | { type: 'pod' }
   | { type: 'chargeStart'; wakeup: boolean } | { type: 'chargeLunge' } | { type: 'knockdown' } | { type: 'getup' }
   | { type: 'parry' } | { type: 'guardBreak' } | { type: 'hover'; on: boolean }
-  | { type: 'primerClear'; owner: number; reason: PrimerClearReason };
+  | { type: 'primerClear'; owner: number; reason: PrimerClearReason }
+  | { type: 'skillCast' } | { type: 'skill' };
 
 export interface HitInfo {
   damage: number;
@@ -62,7 +66,7 @@ export interface HitInfo {
   heavy: boolean;
   /** Launch upward (m/s), e.g. hazards. */
   launch?: number;
-  source: 'gun' | 'bomb' | 'pod' | 'charge' | 'hazard' | 'fire';
+  source: 'gun' | 'bomb' | 'pod' | 'charge' | 'hazard' | 'fire' | 'skill';
   /** Direct bomb hit: breaks a guard instead of being blocked. */
   guardBreak?: boolean;
   /** Light damage-over-time: no flinch, no hit-stop. */
@@ -85,7 +89,8 @@ export interface HitResult {
   comboBonus?: number;
 }
 
-export type SpawnReq = { kind: 'shot'; index: number; air: boolean; power: number } | { kind: 'bomb' } | { kind: 'pod' };
+export type SpawnReq = { kind: 'shot'; index: number; air: boolean; power: number } | { kind: 'bomb' } | { kind: 'pod' }
+  | { kind: 'skill'; target: readonly [number, number, number] | null };
 
 export class Fighter implements AnimSource {
   primer: PrimerState | null = null;
@@ -130,6 +135,12 @@ export class Fighter implements AnimSource {
   bombCd = 0;
   podCd = 0;
   chargeCd = 0;
+  skillCd = 0;
+  /** Skill cast in progress: seconds until the shot leaves (-1 = none) and its aim point (null = at the target). */
+  castT = -1;
+  castTarget: readonly [number, number, number] | null = null;
+  private skillTarget: readonly [number, number, number] | undefined;
+  private bufSkill = 0;
   /** Time until the next dash charge is restored (0 = full). */
   dashCd = 0;
   dashCharges: number;
@@ -177,7 +188,7 @@ export class Fighter implements AnimSource {
   readonly spawns: SpawnReq[] = [];
 
   // stats
-  stats = { damageDealt: 0, hits: 0, knockdowns: 0, knockdownsTaken: 0, shots: 0, dodges: 0, parries: 0, gunProjectiles: 0, gunHits: 0, gunDamage: 0, gunDeflected: 0, primes: 0, combos: 0, comboDamage: 0 };
+  stats = { damageDealt: 0, hits: 0, knockdowns: 0, knockdownsTaken: 0, shots: 0, dodges: 0, parries: 0, gunProjectiles: 0, gunHits: 0, gunDamage: 0, gunDeflected: 0, primes: 0, combos: 0, comboDamage: 0, skillCasts: 0, skillHits: 0, skillDamage: 0 };
 
   constructor(readonly id: number, readonly lo: ResolvedLoadout) {
     this.st = deriveStats(lo);
@@ -190,8 +201,10 @@ export class Fighter implements AnimSource {
     return this.hp > 0;
   }
   get runSpeed() {
-    return this.st.runSpeed * PACE * (this.buffs.speed > 0 ? 1.15 : 1);
+    return this.st.runSpeed * PACE * (this.buffs.speed > 0 ? 1.15 : 1) * (this.slowT > 0 ? 0.65 : 1);
   }
+  /** Chilled by a Frost Spike (seconds, fixed duration). */
+  slowT = 0;
   /** Down-gauge capacity. */
   get endurance() {
     return this.st.endurance;
@@ -209,7 +222,7 @@ export class Fighter implements AnimSource {
     return this.mode === 'charge' && this.chargePhase === 0 && this.modeTime < PARRY_WINDOW;
   }
   get attackCommitted() {
-    return this.recoveryTime > 0 || this.holdT >= 0 || this.burstLeft > 0;
+    return this.recoveryTime > 0 || this.holdT >= 0 || this.burstLeft > 0 || this.castT >= 0;
   }
   get remainingAirDashes() { return this.airDashes; }
 
@@ -289,6 +302,7 @@ export class Fighter implements AnimSource {
     // A throw can remain buffered through the last recovery ticks. Keep that
     // press's target until another bomb press replaces it (including auto-aim).
     if (inp.bombPressed) this.bombTarget = inp.bombTarget ? [...inp.bombTarget] : undefined;
+    if (inp.skillPressed) this.skillTarget = inp.skillTarget ? [...inp.skillTarget] : undefined;
     if (this.primer) {
       this.primer.remainingTicks--;
       this.primer.armTicks = Math.max(0, this.primer.armTicks - 1);
@@ -313,6 +327,7 @@ export class Fighter implements AnimSource {
     this.recoveryTime = Math.max(0, this.recoveryTime - dt);
     this.landT = Math.max(0, this.landT - dt);
     for (const k of ['overdrive', 'speed'] as const) this.buffs[k] = Math.max(0, this.buffs[k] - dt);
+    this.slowT = Math.max(0, this.slowT - dt);
     // dash charges refill one at a time
     if (this.dashCharges < this.st.dashCharges) {
       this.dashCd -= dt;
@@ -336,6 +351,10 @@ export class Fighter implements AnimSource {
     this.bufBomb = buf(this.bufBomb, inp.bombPressed);
     this.bufPod = buf(this.bufPod, inp.podPressed);
     this.bufCharge = buf(this.bufCharge, inp.chargePressed);
+    this.bufSkill = buf(this.bufSkill, !!inp.skillPressed);
+    this.skillCd = Math.max(0, this.skillCd - dt);
+    // a cast is interrupted by anything that takes control away (hits, knockdowns, charges)
+    if (this.castT >= 0 && ((this.mode !== 'ground' && this.mode !== 'air') || this.locked || !this.alive)) this.castT = -1;
     if (inp.jumpPressed) this.jumpHeldSincePress = true;
     if (!inp.jumpHeld) this.jumpHeldSincePress = false;
 
@@ -448,6 +467,27 @@ export class Fighter implements AnimSource {
           this.spawns.push({ kind: 'bomb' });
           this.events.push({ type: 'bomb' });
         }
+        // --- skill shot: released aim (or quick-cast), short telegraphed cast, then a straight shot ---
+        if (this.bufSkill > 0 && this.skillCd <= 0 && !recovering && !this.attackCommitted && this.bombLockT <= 0) {
+          this.bufSkill = 0;
+          const sk = this.lo.skill;
+          this.skillCd = sk.cooldown;
+          this.castT = sk.cast;
+          this.castTarget = this.skillTarget ?? null;
+          this.yaw = this.castTarget ? Math.atan2(this.castTarget[0] - this.pos.x, this.castTarget[2] - this.pos.z) : yawToTarget;
+          this.stats.skillCasts++;
+          this.events.push({ type: 'skillCast' });
+        }
+        if (this.castT >= 0) {
+          this.castT -= dt;
+          if (this.castT <= 0) {
+            this.castT = -1;
+            this.recoveryTime = Math.max(this.recoveryTime, this.lo.skill.recovery);
+            this.aimHold = Math.max(this.aimHold, 0.3);
+            this.spawns.push({ kind: 'skill', target: this.castTarget });
+            this.events.push({ type: 'skill' });
+          }
+        }
         if (this.bufPod > 0 && this.podCd <= 0 && !recovering && !this.attackCommitted && this.bombLockT <= 0) {
           this.bufPod = 0;
           this.podCd = this.lo.pod.cooldown;
@@ -463,6 +503,7 @@ export class Fighter implements AnimSource {
         if (this.burstLeft > 0 && gun.windup > 0) speedMul = Math.min(speedMul, 0.12);
         if (this.holdT >= 0) speedMul = Math.min(speedMul, 0.35);
         if (this.bombLockT > 0 && grounded) speedMul = Math.min(speedMul, 0.2);
+        if (this.castT >= 0) speedMul = Math.min(speedMul, 0.15);
         if (recovering) speedMul = Math.min(speedMul, this.landT > 0 ? 0.3 : 0.55);
         const max = this.runSpeed * speedMul;
         if (grounded) {
@@ -482,7 +523,9 @@ export class Fighter implements AnimSource {
         // --- facing ---
         let wantYaw = this.yaw;
         const attacking = this.burstLeft > 0 || this.aimHold > 0 || this.bombLockT > 0;
-        if (inp.faceTarget || (attacking && grounded)) wantYaw = yawToTarget;
+        const ct = this.castT >= 0 ? this.castTarget : null;
+        if (ct) wantYaw = Math.atan2(ct[0] - this.pos.x, ct[2] - this.pos.z);
+        else if (inp.faceTarget || (attacking && grounded)) wantYaw = yawToTarget;
         else if (moveLen > 0.1) wantYaw = Math.atan2(mv.x, mv.z);
         else if (attacking) wantYaw = yawToTarget;
         this.turnToward(wantYaw, (grounded ? 22 : 10) * dt);

@@ -12,17 +12,17 @@ import type { FighterInput } from '../game/fighter';
  */
 export type Action =
   | 'forward' | 'back' | 'left' | 'right'
-  | 'jump' | 'dash' | 'gun' | 'bomb' | 'pod' | 'charge' | 'lock' | 'pause';
+  | 'jump' | 'dash' | 'gun' | 'bomb' | 'pod' | 'charge' | 'skill' | 'lock' | 'pause';
 
-export const ACTIONS: Action[] = ['forward', 'back', 'left', 'right', 'jump', 'dash', 'gun', 'bomb', 'pod', 'charge', 'lock', 'pause'];
+export const ACTIONS: Action[] = ['forward', 'back', 'left', 'right', 'jump', 'dash', 'gun', 'skill', 'bomb', 'pod', 'charge', 'lock', 'pause'];
 /** Movement actions: the gamepad always uses the left stick for these. */
 export const MOVE_ACTIONS: Action[] = ['forward', 'back', 'left', 'right'];
 type ButtonAction = Exclude<Action, 'forward' | 'back' | 'left' | 'right'>;
-const BUTTON_ACTIONS: ButtonAction[] = ['jump', 'dash', 'gun', 'bomb', 'pod', 'charge', 'lock', 'pause'];
+const BUTTON_ACTIONS: ButtonAction[] = ['jump', 'dash', 'gun', 'skill', 'bomb', 'pod', 'charge', 'lock', 'pause'];
 
 export const ACTION_LABEL: Record<Action, string> = {
   forward: 'Move forward', back: 'Move back', left: 'Move left', right: 'Move right',
-  jump: 'Jump / hover', dash: 'Dash', gun: 'Fire gun', bomb: 'Throw bomb', pod: 'Launch pod',
+  jump: 'Jump / hover', dash: 'Dash', gun: 'Fire gun (auto-aim)', skill: 'Skill shot (hold to aim)', bomb: 'Throw bomb', pod: 'Launch pod',
   charge: 'Charge / guard', lock: 'Toggle lock-on', pause: 'Pause',
 };
 
@@ -45,6 +45,7 @@ export const DEFAULT_BINDINGS: Bindings = {
     jump: ['Space', ''],
     dash: ['ShiftLeft', 'ShiftRight'],
     gun: ['Mouse0', 'KeyJ'],
+    skill: ['KeyR', 'Mouse3'],
     bomb: ['Mouse2', 'KeyK'],
     pod: ['KeyE', 'Mouse1'],
     charge: ['KeyQ', ''],
@@ -53,7 +54,7 @@ export const DEFAULT_BINDINGS: Bindings = {
   },
   pad: {
     forward: [], back: [], left: [], right: [],
-    jump: [0], dash: [1], charge: [2], pod: [5], gun: [7], bomb: [6], lock: [11], pause: [9],
+    jump: [0], dash: [1], charge: [2], skill: [3], pod: [5], gun: [7], bomb: [6], lock: [11], pause: [9],
   },
 };
 
@@ -116,10 +117,13 @@ export function padName(i: number | undefined): string {
   return PAD_NAMES[i] ?? `B${i}`;
 }
 
+/** A skill press shorter than this is a quick-cast at the target. */
+export const SKILL_TAP_MS = 150;
+
 export class Input {
   /** Held keyboard codes and mouse buttons ('Mouse0'..). */
   private keys = new Set<string>();
-  private held: Record<ButtonAction, boolean> = { jump: false, dash: false, gun: false, bomb: false, pod: false, charge: false, lock: false, pause: false };
+  private held: Record<ButtonAction, boolean> = { jump: false, dash: false, gun: false, skill: false, bomb: false, pod: false, charge: false, lock: false, pause: false };
   private latched: Record<ButtonAction, boolean> = { ...this.held };
   private padPrev: Record<ButtonAction, boolean> = { ...this.held };
   private bind: Bindings = cloneBindings(DEFAULT_BINDINGS);
@@ -131,6 +135,11 @@ export class Input {
   private aimedBomb = false;
   bombAimTarget: readonly [number, number, number] | undefined;
   get bombAiming() { return this.enabled && this.bombAimCode !== null; }
+  /** Skill: fires on release. Held longer than SKILL_TAP_MS with a target = manual aim; a quick tap = quick-cast. */
+  private skillAimStart = -1;
+  private aimedSkill = false;
+  skillAimTarget: readonly [number, number, number] | undefined;
+  get skillAiming() { return this.enabled && this.skillAimStart >= 0; }
   private padMoveX = 0;
   private padMoveY = 0;
   private padLookX = 0;
@@ -162,9 +171,10 @@ export class Input {
       this.keys.clear();
       for (const k of BUTTON_ACTIONS) this.held[k] = false;
       this.cancelBombAim();
+      this.cancelSkillAim();
     });
     document.addEventListener('pointerlockchange', () => {
-      if (document.pointerLockElement !== canvas) this.cancelBombAim();
+      if (document.pointerLockElement !== canvas) { this.cancelBombAim(); this.cancelSkillAim(); }
     });
     window.addEventListener('pointerdown', () => this.gesture());
     canvas.addEventListener('mousedown', (e) => {
@@ -257,6 +267,15 @@ export class Input {
   }
 
   private press(a: ButtonAction) {
+    if (a === 'skill') {
+      // aim while held; the shot is latched on release
+      if (!this.held.skill && this.enabled) {
+        this.skillAimStart = performance.now();
+        this.skillAimTarget = undefined;
+      }
+      this.held.skill = true;
+      return;
+    }
     if (!this.held[a]) this.latched[a] = true;
     this.held[a] = true;
     if (a === 'pause' && this.enabled) this.onPause?.();
@@ -266,6 +285,7 @@ export class Input {
   private release(a: ButtonAction) {
     // keep holding if another key/button bound to the same action is still down
     if (this.kbHolds(a) || this.padPrev[a]) return;
+    if (a === 'skill') this.releaseSkill();
     this.held[a] = false;
   }
 
@@ -289,6 +309,12 @@ export class Input {
         const b = pad!.buttons[i];
         return !!b && (b.pressed || b.value > 0.4);
       });
+      if (a === 'skill') {
+        if (down && !this.padPrev.skill) { this.lastDevice = 'pad'; this.gesture(); this.press('skill'); }
+        else if (!down && this.padPrev.skill && !this.kbHolds('skill')) { this.padPrev.skill = false; this.release('skill'); }
+        this.padPrev.skill = down;
+        continue;
+      }
       if (down && !this.padPrev[a]) {
         this.lastDevice = 'pad';
         this.gesture();
@@ -351,6 +377,9 @@ export class Input {
     this.aimedBomb = false;
     out.podPressed = on && L.pod;
     out.chargePressed = on && L.charge;
+    out.skillPressed = on && L.skill;
+    out.skillTarget = out.skillPressed && this.aimedSkill ? this.skillAimTarget : undefined;
+    if (out.skillPressed) this.aimedSkill = false;
     out.faceTarget = faceTarget;
     for (const k of BUTTON_ACTIONS) L[k] = false;
     return out;
@@ -359,8 +388,27 @@ export class Input {
   /** Forget held/latched state (e.g. when pausing). */
   clear() {
     this.cancelBombAim();
+    this.cancelSkillAim();
     for (const k of BUTTON_ACTIONS) this.latched[k] = false;
     this.lookDX = this.lookDY = 0;
+  }
+
+  private releaseSkill() {
+    if (!this.held.skill) return;
+    this.held.skill = false;
+    if (this.enabled && this.skillAimStart >= 0) {
+      this.latched.skill = true;
+      this.aimedSkill = performance.now() - this.skillAimStart >= SKILL_TAP_MS && !!this.skillAimTarget;
+    }
+    this.skillAimStart = -1;
+  }
+
+  private cancelSkillAim() {
+    this.skillAimStart = -1;
+    this.skillAimTarget = undefined;
+    this.aimedSkill = false;
+    this.latched.skill = false;
+    this.held.skill = false;
   }
 
   private cancelBombAim() {

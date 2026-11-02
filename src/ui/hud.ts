@@ -106,7 +106,7 @@ export class HUD {
   readonly el: HTMLElement;
   private sides: Side[] = [];
   private timer: HTMLElement;
-  private weaps: { el: HTMLElement; key: 'gunCd' | 'bombCd' | 'podCd' | 'chargeCd'; max: number; ready: boolean }[] = [];
+  private weaps: { el: HTMLElement; key: 'gunCd' | 'bombCd' | 'podCd' | 'chargeCd' | 'skillCd'; max: number; ready: boolean }[] = [];
   private lockEl: HTMLElement;
   private offEl: HTMLElement;
   private ann: HTMLElement;
@@ -180,11 +180,12 @@ export class HUD {
       s.lastHp = -1;
     });
     const wrap = this.el.querySelector('.hud-weap')!;
-    const defs: [string, string, 'gunCd' | 'bombCd' | 'podCd' | 'chargeCd', number, string, string][] = [
+    const defs: [string, string, 'gunCd' | 'bombCd' | 'podCd' | 'chargeCd' | 'skillCd', number, string, string][] = [
       ['GUN', '#' + new THREE.Color(p.lo.gun.color).getHexString(), 'gunCd', p.lo.gun.cooldown, pad ? 'RT' : 'LMB', p.lo.gun.name],
       ['BOMB', '#' + new THREE.Color(p.lo.bomb.color).getHexString(), 'bombCd', p.lo.bomb.cooldown, pad ? 'LT' : 'RMB', p.lo.bomb.name],
       ['POD', '#' + new THREE.Color(p.lo.pod.color).getHexString(), 'podCd', p.lo.pod.cooldown, pad ? 'RB' : 'E', p.lo.pod.name],
       ['GUARD', '#ffffff', 'chargeCd', p.lo.body.charge.cooldown, pad ? 'X' : 'Q', p.lo.body.chargeName],
+      ['SKILL', '#' + new THREE.Color(p.lo.skill.color).getHexString(), 'skillCd', p.lo.skill.cooldown, pad ? 'Y' : 'R', p.lo.skill.name],
     ];
     this.pips = null;
     wrap.innerHTML = defs

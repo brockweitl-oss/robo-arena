@@ -4,11 +4,11 @@ import { emptyInput, type FighterInput } from '../game/fighter';
  * Reads one specific gamepad into a FighterInput (local versus, player 2).
  * Standard mapping: L-stick move, A jump, B dash, X charge, RB pod, LT bomb, RT gun.
  */
-const MAP = { jump: 0, dash: 1, charge: 2, pod: 5, bomb: 6, gun: 7 } as const;
+const MAP = { jump: 0, dash: 1, charge: 2, skill: 3, pod: 5, bomb: 6, gun: 7 } as const;
 type Act = keyof typeof MAP;
 
 export class PadInput {
-  private prev: Record<Act, boolean> = { jump: false, dash: false, charge: false, pod: false, bomb: false, gun: false };
+  private prev: Record<Act, boolean> = { jump: false, dash: false, charge: false, skill: false, pod: false, bomb: false, gun: false };
   private latched: Record<Act, boolean> = { ...this.prev };
   private held: Record<Act, boolean> = { ...this.prev };
   private mx = 0;
@@ -54,6 +54,8 @@ export class PadInput {
     out.bombPressed = L.bomb;
     out.podPressed = L.pod;
     out.chargePressed = L.charge;
+    out.skillPressed = L.skill;
+    out.skillTarget = undefined;
     out.faceTarget = true;
     for (const k of Object.keys(L) as Act[]) L[k] = false;
     return out;

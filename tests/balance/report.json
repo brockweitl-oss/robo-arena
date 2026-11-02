@@ -1,105 +1,123 @@
 {
-  "n": 180,
-  "field": 1800,
+  "n": 150,
+  "field": 1500,
   "scenarios": "3 mirrored lanes x 3 AI profiles; deterministic repeats are not independent statistical trials",
-  "seconds": 95.922,
+  "seconds": 63.663,
   "report": {
     "gun": {
       "pulse": {
         "vsDefault": 0.5,
-        "field": 0.5552407932011332
+        "field": 0.5217391304347826
       },
       "scatter": {
-        "vsDefault": 0.16666666666666666,
-        "field": 0.4270967741935484
+        "vsDefault": 0.17333333333333334,
+        "field": 0.40371621621621623
       },
       "rail": {
-        "vsDefault": 0.5,
-        "field": 0.5324324324324324
+        "vsDefault": 0.22666666666666666,
+        "field": 0.5539906103286385
       },
       "beam": {
-        "vsDefault": 0.2777777777777778,
-        "field": 0.5433854907539118
+        "vsDefault": 0.5066666666666667,
+        "field": 0.5322033898305085
       },
       "homer": {
-        "vsDefault": 0.3333333333333333,
-        "field": 0.4452662721893491
+        "vsDefault": 0.22,
+        "field": 0.48509933774834435
       }
     },
     "bomb": {
       "mortar": {
         "vsDefault": 0.5,
-        "field": 0.5300429184549357
+        "field": 0.5380507343124166
       },
       "cluster": {
-        "vsDefault": 0.3888888888888889,
-        "field": 0.5150214592274678
+        "vsDefault": 0.56,
+        "field": 0.5109536082474226
       },
       "napalm": {
-        "vsDefault": 0.4444444444444444,
-        "field": 0.45929526123936815
+        "vsDefault": 0.22666666666666666,
+        "field": 0.43513513513513513
       },
       "bouncer": {
-        "vsDefault": 0.3333333333333333,
-        "field": 0.49069003285870755
+        "vsDefault": 0.38666666666666666,
+        "field": 0.5149659863945578
       }
     },
     "pod": {
       "seeker": {
         "vsDefault": 0.5,
-        "field": 0.5107991360691144
+        "field": 0.5379581151832461
       },
       "mine": {
-        "vsDefault": 0.6666666666666666,
-        "field": 0.4841628959276018
+        "vsDefault": 0.8933333333333333,
+        "field": 0.4387755102040816
       },
       "turret": {
-        "vsDefault": 0.2777777777777778,
-        "field": 0.459841628959276
+        "vsDefault": 0.34,
+        "field": 0.46206896551724136
       },
       "interceptor": {
-        "vsDefault": 0.9444444444444444,
-        "field": 0.5435982339955849
+        "vsDefault": 0.7733333333333333,
+        "field": 0.5560567010309279
       }
     },
     "body": {
       "striker": {
         "vsDefault": 0.5,
-        "field": 0.4961748633879781
+        "field": 0.5046604527296937
       },
       "ironclad": {
-        "vsDefault": 0.6666666666666666,
-        "field": 0.5495495495495496
+        "vsDefault": 0.7,
+        "field": 0.5461741424802111
       },
       "wisp": {
-        "vsDefault": 0.5555555555555556,
-        "field": 0.4815436241610738
+        "vsDefault": 0.7333333333333333,
+        "field": 0.4780821917808219
       },
       "regent": {
-        "vsDefault": 0.3888888888888889,
-        "field": 0.473421926910299
+        "vsDefault": 0.3333333333333333,
+        "field": 0.4704336399474376
       }
     },
     "legs": {
       "stride": {
         "vsDefault": 0.5,
-        "field": 0.47733918128654973
+        "field": 0.5245346869712352
       },
       "hopper": {
-        "vsDefault": 0.6944444444444444,
-        "field": 0.5465753424657535
+        "vsDefault": 0.5,
+        "field": 0.5242718446601942
       },
       "sprint": {
-        "vsDefault": 0.2777777777777778,
-        "field": 0.5343461030383091
+        "vsDefault": 0.32666666666666666,
+        "field": 0.5078740157480315
       },
       "anchor": {
-        "vsDefault": 0.2777777777777778,
-        "field": 0.4256480218281037
+        "vsDefault": 0.3933333333333333,
+        "field": 0.43112244897959184
       },
       "feather": {
-        "vsDefault": 0.5555555555555556,
-        "field": 0.514367816091954
+        "vsDefault": 0.5466666666666666,
+        "field": 0.5105633802816901
+      }
+    },
+    "skill": {
+      "lance": {
+        "vsDefault": 0.5,
+        "field": 0.5225515463917526
+      },
+      "wave": {
+        "vsDefault": 0.4,
+        "field": 0.5147625160462131
+      },
+      "hook": {
+        "vsDefault": 0.44666666666666666,
+        "field": 0.45663956639566394
+      },
+      "frost": {
+        "vsDefault": 0.62,
+        "field": 0.5042432814710043
       }
     }
   }

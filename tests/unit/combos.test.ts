@@ -124,6 +124,7 @@ describe('deterministic primer and detonator contract', () => {
     const { w, a, b } = setup();
     const ai = new AIPilot('champion', 1);
     a.gunCd = 1; // setup is allowed during a real reload, never instead of a ready shot
+    a.skillCd = 99; // skill-shot decisions are covered in skills.test.ts
     // Build observation history before the first decision gate.
     for (let i = 0; i < 59; i++) { w.time = i / 60; ai.think(w, a, b); }
     b.prime(0); b.primer!.armed = true;

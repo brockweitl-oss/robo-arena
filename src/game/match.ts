@@ -23,6 +23,7 @@ import { InputRecorder, InputPlayer, quantizeInput, quantizeBombTarget, RULESET_
 import { PadInput, connectedPads } from '../core/padInput';
 import { plannedBomb } from './bombAim';
 import { BombAimView } from '../vfx/bombAimView';
+import { AimIndicator } from '../vfx/aimIndicator';
 
 type Phase = 'intro' | 'ready' | 'fight' | 'ko' | 'timeup' | 'outro' | 'done';
 
@@ -133,6 +134,10 @@ export class Match {
   private bombCursor = new THREE.Vector2();
   private bombAimActive = false;
   private bombRay = new THREE.Raycaster();
+  private aimView!: AimIndicator;
+  private skillCursor = new THREE.Vector2();
+  private skillAimActive = false;
+  private skillGoal: THREE.Vector3 | null = null;
   private hazardWarned: boolean[] = [];
   private lowHpT = 0;
   private renderTime = 0;
@@ -217,6 +222,7 @@ export class Match {
     if (new URLSearchParams(location.search).has('autoplay')) this.autoPilot = new AIPilot('champion', 1, 99);
     this.fx = new Effects(s, q);
     this.bombAimViews = Array.from({ length: 3 }, () => new BombAimView(s));
+    this.aimView = new AimIndicator(s);
     this.cam = new ChaseCamera(host.gr.camera);
     this.cam.shakeEnabled = host.settings.cameraShake;
 
@@ -325,6 +331,7 @@ export class Match {
       host.gr.render(dtReal);
       return;
     }
+    this.updateSkillAim(look);
     this.updateBombAim(look);
     // Competitive combat always advances in real time.
     const dt = dtReal;
@@ -355,7 +362,7 @@ export class Match {
           aiIn = emptyInput();
         } else {
           aiIn = this.ai.think(this.world, rf, pf);
-          if (this.practiceMode === 'move') aiIn = { ...aiIn, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, chargePressed: false };
+          if (this.practiceMode === 'move') aiIn = { ...aiIn, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, chargePressed: false, skillPressed: false };
           else if (this.practiceMode === 'shoot') aiIn = { ...aiIn, moveX: 0, moveZ: 0, dashPressed: false, jumpPressed: false, chargePressed: false };
         }
         if (this.recorders) {
@@ -398,6 +405,7 @@ export class Match {
     this.fx.syncBombs(this.world.bombs, dt);
     this.fx.syncPods(this.world.pods, dt);
     this.tactics.update(dt);
+    this.aimView.update(this.player.fighter, this.sides[1].fighter, this.skillGoal, this.arena.colliders, this.renderTime);
     this.fx.update(dt);
 
     const pf = this.player.fighter;
@@ -761,7 +769,7 @@ export class Match {
     if (p === 'ready') {
       this.host.hud.announce('READY', { color: '#37e8ff' });
       audio.play('announce_ready');
-      this.host.hud.showHint(this.host.input.lastDevice === 'pad' ? 'RT gun · LT bomb · RB pod · A jump · B dash (dodge) · X charge (blocks & deflects shots)' : 'Click to capture mouse · LMB gun · Hold RMB + mouse: aim bomb, release: throw · E pod · Shift dash (dodge) · Q charge (blocks & deflects shots) · Tab free camera', 5);
+      this.host.hud.showHint(this.host.input.lastDevice === 'pad' ? 'RT auto-gun · Hold Y + R-stick: aim skill, release: fire · LT bomb · RB pod · B dash · X charge' : 'Click to capture mouse · LMB auto-gun · Hold R + mouse: aim skill, release: fire · Hold RMB: aim bomb · E pod · Shift dash · Q charge', 5);
       this.host.input.enabled = true;
       this.host.input.requestLock();
     }
@@ -842,7 +850,7 @@ export class Match {
       outcome: o.quit ? 'quit' : o.restart ? 'restart' : this.winner < 0 ? 'draw' : this.winner === 0 ? 'win' : 'lose',
       finish: this.finish, fightTime: r1(this.fightTime), playerHp: Math.round(p.hp), playerMaxHp: p.maxHp, rivalHp: Math.round(r.hp), rivalMaxHp: r.maxHp,
       used: T.used, dmgDealtBy: T.dmgDealt, dmgTakenBy: T.dmgTaken, hitsDealt: T.hitsDealt, hitsTaken: T.hitsTaken,
-      kdDealt: p.stats.knockdowns, kdTaken: p.stats.knockdownsTaken, hazardHits: T.hazardHits, dodges: T.dodges, deflects: T.deflects, parries: p.stats.parries, pauses: T.pauses,
+      kdDealt: p.stats.knockdowns, kdTaken: p.stats.knockdownsTaken, hazardHits: T.hazardHits, dodges: T.dodges, deflects: T.deflects, parries: p.stats.parries, skills: p.stats.skillCasts, skillHits: p.stats.skillHits, skillDamage: p.stats.skillDamage, pauses: T.pauses,
       airPct: T.fightT ? r1((T.airT / T.fightT) * 100) : 0, hoverS: r1(T.hoverT), hardLockPct: T.fightT ? r1((T.lockT / T.fightT) * 100) : 0,
       avgDist: T.distN ? r1(T.distSum / T.distN) : 0, distSec: { '<5m': r1(T.dist[0]), '5-10m': r1(T.dist[1]), '10-16m': r1(T.dist[2]), '>16m': r1(T.dist[3]) },
       fpsAvg: T.fpsN ? r1(T.fpsSum / T.fpsN) : null, fpsMin: T.fpsN ? r1(T.fpsMin) : null, device: T.device,
@@ -865,13 +873,49 @@ export class Match {
     });
   }
 
+  /**
+   * Skill aim: while the skill button is held, the mouse / right stick moves a screen cursor;
+   * the lane points from the robot toward the ground under it. Release fires toward that point.
+   */
+  private updateSkillAim(look: { dx: number; dy: number }) {
+    const input = this.host.input;
+    const aiming = input.skillAiming && this.phase === 'fight' && !this.autoPilot && !this.players;
+    if (!aiming) {
+      this.skillAimActive = false;
+      this.skillGoal = null;
+      return;
+    }
+    const camera = this.host.gr.camera;
+    if (!this.skillAimActive) {
+      const start = this.sides[1].fighter.pos.clone().project(camera);
+      this.skillCursor.set(THREE.MathUtils.clamp(start.x, -.9, .9), THREE.MathUtils.clamp(start.y, -.85, .65));
+      this.skillAimActive = true;
+    }
+    const width = Math.max(1, this.host.hud.el.clientWidth);
+    const height = Math.max(1, this.host.hud.el.clientHeight);
+    this.skillCursor.x = THREE.MathUtils.clamp(this.skillCursor.x + look.dx / .0022 * 2 / width, -.95, .95);
+    this.skillCursor.y = THREE.MathUtils.clamp(this.skillCursor.y - look.dy / .0022 * 2 / height, -.9, .75);
+    // mouse motion belongs to the aim cursor while aiming
+    look.dx = look.dy = 0;
+    this.bombRay.setFromCamera(this.skillCursor, camera);
+    const ray = this.bombRay.ray;
+    const hit = segmentHit(ray.origin, ray.at(160, new THREE.Vector3()), this.world.colliders);
+    const f = this.player.fighter;
+    let goal = hit?.point.clone() ?? ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -f.pos.y), new THREE.Vector3());
+    if (!goal) goal = f.pos.clone().addScaledVector(ray.direction.clone().setY(0).normalize(), f.lo.skill.range);
+    input.skillAimTarget = quantizeBombTarget([goal.x, goal.y, goal.z]);
+    this.skillGoal = goal.fromArray(input.skillAimTarget!);
+    const sk = f.lo.skill;
+    this.host.hud.bombAimStatus(f.skillCd > 0 ? `${sk.name.toUpperCase()} · RELOADING ${f.skillCd.toFixed(1)}s` : `${sk.name.toUpperCase()} · RELEASE TO FIRE`);
+  }
+
   private updateBombAim(look: { dx: number; dy: number }) {
     const input = this.host.input;
     const aiming = input.bombAiming && this.phase === 'fight' && !this.autoPilot && !this.players;
     if (!aiming) {
       this.bombAimActive = false;
       for (const view of this.bombAimViews) view.hide();
-      this.host.hud.bombAimStatus('');
+      if (!this.skillGoal) this.host.hud.bombAimStatus('');
       return;
     }
     const camera = this.host.gr.camera;
@@ -991,6 +1035,22 @@ export class Match {
               audio.play('pod_launch', { pos: f.pos });
               s.anim.event({ type: 'pod' });
               break;
+            case 'skillCast': {
+              // telegraph: charge sound + glint (the enemy's lane shows on the ground during the cast)
+              audio.play('gun_rail_charge', { pos: f.pos, volume: 0.8, pitch: 1.3 });
+              s.model.root.updateMatrixWorld(true);
+              fx.chargeGlint(s.model.rig.muzzle.getWorldPosition(new THREE.Vector3()), f.lo.skill.color);
+              break;
+            }
+            case 'skill': {
+              const sk = f.lo.skill;
+              audio.play(sk.model === 'wave' ? 'gun_scatter' : 'gun_rail', { pos: f.pos, volume: 1, pitch: sk.model === 'hook' ? 0.7 : sk.model === 'frost' ? 1.3 : 1 });
+              s.anim.event({ type: 'fire' });
+              s.model.root.updateMatrixWorld(true);
+              const mp = s.model.rig.muzzle.getWorldPosition(new THREE.Vector3());
+              fx.muzzle(mp, new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)), sk.color, true);
+              break;
+            }
             case 'chargeStart':
               audio.play('charge_windup', { pos: f.pos });
               if (!isP) fx.chargeWarning(f.chestPoint(), new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)));
@@ -1197,6 +1257,7 @@ export class Match {
     this.tactics.dispose();
     this.fx.dispose();
     for (const view of this.bombAimViews) view.dispose();
+    this.aimView.dispose();
     this.arena.dispose();
     this.host.input.enabled = false;
     this.host.input.onPause = null;

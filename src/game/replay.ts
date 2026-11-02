@@ -10,7 +10,7 @@ import { ARENA_INFO } from '../arena/index';
  * player (quantized stick + button bits) and run-length encoded.
  */
 /** Reject recordings made against older simulation rules instead of silently desyncing. */
-export const RULESET_VERSION = 4;
+export const RULESET_VERSION = 5;
 
 export interface Replay {
   rulesVersion: number;
@@ -34,7 +34,8 @@ export function quantizeBombTarget(target: readonly number[] | undefined): reado
   if (!target || target.length !== 3 || !target.every(Number.isFinite)) return undefined;
   return target.map(v => Math.round(Math.max(-256, Math.min(256, v)) * 64) / 64) as [number, number, number];
 }
-const RUN_BYTES = 12;
+/** count, x, z, buttons, face, bomb target (1+6), skill flags + target (1+6). */
+const RUN_BYTES = 19;
 
 export function packInput(i: FighterInput): [number, number, number] {
   const q = (v: number) => Math.max(-127, Math.min(127, Math.round(v * 127))) & 0xff;
@@ -50,6 +51,8 @@ export function packInput(i: FighterInput): [number, number, number] {
 export function quantizeInput(i: FighterInput): FighterInput {
   const [x, z, b] = packInput(i);
   i.bombTarget = quantizeBombTarget(i.bombTarget);
+  i.skillPressed = !!i.skillPressed;
+  i.skillTarget = i.skillPressed ? quantizeBombTarget(i.skillTarget) : undefined;
   return unpackInput(x, z, b, i.faceTarget, i);
 }
 
@@ -78,6 +81,9 @@ export class InputRecorder {
     const target = quantizeBombTarget(i.bombTarget);
     const bytes = [target ? 1 : 0];
     for (const value of target ?? [0, 0, 0]) { const q = Math.round(value * 64) & 0xffff; bytes.push(q & 255, q >>> 8); }
+    const skillTarget = i.skillPressed ? quantizeBombTarget(i.skillTarget) : undefined;
+    bytes.push((i.skillPressed ? 1 : 0) | (skillTarget ? 2 : 0));
+    for (const value of skillTarget ?? [0, 0, 0]) { const q = Math.round(value * 64) & 0xffff; bytes.push(q & 255, q >>> 8); }
     this.targets.push(bytes);
     this.frames++;
   }
@@ -125,10 +131,14 @@ export class InputPlayer {
       const r = this.runs;
       this.left = r[this.ri];
       unpackInput(r[this.ri + 1], r[this.ri + 2], r[this.ri + 3], r[this.ri + 4] === 1, this.cur);
-      this.cur.bombTarget = r[this.ri + 5] ? [0, 1, 2].map(k => {
-        const n = r[this.ri + 6 + k * 2] | r[this.ri + 7 + k * 2] << 8;
+      const vec = (at: number) => [0, 1, 2].map(k => {
+        const n = r[at + k * 2] | r[at + 1 + k * 2] << 8;
         return (n << 16 >> 16) / 64;
-      }) as [number, number, number] : undefined;
+      }) as [number, number, number];
+      this.cur.bombTarget = r[this.ri + 5] ? vec(this.ri + 6) : undefined;
+      const sf = r[this.ri + 12];
+      this.cur.skillPressed = (sf & 1) !== 0;
+      this.cur.skillTarget = sf & 2 ? vec(this.ri + 13) : undefined;
       this.ri += RUN_BYTES;
     }
     this.left--;
@@ -194,11 +204,11 @@ export function validateReplay(r: unknown): r is Replay {
   const lo = c.playerLoadout as unknown as Record<Slot, string> | undefined;
   if (!lo) return false;
   const partOk = (slot: Slot, id: unknown) => typeof id === 'string' && Object.hasOwn(ALL_PARTS[slot], id);
-  for (const slot of ['gun', 'bomb', 'pod', 'body', 'legs'] as Slot[]) if (!partOk(slot, lo[slot])) return false;
+  for (const slot of ['gun', 'bomb', 'pod', 'body', 'legs', 'skill'] as Slot[]) if (!partOk(slot, lo[slot])) return false;
   if (c.versus) {
     const p2 = c.versus.p2Loadout as unknown as Record<Slot, string>;
     if (!p2) return false;
-    for (const slot of ['gun', 'bomb', 'pod', 'body', 'legs'] as Slot[]) if (!partOk(slot, p2[slot])) return false;
+    for (const slot of ['gun', 'bomb', 'pod', 'body', 'legs', 'skill'] as Slot[]) if (!partOk(slot, p2[slot])) return false;
     const pp = c.versus.p2Paint as unknown as Record<string, unknown> | undefined;
     const col = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffffff;
     if (!pp || !['primary', 'secondary', 'trim', 'dark', 'glow'].every((k) => col(pp[k])) || typeof pp.emblem !== 'string') return false;

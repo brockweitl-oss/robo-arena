@@ -61,9 +61,10 @@ function stagger(els: (HTMLElement | null | undefined)[], base = 0, step = 55) {
   }
 }
 
-const SLOTS: Slot[] = ['gun', 'bomb', 'pod', 'body', 'legs'];
-const SLOT_LABEL: Record<Slot, string> = { gun: 'Gun', bomb: 'Bomb', pod: 'Pod', body: 'Body', legs: 'Legs' };
+const SLOTS: Slot[] = ['gun', 'bomb', 'pod', 'skill', 'body', 'legs'];
+const SLOT_LABEL: Record<Slot, string> = { gun: 'Gun', bomb: 'Bomb', pod: 'Pod', body: 'Body', legs: 'Legs', skill: 'Skill' };
 const SLOT_ICON: Record<Slot, string> = {
+  skill: '<svg viewBox="0 0 24 24"><path d="M2 13l12-2-3-5 11 7-12 2 3 5z"/></svg>',
   gun: '<svg viewBox="0 0 24 24"><path d="M2 8h14l1.5-2H22v5h-3l-1.5 1.5V15h-3l-1 4H9.5l1-4H8l-1-2H2z"/></svg>',
   bomb: '<svg viewBox="0 0 24 24"><circle cx="10.5" cy="14" r="7"/><path d="M14.5 8.6l2.6-2.6 1.4 1.4-2.6 2.6z"/><path d="M18.6 2.2l.9 2 2 .9-2 .9-.9 2-.9-2-2-.9 2-.9z"/></svg>',
   pod: '<svg viewBox="0 0 24 24"><path d="M12 3l7.5 4.3v9.4L12 21l-7.5-4.3V7.3z" opacity=".95"/><circle cx="12" cy="12" r="3" fill="#0b0e14"/></svg>',
@@ -1815,8 +1816,8 @@ export class Menus implements MenuLayer {
 
     // controls reference
     const ctl = (rows: [string, string][]) => h('div', 'ctl-list', ...rows.map(([k, a]) => h('div', 'ctl-row', h('span', 'ctl-k', ...k.split(' / ').flatMap((x, i) => (i ? [h('em', '', '/'), h('kbd', '', x)] : [h('kbd', '', x)]))), h('span', 'ctl-a', a))));
-    const kb = ctl([['WASD', 'Move'], ['Mouse', 'Camera'], ['Space', 'Jump · double jump · hold to hover'], ['Shift', 'Dash'], ['LMB', 'Fire gun'], ['RMB', 'Throw bomb'], ['E / MMB', 'Launch pod'], ['Q', 'Charge attack'], ['Tab / F', 'Toggle lock-on'], ['Esc', 'Pause']]);
-    const gp = ctl([['L-Stick', 'Move'], ['R-Stick', 'Camera'], ['A', 'Jump · double jump · hover'], ['B', 'Dash'], ['RT', 'Fire gun'], ['LT', 'Throw bomb'], ['RB', 'Launch pod'], ['X', 'Charge attack'], ['R3', 'Toggle lock-on'], ['Start', 'Pause']]);
+    const kb = ctl([['WASD', 'Move'], ['Mouse', 'Camera'], ['Space', 'Jump · double jump · hold to hover'], ['Shift', 'Dash'], ['LMB', 'Fire gun (auto-aim)'], ['R / M4', 'Skill shot: hold + mouse to aim, release'], ['RMB', 'Bomb: hold + mouse to aim, release'], ['E / MMB', 'Launch pod'], ['Q', 'Charge attack'], ['Tab / F', 'Toggle lock-on'], ['Esc', 'Pause']]);
+    const gp = ctl([['L-Stick', 'Move'], ['R-Stick', 'Camera'], ['A', 'Jump · double jump · hover'], ['B', 'Dash'], ['RT', 'Fire gun (auto-aim)'], ['Y', 'Skill shot: hold + R-stick to aim, release'], ['LT', 'Throw bomb'], ['RB', 'Launch pod'], ['X', 'Charge attack'], ['R3', 'Toggle lock-on'], ['Start', 'Pause']]);
     void kb; void gp;
     const right = this.meta.controlsPanel(st, apply);
     stagger([left], 80);

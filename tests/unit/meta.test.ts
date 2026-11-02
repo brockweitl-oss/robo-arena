@@ -55,7 +55,7 @@ describe('mastery', () => {
     const s = defaultSave();
     s.mastery['gun:pulse'] = MASTERY_XP[1] - 10;
     const rw = onMatchEnd(s, result(), NOV1);
-    expect(rw.mastery).toHaveLength(5);
+    expect(rw.mastery).toHaveLength(6);
     expect(rw.mastery.every((m) => m.xp === matchXp(result()))).toBe(true);
     const up = rw.levelUps.find((l) => l.part === 'gun:pulse');
     expect(up?.level).toBe(2);
@@ -124,7 +124,7 @@ describe('challenges', () => {
 });
 
 describe('build codes', () => {
-  const lo = { gun: Object.keys(ALL_PARTS.gun).at(-1)!, bomb: 'cluster', pod: Object.keys(ALL_PARTS.pod).at(-1)!, body: 'wisp', legs: Object.keys(ALL_PARTS.legs).at(-1)! };
+  const lo = { gun: Object.keys(ALL_PARTS.gun).at(-1)!, bomb: 'cluster', pod: Object.keys(ALL_PARTS.pod).at(-1)!, body: 'wisp', legs: Object.keys(ALL_PARTS.legs).at(-1)!, skill: 'frost' };
   const paint = { ...PLAYER_PAINT, primary: 0x123456, emblem: 'ACE', trail: 0xabcdef };
   it('round-trips loadout + paint', () => {
     const code = encodeBuild(lo, paint);

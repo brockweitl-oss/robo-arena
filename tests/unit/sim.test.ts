@@ -354,7 +354,7 @@ describe('G5 review regressions (Codex, PR #20)', () => {
     const { validateReplay, InputRecorder } = await import('../../src/game/replay');
     const rec = new InputRecorder();
     for (let i = 0; i < 120; i++) rec.push({ ...emptyInput(), moveX: i % 2 ? 1 : 0 });
-    const good = { v: 1, rulesVersion: 4, config: { mode: 'free', playerLoadout: { ...DEFAULT_LOADOUT }, rivalId: 'dex', arenaId: 'foundry' }, worldSeed: 5, aiSeed: 9, streams: [rec.encode()], frames: 120, date: new Date().toISOString(), aimAssist: 1 };
+    const good = { v: 1, rulesVersion: 5, config: { mode: 'free', playerLoadout: { ...DEFAULT_LOADOUT }, rivalId: 'dex', arenaId: 'foundry' }, worldSeed: 5, aiSeed: 9, streams: [rec.encode()], frames: 120, date: new Date().toISOString(), aimAssist: 1 };
     expect(validateReplay(good)).toBe(true);
     expect(validateReplay({ ...good, rulesVersion: 2 })).toBe(false);
     expect(validateReplay({ ...good, rulesVersion: undefined })).toBe(false);
@@ -373,7 +373,7 @@ describe('replay validation hardening (Codex, PR #20 final)', () => {
   it('rejects inherited keys and invalid versus paint', async () => {
     const { validateReplay, InputRecorder } = await import('../../src/game/replay');
     const mk = () => { const r = new InputRecorder(); for (let i = 0; i < 60; i++) r.push(emptyInput()); return r.encode(); };
-    const good = { v: 1, rulesVersion: 4, config: { mode: 'free', playerLoadout: { ...DEFAULT_LOADOUT }, rivalId: 'dex', arenaId: 'foundry' }, worldSeed: 5, aiSeed: 9, streams: [mk()], frames: 60, date: new Date().toISOString(), aimAssist: 1 };
+    const good = { v: 1, rulesVersion: 5, config: { mode: 'free', playerLoadout: { ...DEFAULT_LOADOUT }, rivalId: 'dex', arenaId: 'foundry' }, worldSeed: 5, aiSeed: 9, streams: [mk()], frames: 60, date: new Date().toISOString(), aimAssist: 1 };
     expect(validateReplay(good)).toBe(true);
     expect(validateReplay({ ...good, rulesVersion: 2 })).toBe(false);
     expect(validateReplay({ ...good, rulesVersion: undefined })).toBe(false);

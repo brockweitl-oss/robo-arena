@@ -33,6 +33,7 @@ export class AIPilot {
   private decideAt = 0;
   private gunAt = 0;
   private utilityAt = 0;
+  private skillAt = 0;
   private mobilityAt = 0;
   private holdGunUntil = 0;
   private jumpUntil = 0;
@@ -139,7 +140,18 @@ export class AIPilot {
       const setupBomb = me.bombCd <= 0 && dist > 4 && dist < me.lo.bomb.range;
       const setupWindow = me.gunCd > 0 || t < this.gunAt || seen.guard || !los;
       const preferSetup = precision && this.skill >= .45 && !seen.primed && setupWindow && t >= this.utilityAt && (setupPod || setupBomb);
-      if (!preferSetup && los && inRange && !seen.guard && me.gunCd <= 0 && t >= this.gunAt && precisionOpening) {
+      // Skill shots go out at readable moments: a punish, a slow/straight target, or a combo finish.
+      // Aim is deterministic: the delayed observation, led by a skill-scaled fraction of the travel time.
+      const sk = me.lo.skill;
+      const steady = seen.vel.lengthSq() < 9;
+      const skillOpening = me.skillCd <= 0 && t >= this.skillAt && los && !seen.guard && dist > 2.5 && dist < sk.range * 0.9 &&
+        (sk.model === 'hook' ? dist > 6 && (vulnerable || steady) : sk.detonator ? comboReady || vulnerable || steady : vulnerable || steady || dist < 10);
+      if (skillOpening) {
+        const lead = (dist / sk.speed + sk.cast) * THREE.MathUtils.lerp(0.4, 0.9, this.skill);
+        inp.skillPressed = true;
+        inp.skillTarget = [seen.pos.x + seen.vel.x * lead, seen.pos.y, seen.pos.z + seen.vel.z * lead];
+        this.skillAt = t + 1 + this.p.utilityCadence * 0.25;
+      } else if (!preferSetup && los && inRange && !seen.guard && me.gunCd <= 0 && t >= this.gunAt && precisionOpening) {
         this.holdGunUntil = t + (me.lo.gun.holdMax ? (comboReady ? Math.max(.6, me.lo.gun.holdMin ?? 0) : vulnerable ? 0.45 : me.lo.gun.holdMax) : 0.12);
         this.gunAt = t + Math.max(0.1, this.p.gunCadence - 0.3) + me.lo.gun.cooldown + me.lo.gun.windup;
       } else if (t >= this.utilityAt) {

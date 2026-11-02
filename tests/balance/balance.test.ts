@@ -66,7 +66,7 @@ const N = Number(process.env.BALANCE_N ?? 200);
 
 it('part balance tournament', { timeout: 60 * 60 * 1000 }, () => {
   const report: Record<string, Record<string, { vsDefault: number; field: number }>> = {};
-  const slots: Slot[] = ['gun', 'bomb', 'pod', 'body', 'legs'];
+  const slots: Slot[] = ['gun', 'bomb', 'pod', 'body', 'legs', 'skill'];
   const t0 = Date.now();
   // 1) each part vs the default build (sides swapped)
   for (const slot of slots) {
@@ -86,8 +86,8 @@ it('part balance tournament', { timeout: 60 * 60 * 1000 }, () => {
   const tally: Record<string, { w: number; n: number }> = {};
   const M = N * 10; // random-build fights
   for (let i = 0; i < M; i++) {
-    const a = { gun: pick('gun'), bomb: pick('bomb'), pod: pick('pod'), body: pick('body'), legs: pick('legs') } as Loadout;
-    const b = { gun: pick('gun'), bomb: pick('bomb'), pod: pick('pod'), body: pick('body'), legs: pick('legs') } as Loadout;
+    const a = { gun: pick('gun'), bomb: pick('bomb'), pod: pick('pod'), body: pick('body'), legs: pick('legs'), skill: pick('skill') } as Loadout;
+    const b = { gun: pick('gun'), bomb: pick('bomb'), pod: pick('pod'), body: pick('body'), legs: pick('legs'), skill: pick('skill') } as Loadout;
     const r = fight(a, b, 500 + i);
     for (const slot of slots) {
       for (const [lo, res] of [[a, r], [b, 1 - r]] as [Loadout, number][]) {
