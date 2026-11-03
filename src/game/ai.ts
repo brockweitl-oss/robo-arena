@@ -27,6 +27,7 @@ export const AI_PROFILES: Record<AIPersonality, Profile> = {
 export class AIPilot {
   private p: Profile;
   private reaction: number;
+  private tempo: number;
   private history: { t: number; pos: THREE.Vector3; vel: THREE.Vector3; mode: string; recovery: number; rail: number; guard: boolean; primed: boolean; comboReady: boolean }[] = [];
   private strafeDir = 1;
   private strafeAt = 0;
@@ -46,12 +47,19 @@ export class AIPilot {
   private stuckT = 0;
   private lastPos = new THREE.Vector3();
   private seenProj = new Set<number>();
+  /** Seconds the foe has been out of line of sight (drives flanking around cover). */
+  private noLosT = 0;
+  /** Last foe charge we sidestepped (one read per wind-up). */
+  private ramReadAt = -1;
+  private dodgedThreats = new Set<number>();
   private input = emptyInput();
   private wasHolding = false;
 
   constructor(readonly personality: AIPersonality, readonly skill: number, _seed = 7) {
     this.p = AI_PROFILES[personality];
     this.reaction = THREE.MathUtils.lerp(0.42, 0.18, skill);
+    // decision tempo: sharper pilots waste less time between actions (never faster than the weapon allows)
+    this.tempo = THREE.MathUtils.lerp(1.2, 0.5, skill);
   }
 
   think(world: World, me: Fighter, foe: Fighter): FighterInput {
@@ -60,7 +68,9 @@ export class AIPilot {
       rail: foe.railCharge, guard: foe.guarding, primed: !!foe.primer, comboReady: !!foe.primer?.armed });
     while (this.history.length > 2 && this.history[1].t <= t - this.reaction) this.history.shift();
     const seen = this.history[0];
-    Object.assign(inp, emptyInput());
+    // emptyInput() leaves the optional fields out: clear them too, or one skill press sticks forever
+    // (the pilot re-cast every time the cooldown ended, at a stale aim point).
+    Object.assign(inp, emptyInput(), { skillPressed: false, skillTarget: undefined, bombTarget: undefined });
     const to = seen.pos.clone().sub(me.pos).setY(0), dist = to.length();
     const toN = dist > 0.01 ? to.clone().divideScalar(dist) : new THREE.Vector3(0, 0, 1);
     const side = new THREE.Vector3(toN.z, 0, -toN.x);
@@ -76,6 +86,28 @@ export class AIPilot {
     let fwd = dist > range + band ? 1 : dist < range - band ? -0.8 : vulnerable && this.p.aggression > 0.5 ? 0.3 : 0;
     if (foeSpent && this.p.aggression >= 0.4 && dist > 4) fwd = Math.max(fwd, 0.6);
     const move = toN.clone().multiplyScalar(fwd).addScaledVector(side, this.strafeDir * this.p.strafe);
+    // Line of sight on the delayed observation. A pilot denied a shot for long enough walks around
+    // the cover (to whichever side opens a lane first) instead of strafing behind it forever.
+    const chestH = new THREE.Vector3(0, 1.15, 0);
+    const foeChest = seen.pos.clone().add(chestH);
+    const los = !segmentHit(me.chestPoint(), foeChest, world.colliders);
+    this.noLosT = los ? 0 : this.noLosT + dt;
+    if (this.noLosT > THREE.MathUtils.lerp(1.4, 0.5, this.skill) && dist > 2.5) {
+      let lane: THREE.Vector3 | null = null;
+      for (const [sgn, reach] of [[this.strafeDir, 4], [-this.strafeDir, 4], [this.strafeDir, 8], [-this.strafeDir, 8]]) {
+        const probe = me.pos.clone().addScaledVector(side, sgn * reach).addScaledVector(toN, Math.min(3, dist * 0.25));
+        if (Math.abs(probe.x) > world.arena.halfX - 2 || Math.abs(probe.z) > world.arena.halfZ - 2) continue;
+        if (!segmentHit(probe.clone().add(chestH), foeChest, world.colliders)) { lane = probe; this.strafeDir = sgn; this.strafeAt = Math.max(this.strafeAt, t + 1); break; }
+      }
+      // up close, step around the cover to a spot beside the foe
+      if (!lane && dist < 9) for (const sgn of [this.strafeDir, -this.strafeDir]) {
+        const probe = seen.pos.clone().addScaledVector(side, sgn * 3.2).addScaledVector(toN, -1.5).setY(me.pos.y);
+        if (!segmentHit(probe.clone().add(chestH), foeChest, world.colliders)) { lane = probe; this.strafeDir = sgn; this.strafeAt = Math.max(this.strafeAt, t + 1); break; }
+      }
+      // no lane nearby: close in (cover only blocks at range; up close you can walk around it)
+      const goal = lane ? lane.sub(me.pos).setY(0).normalize() : toN.clone().addScaledVector(side, this.strafeDir * 0.6).normalize();
+      move.copy(goal);
+    }
     if (me.pos.distanceTo(this.lastPos) < 0.035 && move.lengthSq() > 0.2 && me.mode === 'ground' && !me.attackCommitted) this.stuckT += dt;
     else this.stuckT = Math.max(0, this.stuckT - dt);
     this.lastPos.copy(me.pos);
@@ -83,9 +115,9 @@ export class AIPilot {
     if (Math.abs(me.pos.x) > world.arena.halfX - 3 || Math.abs(me.pos.z) > world.arena.halfZ - 3)
       move.addScaledVector(me.pos.clone().setY(0).normalize(), -1.4);
     let danger = false;
-    const avoid = (center: THREE.Vector3, radius: number) => {
+    const avoid = (center: THREE.Vector3, radius: number, weight = 2) => {
       const away = me.pos.clone().sub(center).setY(0);
-      if (away.length() < radius) { if (away.lengthSq() < 0.01) away.copy(side); move.addScaledVector(away.normalize(), 2); danger = true; }
+      if (away.length() < radius) { if (away.lengthSq() < 0.01) away.copy(side); move.addScaledVector(away.normalize(), weight); danger ||= weight >= 2; }
     };
     for (const hz of world.arena.hazards) if (hz.isWarning(t) || hz.isActive(t)) avoid(hz.center, hz.radius + 1.2);
     for (const z of world.fires) if (Math.abs(me.pos.y - z.pos.y) < 1) avoid(z.pos, z.radius + 0.8);
@@ -97,7 +129,25 @@ export class AIPilot {
         if (foeOn && !meOn && sw.length() < 7) move.copy(sw.normalize());
       }
     }
-    for (const b of world.bombs) if (b.owner !== me.id && b.vel.y < 0) avoid(b.target, b.def.blastRadius + 0.8);
+    // Bomb landing rings are visible from launch: walk out once the ring has been seen; dash if it is about to land on us.
+    let blastIn = false;
+    for (const b of world.bombs) {
+      if (b.owner === me.id || b.age < this.reaction) continue;
+      avoid(b.target, b.def.blastRadius + 0.8);
+      const inside = me.pos.clone().sub(b.target).setY(0).length() < b.def.blastRadius + 0.3;
+      if (inside && b.def.flightTime - b.age < 0.4 && !this.dodgedThreats.has(b.id)) { blastIn = true; this.dodgedThreats.add(b.id); }
+    }
+    // Enemy pods: give seekers and mines room; sidestep one that is about to pop.
+    for (const pd of world.pods) {
+      if (pd.owner === me.id || pd.age < this.reaction || pd.def.triggerRadius <= 0) continue;
+      const d = me.pos.clone().sub(pd.pos).setY(0).length();
+      // a seeker is slow: keep moving and only give ground once it is close; mines hold their lane
+      // (a soft push: a pod nearby must not make the pilot abandon the Core or a pick-up)
+      if (pd.triggeredAt >= 0) avoid(pd.pos, pd.def.blastRadius + 0.6);
+      else if (pd.age >= pd.def.armTime) avoid(pd.pos, pd.def.model === 'seeker' ? pd.def.triggerRadius + 1.6 : pd.def.triggerRadius + 0.8, 1.2);
+      if (d < pd.def.triggerRadius + (pd.def.model === 'seeker' ? 2.2 : 0.6) && pd.age >= pd.def.armTime && !this.dodgedThreats.has(pd.id)) { blastIn = true; this.dodgedThreats.add(pd.id); }
+    }
+    if (this.dodgedThreats.size > 200) this.dodgedThreats.clear();
     if (!danger) for (const pk of world.pickups) {
       const mine = me.pos.distanceTo(pk.pos), theirs = seen.pos.distanceTo(pk.pos);
       if (mine < theirs + 1 && mine < 12) move.lerp(pk.pos.clone().sub(me.pos).setY(0).normalize(), 0.8);
@@ -107,12 +157,15 @@ export class AIPilot {
     const ob = world.objective;
     const coreLive = !!ob && ob.untilTick >= 0;
     const foeCapturing = coreLive && seen.pos.distanceTo(ob!.pos) < ob!.radius && Math.abs(seen.pos.y - ob!.pos.y) < 1.6 && seen.mode !== 'down';
-    if (ob && !danger && (coreLive || world.objectiveIn() <= (this.skill >= 0.5 ? 2.5 : 0))) {
+    // (a bomb or pod nearby only softens the pull toward the pad: dodging it must not mean abandoning the Core)
+    if (ob && (coreLive || world.objectiveIn() <= (this.skill >= 0.5 ? 2.5 : 0))) {
       const toCore = ob.pos.clone().sub(me.pos).setY(0), dCore = toCore.length();
       const mine = me.hp / me.maxHp, theirs = foe.hp / foe.maxHp;
       const losing = mine < 0.3 && mine + 0.25 < theirs;
       if (!(losing && foeCapturing) && (dCore < 10 + 8 * this.skill || foeCapturing)) {
-        if (dCore < ob.radius - 0.5 && Math.abs(me.pos.y - ob.pos.y) < 1.2) move.multiplyScalar(0.3).addScaledVector(toCore.normalize(), (dCore / ob.radius) * 0.7);
+        const onPad = dCore < ob.radius - 0.5 && Math.abs(me.pos.y - ob.pos.y) < 1.2;
+        if (danger) { if (!onPad) move.lerp(toCore.normalize(), 0.35); }
+        else if (onPad) move.multiplyScalar(0.3).addScaledVector(toCore.normalize(), (dCore / ob.radius) * 0.7);
         else move.lerp(toCore.normalize(), 0.85);
       }
     }
@@ -121,6 +174,10 @@ export class AIPilot {
     // Aerial specialists deliberately reposition; ground duelists save jumps for obstacles/danger.
     if (me.grounded && me.canAct && t >= this.mobilityAt && (danger || this.p.aerial && dist < range - 1)) {
       inp.jumpPressed = true; this.jumpUntil = t + (this.p.aerial ? 0.9 : 0.3); this.mobilityAt = t + 3.5;
+    }
+    // Hidden behind low cover for a while: jump-peek (the apex clears crates and walls) to open a firing lane.
+    if (this.noLosT > THREE.MathUtils.lerp(2.2, 1.1, this.skill) && dist < 9 && me.grounded && me.canAct && t >= this.mobilityAt && this.skill >= 0.35) {
+      inp.jumpPressed = true; this.jumpUntil = t + 0.7; this.mobilityAt = t + 2.2; this.decideAt = Math.min(this.decideAt, t + 0.25);
     }
     inp.jumpHeld = t < this.jumpUntil;
     // Phase Blink doubles as a dodge once the dash is spent (sideways, deterministic direction).
@@ -148,6 +205,22 @@ export class AIPilot {
       }
     }
     if (this.seenProj.size > 200) this.seenProj.clear();
+    if (blastIn && this.skill >= 0.35 && me.canAct && me.canDash && t >= this.mobilityAt - 0.6) {
+      inp.dashPressed = true;
+      const out = move.lengthSq() > 0.01 ? move.clone().normalize() : side.clone().multiplyScalar(this.strafeDir);
+      inp.moveX = out.x; inp.moveZ = out.z;
+      this.mobilityAt = t + 1 + (1 - this.skill);
+    }
+    // A ram wind-up is the loudest tell in the game: sidestep it (after the reaction delay) instead of eating it.
+    if (seen.mode === 'charge' && seen.guard && dist < 8 && this.ramReadAt < seen.t - 0.6 && this.skill >= 0.35 && me.canAct && me.canDash && t >= this.mobilityAt - 0.6 && !inp.dashPressed) {
+      inp.dashPressed = true; inp.moveX = side.x * this.strafeDir; inp.moveZ = side.z * this.strafeDir;
+      this.ramReadAt = seen.t; this.mobilityAt = t + 1.2;
+    }
+    // Long-range specialists reset spacing when a brawler gets on top of them.
+    if (this.p.range >= 12 && dist < 4 && this.skill >= 0.4 && me.canAct && me.canDash && t >= this.mobilityAt && !inp.dashPressed) {
+      inp.dashPressed = true; const away = toN.clone().multiplyScalar(-0.8).addScaledVector(side, this.strafeDir * 0.6).normalize();
+      inp.moveX = away.x; inp.moveZ = away.z; this.mobilityAt = t + 2;
+    }
     // Read precision wind-ups, rather than magically dodging a hypersonic slug after release.
     if (seen.rail > 0.55 && this.skill >= 0.6 && me.canAct && me.canDash && t >= this.mobilityAt) {
       inp.dashPressed = true; inp.moveX = side.x * this.strafeDir; inp.moveZ = side.z * this.strafeDir;
@@ -175,7 +248,6 @@ export class AIPilot {
       inp.dashPressed = true; inp.moveX = side.x * this.strafeDir; inp.moveZ = side.z * this.strafeDir;
       this.feintPlan = false;
     }
-    const los = !segmentHit(me.chestPoint(), seen.pos.clone().add(new THREE.Vector3(0, 1.15, 0)), world.colliders);
     const canHit = !foe.isInvulnerable && foe.alive;
     const precision = g === 'rail' || g === 'beam';
     const comboReady = this.skill >= 0.45 && seen.comboReady;
@@ -211,13 +283,13 @@ export class AIPilot {
           this.casts % 3 === 0 && foe.dashCharges > 0 && !foeSpent;
       } else if (!preferSetup && los && inRange && !seen.guard && me.gunCd <= 0 && t >= this.gunAt && precisionOpening) {
         this.holdGunUntil = t + (me.lo.gun.holdMax ? (comboReady ? Math.max(.6, me.lo.gun.holdMin ?? 0) : vulnerable ? 0.45 : me.lo.gun.holdMax) : 0.12);
-        this.gunAt = t + Math.max(0.1, this.p.gunCadence - 0.3) + me.lo.gun.cooldown + me.lo.gun.windup;
+        this.gunAt = t + Math.max(0.08, (this.p.gunCadence - 0.3) * this.tempo) + me.lo.gun.cooldown + me.lo.gun.windup;
       } else if (t >= this.utilityAt) {
         // Bombers flush cover; trap specialists establish a lane before committing a gun shot.
         if (me.podCd <= 0 && (preferSetup ? setupPod : this.personality === 'trickster' || me.lo.pod.model === 'turret' || dist < range + 3)) {
-          inp.podPressed = true; this.utilityAt = t + this.p.utilityCadence;
-        } else if (me.bombCd <= 0 && dist > 4 && (preferSetup || !los || seen.guard || vulnerable || foeCapturing || this.personality === 'bomber')) {
-          inp.bombPressed = true; this.utilityAt = t + this.p.utilityCadence;
+          inp.podPressed = true; this.utilityAt = t + this.p.utilityCadence * this.tempo;
+        } else if (me.bombCd <= 0 && dist > 4 && (preferSetup || !los || seen.guard || vulnerable || foeCapturing || dist > range + 3 || this.personality === 'bomber')) {
+          inp.bombPressed = true; this.utilityAt = t + this.p.utilityCadence * this.tempo;
         }
       }
       if (me.chargeCd <= 0 && dist < 5 && Math.abs(seen.pos.y - me.pos.y) < 1.5 &&

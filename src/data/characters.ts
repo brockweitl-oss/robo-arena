@@ -133,7 +133,8 @@ export const RIVALS: Rival[] = [
     loadout: { gun: 'beam', bomb: 'mortar', pod: 'interceptor', body: 'regent', legs: 'stride', skill: 'wave' },
     paint: { primary: 0x1a1a22, secondary: 0xd9a63a, trim: 0xf0e6cf, dark: 0x111116, glow: 0xff3a5c, emblem: '01' },
     ai: 'champion',
-    skill: 1.0,
+    // story final: a step below Sovereign EX (1.0) so the ladder ends on a beatable peak
+    skill: 0.9,
     arena: 'orbital',
     intro: 'Four wins, rookie. Impressive. But this is Halo Deck, and Sovereign has never lost here.',
     taunt: 'Kneel.',
@@ -148,7 +149,7 @@ export const RIVALS: Rival[] = [
  */
 export const RIVALS_PLUS: Rival[] = [
   {
-    ...RIVALS[0], id: 'dex+', plus: true, robotName: 'Bricktop EX', title: 'Yard Bulwark', skill: 0.55, arena: 'garden',
+    ...RIVALS[0], id: 'dex+', plus: true, robotName: 'Bricktop EX', title: 'Yard Bulwark', skill: 0.7, arena: 'garden',
     loadout: { gun: 'scatter', bomb: 'napalm', pod: 'turret', body: 'ironclad', legs: 'anchor', skill: 'hook' },
     intro: "New season, new rig. Anchor legs, a turret and a fire pot. Bricktop doesn't move any more, and doesn't need to.",
     defeatLine: 'Fine. Take the Anchor legs. Maybe you can make them work.',

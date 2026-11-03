@@ -22,7 +22,7 @@ import { PLACEMENT_GAMES, seasonLabel, seasonOf, prevSeason, seasonRewardIds } f
 import { rankBadge, rankResultPanel, type RankResult } from './ranked';
 import { ARENA_IDS, ARENA_INFO, type ArenaId } from '../arena/index';
 import { defaultSave, isUnlocked, type Settings } from '../core/save';
-import { pilotLevel, grantCosmetic } from '../game/progression';
+import { pilotLevel, grantCosmetic, survivalRivalId } from '../game/progression';
 import { COSMETICS } from '../data/shop';
 import type { MatchConfig, MatchResult } from '../game/types';
 import type { MusicTrack } from '../audio/audio';
@@ -1395,9 +1395,8 @@ export class Menus implements MenuLayer {
   /* ---------------- modes: Rival+, survival, practice, versus, replays */
 
   private survivalCfg(round: number, startHp: number): MatchConfig {
-    // escalating opponents: early rounds draw from the story ladder, later from Rival+
-    const pool = round <= 3 ? RIVALS.slice(0, 3) : round <= 6 ? RIVALS : [...RIVALS.slice(2), ...RIVALS_PLUS];
-    const r = pool[(round * 7 + Math.floor(Math.random() * pool.length)) % pool.length];
+    // escalating opponents on a fixed schedule (same for every run, so the survival board is fair)
+    const r = rivalById(survivalRivalId(round));
     const arenas = ARENA_IDS as readonly string[];
     return { mode: 'survival', playerLoadout: { ...this.host.save.loadout }, rivalId: r.id, arenaId: arenas[round % arenas.length], timeLimit: 120, survival: { round, startHp } };
   }

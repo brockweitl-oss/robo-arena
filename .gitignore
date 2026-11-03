@@ -8,3 +8,4 @@ test-results/
 playtest-build/
 .claude/
 playtest4-build/
+tests/balance/audit/

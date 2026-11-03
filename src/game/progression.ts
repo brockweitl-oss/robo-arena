@@ -58,6 +58,20 @@ export function matchCredits(r: MatchResult): { total: number; lines: CreditLine
   return { total: lines.reduce((a, l) => a + l.amount, 0), lines };
 }
 
+/* ------------------------------------------------------------------ survival */
+
+/**
+ * Survival opponents, easiest first (ordered by the AI audit, docs/audit/AI-BALANCE.md).
+ * A fixed schedule keeps the global survival board fair: every run meets the same rivals in
+ * the same order (it used to be a Math.random() pick, so one run could draw Bricktop three times).
+ */
+export const SURVIVAL_ORDER = ['dex', 'mira', 'vance', 'dex+', 'hex', 'mira+', 'vance+', 'sable', 'hex+', 'sable+'] as const;
+/** Rounds past the schedule cycle the four hardest rivals. */
+export function survivalRivalId(round: number): string {
+  const i = Math.max(0, Math.floor(round) - 1), n = SURVIVAL_ORDER.length;
+  return i < n ? SURVIVAL_ORDER[i] : SURVIVAL_ORDER[n - 4 + ((i - n) % 4)];
+}
+
 /* ------------------------------------------------------------------ mastery */
 
 export const MAX_MASTERY = 5;
@@ -129,26 +143,34 @@ const partName = (key?: string) => {
 };
 const arenaName = (id?: string) => ARENA_INFO[id as ArenaId]?.name ?? 'that arena';
 
+/**
+ * Goals are sized from play-test telemetry (playtest/telemetry.jsonl, 75 matches): a pilot lands
+ * ~0.2 parries and ~2 dodges per match, and 41 of 43 wins ended inside 60 s (median ~30 s).
+ * So "3 parries" was a ~15-match daily, "15 parries" a ~75-match weekly, and "win under 60 s" was
+ * just "win". See docs/audit/AI-BALANCE.md.
+ */
+export const FAST_WIN_S = 40;
+
 const DAILY: TplSpec[] = [
   { tpl: 'win_part', goal: 1, reward: 120, param: 'part', text: (_g, p) => `Win a match using ${partName(p)}` },
   { tpl: 'win_arena', goal: 1, reward: 100, param: 'arena', text: (_g, p) => `Win in ${arenaName(p)}` },
   { tpl: 'deflect', goal: 5, reward: 120, text: (g) => `Deflect ${g} shots with your guard` },
-  { tpl: 'pdodge', goal: 8, reward: 120, text: (g) => `Perfect-dodge ${g} times` },
+  { tpl: 'pdodge', goal: 5, reward: 120, text: (g) => `Perfect-dodge ${g} times` },
   { tpl: 'kd_match', goal: 3, reward: 150, text: (g) => `Land ${g} knockdowns in one match` },
   { tpl: 'win_nopod', goal: 1, reward: 150, text: () => 'Win without using your pod' },
-  { tpl: 'parry', goal: 3, reward: 130, text: (g) => `Land ${g} parries` },
+  { tpl: 'parry', goal: 1, reward: 120, text: (g) => `Land ${g} parries` },
   { tpl: 'damage', goal: 3000, reward: 100, text: (g) => `Deal ${g.toLocaleString('en-US')} damage` },
   { tpl: 'wins', goal: 2, reward: 100, text: (g) => `Win ${g} matches` },
   { tpl: 'ko_win', goal: 1, reward: 110, text: () => 'Win a match by knockout' },
   { tpl: 'hp_win', goal: 1, reward: 140, text: () => 'Win with at least 50% HP left' },
-  { tpl: 'fast_win', goal: 1, reward: 140, text: () => 'Win in under 60 seconds' },
+  { tpl: 'fast_win', goal: 1, reward: 140, text: () => `Win in under ${FAST_WIN_S} seconds` },
 ];
 const WEEKLY: TplSpec[] = [
   { tpl: 'wins', goal: 10, reward: 450, text: (g) => `Win ${g} matches` },
   { tpl: 'deflect', goal: 30, reward: 400, text: (g) => `Deflect ${g} shots with your guard` },
-  { tpl: 'pdodge', goal: 50, reward: 400, text: (g) => `Perfect-dodge ${g} times` },
+  { tpl: 'pdodge', goal: 30, reward: 400, text: (g) => `Perfect-dodge ${g} times` },
   { tpl: 'damage', goal: 20000, reward: 400, text: (g) => `Deal ${g.toLocaleString('en-US')} damage` },
-  { tpl: 'parry', goal: 15, reward: 450, text: (g) => `Land ${g} parries` },
+  { tpl: 'parry', goal: 5, reward: 450, text: (g) => `Land ${g} parries` },
   { tpl: 'play', goal: 15, reward: 350, text: (g) => `Play ${g} matches` },
   { tpl: 'ko_win', goal: 6, reward: 450, text: (g) => `Win ${g} matches by knockout` },
 ];
@@ -231,7 +253,7 @@ export function challengeProgress(def: ChallengeDef, prev: number, r: MatchResul
     case 'wins': return win ? add(1) : prev;
     case 'ko_win': return win && r.finish === 'ko' ? add(1) : prev;
     case 'hp_win': return win && r.playerMaxHp > 0 && r.playerHp / r.playerMaxHp >= 0.5 ? add(1) : prev;
-    case 'fast_win': return win && r.time < 60 ? add(1) : prev;
+    case 'fast_win': return win && r.time < FAST_WIN_S ? add(1) : prev;
     case 'play': return add(1);
   }
   return prev;

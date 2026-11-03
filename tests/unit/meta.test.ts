@@ -181,8 +181,8 @@ describe('shop', () => {
         const c = COSMETICS[id];
         expect(c.source).toBe('shop');
         expect(['paint', 'decal', 'pose', 'trail']).toContain(c.kind);
-        expect(c.price).toBeGreaterThanOrEqual(150);
-        expect(c.price).toBeLessThanOrEqual(600);
+        expect(c.price).toBeGreaterThanOrEqual(200);
+        expect(c.price).toBeLessThanOrEqual(900);
       }
     }
     // no cosmetic id collides with a part key at all
