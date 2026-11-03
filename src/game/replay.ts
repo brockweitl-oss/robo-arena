@@ -148,13 +148,27 @@ export class InputPlayer {
 
 const KEY = 'robo-arena-replays';
 
+/** Replays kept locally (newest first). */
+const KEEP = 8;
+
+/**
+ * Keep a replay locally. Recordings older game versions can no longer play are dropped (they only
+ * used up quota), the same fight is not stored twice, and when storage is full the oldest are
+ * dropped until the newest fits.
+ */
 export function saveReplay(r: Replay) {
+  let list: unknown[] = [];
   try {
-    const list: Replay[] = JSON.parse(localStorage.getItem(KEY) || '[]');
-    list.unshift(r);
-    localStorage.setItem(KEY, JSON.stringify(list.slice(0, 8)));
-  } catch {
-    /* storage full / unavailable */
+    const old = JSON.parse(localStorage.getItem(KEY) || '[]');
+    if (Array.isArray(old)) list = old;
+  } catch { /* corrupt list: start over */ }
+  const key = (x: Replay) => `${x.date}|${x.worldSeed}|${x.frames}`;
+  const keep = [r, ...list.filter((x): x is Replay => validateReplay(x) && key(x) !== key(r))].slice(0, KEEP);
+  for (let n = keep.length; n >= 1; n--) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(keep.slice(0, n)));
+      return;
+    } catch { /* storage full: drop the oldest and retry */ }
   }
 }
 

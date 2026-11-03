@@ -15,9 +15,10 @@ assert(ma.t === 'match' && mb.t === 'match' && ma.code === mb.code && ma.host !=
 const ra = await open('/room/' + ma.code), rb = await open('/room/' + mb.code);
 const sa = await ra.next(), sb = await rb.next();
 assert(sa.slot === 0 && sb.slot === 1, 'seats');
-ra.send({ t: 'hello', ruleset: 9, name: 'A', arena: 'garden' }); rb.send({ t: 'hello', ruleset: 9, name: 'B' });
+ra.send({ t: 'hello', ruleset: 9, name: 'A', arena: 'garden', rating: 5000, placed: true }); rb.send({ t: 'hello', ruleset: 9, name: 'B' });
 const pa = await ra.next(), pb = await rb.next();
 assert(pa.t === 'peer' && pa.hello.name === 'B' && pb.hello.name === 'A', 'peer exchange');
+assert(!('rating' in pb.hello) && !('placed' in pb.hello), 'client-sent rating is dropped ' + JSON.stringify(pb.hello));
 ra.send({ t: 'ready' }); rb.send({ t: 'ready' });
 const st1 = await ra.next(), st2 = await rb.next();
 assert(st1.t === 'start' && st1.seed === st2.seed && st1.arena === 'garden' && st1.players[0].name === 'A', 'start');
@@ -111,6 +112,25 @@ for (let i = 0; i < 4; i++) {
 const placed = (await get('/me?key=' + ka)).body;
 assert(placed.placed === true && placed.games === 5 && typeof placed.rank === 'string' && placed.peak === placed.rating, 'placed ' + JSON.stringify(placed));
 console.log('season', JSON.stringify({ rating: placed.rating, rank: placed.rank }));
+
+// a fast "Fight!" click before the opponent's report arrives must not wipe the early report
+x.send({ t: 'ready' }); y.send({ t: 'ready' }); await x.next(); await y.next();
+x.send({ t: 'result', winner: 0 }); x.send({ t: 'ready' });
+await new Promise((r) => setTimeout(r, 150));
+y.send({ t: 'result', winner: 0 });
+const rf1 = await x.next(); await y.next();
+assert(rf1.t === 'rated' && rf1.counted && rf1.games[0] === 6, 'early report survives a quick ready ' + JSON.stringify(rf1));
+// the winner reports and closes the tab during the outro: the loser's matching report rates it (no forfeit)
+y.send({ t: 'ready' });
+const rs = await x.next(); await y.next();
+assert(rs.t === 'start' && rs.ranked, 'next ranked start');
+x.send({ t: 'result', winner: 0 });
+await new Promise((r) => setTimeout(r, 150));
+x.ws.close();
+assert((await y.next()).t === 'left', 'winner left');
+y.send({ t: 'result', winner: 0 });
+const rw = await y.next();
+assert(rw.t === 'rated' && rw.counted && !rw.forfeit && rw.deltas[0] > 0 && rw.deltas[1] < 0 && rw.games[0] === 7, 'winner who left after reporting keeps the win ' + JSON.stringify(rw));
 
 // survival board: best per player per season, absurd values rejected, names cleaned
 assert((await post('/survival', { key: ka, name: 'Surv<A>', rounds: 6, build: { gun: 'rifle', body: 'striker;--' } })).body.best === 6, 'survival post');
