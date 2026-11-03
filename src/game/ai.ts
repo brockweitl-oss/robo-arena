@@ -102,6 +102,20 @@ export class AIPilot {
       const mine = me.pos.distanceTo(pk.pos), theirs = seen.pos.distanceTo(pk.pos);
       if (mine < theirs + 1 && mine < 12) move.lerp(pk.pos.clone().sub(me.pos).setY(0).normalize(), 0.8);
     }
+    // Overcharge Core: contest it when it is (about to be) online, hold it with small moves,
+    // and never walk into an occupied pad while far behind on health (shoot the capturer instead).
+    const ob = world.objective;
+    const coreLive = !!ob && ob.untilTick >= 0;
+    const foeCapturing = coreLive && seen.pos.distanceTo(ob!.pos) < ob!.radius && Math.abs(seen.pos.y - ob!.pos.y) < 1.6 && seen.mode !== 'down';
+    if (ob && !danger && (coreLive || world.objectiveIn() <= (this.skill >= 0.5 ? 2.5 : 0))) {
+      const toCore = ob.pos.clone().sub(me.pos).setY(0), dCore = toCore.length();
+      const mine = me.hp / me.maxHp, theirs = foe.hp / foe.maxHp;
+      const losing = mine < 0.3 && mine + 0.25 < theirs;
+      if (!(losing && foeCapturing) && (dCore < 10 + 8 * this.skill || foeCapturing)) {
+        if (dCore < ob.radius - 0.5 && Math.abs(me.pos.y - ob.pos.y) < 1.2) move.multiplyScalar(0.3).addScaledVector(toCore.normalize(), (dCore / ob.radius) * 0.7);
+        else move.lerp(toCore.normalize(), 0.85);
+      }
+    }
     if (move.lengthSq() > 1) move.normalize();
     inp.moveX = move.x; inp.moveZ = move.z; inp.faceTarget = true;
     // Aerial specialists deliberately reposition; ground duelists save jumps for obstacles/danger.
@@ -175,7 +189,7 @@ export class AIPilot {
       this.decideAt = t + this.reaction;
       const inRange = dist < (g === 'scatter' ? 6.5 : g === 'blaster' ? 27 : 34);
       // Rail waits for a setup when possible, but will probe straight movement at a measured cadence.
-      const precisionOpening = g !== 'rail' || comboReady || vulnerable || seen.vel.lengthSq() < 8 || t >= this.gunAt + 0.2;
+      const precisionOpening = g !== 'rail' || comboReady || vulnerable || foeCapturing || seen.vel.lengthSq() < 8 || t >= this.gunAt + 0.2;
       const setupPod = me.podCd <= 0 && me.lo.pod.model !== 'turret' && me.lo.pod.model !== 'interceptor' && dist < range + 3;
       const setupBomb = me.bombCd <= 0 && dist > 4 && dist < me.lo.bomb.range;
       const setupWindow = me.gunCd > 0 || t < this.gunAt || seen.guard || !los;
@@ -185,7 +199,7 @@ export class AIPilot {
       const sk = me.lo.skill;
       const steady = seen.vel.lengthSq() < 9;
       const skillOpening = !sk.blink && me.skillCd <= 0 && t >= this.skillAt && los && !seen.guard && dist > 2.5 && dist < sk.range * 0.9 &&
-        (sk.model === 'hook' ? dist > 6 && (vulnerable || steady || foeSpent) : sk.detonator ? comboReady || vulnerable || steady || foeSpent : vulnerable || steady || foeSpent || dist < 10);
+        (sk.model === 'hook' ? dist > 6 && (vulnerable || steady || foeSpent || foeCapturing) : sk.detonator ? comboReady || vulnerable || steady || foeSpent || foeCapturing : vulnerable || steady || foeSpent || foeCapturing || dist < 10);
       if (skillOpening) {
         const lead = (dist / sk.speed + sk.cast) * THREE.MathUtils.lerp(0.4, 0.9, this.skill);
         inp.skillPressed = true;
@@ -202,7 +216,7 @@ export class AIPilot {
         // Bombers flush cover; trap specialists establish a lane before committing a gun shot.
         if (me.podCd <= 0 && (preferSetup ? setupPod : this.personality === 'trickster' || me.lo.pod.model === 'turret' || dist < range + 3)) {
           inp.podPressed = true; this.utilityAt = t + this.p.utilityCadence;
-        } else if (me.bombCd <= 0 && dist > 4 && (preferSetup || !los || seen.guard || vulnerable || this.personality === 'bomber')) {
+        } else if (me.bombCd <= 0 && dist > 4 && (preferSetup || !los || seen.guard || vulnerable || foeCapturing || this.personality === 'bomber')) {
           inp.bombPressed = true; this.utilityAt = t + this.p.utilityCadence;
         }
       }

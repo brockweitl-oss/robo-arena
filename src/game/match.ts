@@ -10,25 +10,33 @@ import { PLAYER_PAINT, PLAYER_ROBOT_NAME, rivalById, type Paint } from '../data/
 import { RobotModel } from '../robot/model';
 import { Animator } from '../robot/animator';
 import { Fighter, emptyInput, GUARD_DOT, type FighterInput } from './fighter';
-import { World, SIM_DT, type GameEvent } from './world';
+import { World, SIM_DT, type GameEvent, type WorldSnapshot } from './world';
 import { AIPilot } from './ai';
 import { ChaseCamera } from './camera';
 import { ReplayCamera } from '../render/replayCamera';
 import { ReplayBar } from '../ui/replayBar';
 import { Effects } from '../vfx/effects';
 import { TacticsView } from '../vfx/tacticsView';
+import { ObjectiveView } from '../vfx/objectiveView';
+import { OBJECTIVE } from './tactics';
 import { audio, type LoopHandle } from '../audio/audio';
-import type { MatchConfig, MatchResult } from './types';
+import { objectiveEnabled, type MatchConfig, type MatchResult } from './types';
 import { groundHeightBelow, segmentHit } from './collision';
 import { track } from '../core/telemetry';
 import { InputRecorder, InputPlayer, quantizeInput, quantizeBombTarget, RULESET_VERSION, type Replay } from './replay';
 import { PadInput, connectedPads } from '../core/padInput';
-import { stateHash, type NetSession } from '../net/online';
+import type { NetSession } from '../net/online';
+import { EventLedger, NET_GO_TICK, ROLLBACK_WINDOW, predictInput, sameInput } from '../net/rollback';
 import { plannedBomb } from './bombAim';
 import { BombAimView } from '../vfx/bombAimView';
 import { AimIndicator } from '../vfx/aimIndicator';
+import { Guide } from './guide';
+import { GuideView } from '../ui/guideView';
 
 type Phase = 'intro' | 'ready' | 'fight' | 'ko' | 'timeup' | 'outro' | 'done';
+/** KO: seconds of impact beat on the downed robot, then the KO camera shot length. */
+const KO_BEAT = 0.5;
+const KO_CAM = 1.6;
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
@@ -128,6 +136,9 @@ export class Match {
   private seekMuted = false;
   readonly fx: Effects;
   private tactics!: TacticsView;
+  private objectiveView: ObjectiveView | null = null;
+  /** Local player first, opponent second (HUD + pad colours). */
+  private static readonly OBJ_COLORS = ['#37e8ff', '#ff4a3a'] as const;
   private sides: [Side, Side];
   private ai: AIPilot;
   /** Testing: an AI also drives the player (?autoplay). */
@@ -168,16 +179,40 @@ export class Match {
   private p2: PadInput | null = null;
   /** World id of the local player (online guests are robot 1). */
   private me: 0 | 1 = 0;
-  /** Online lockstep state. */
+  /**
+   * Online rollback state. Ticks count from the first 'ready' step, identically on every machine.
+   * `netTick` is the frontier (next tick to simulate); every remote input below `netConfirmed` is known.
+   */
   private net: NetSession | null = null;
+  /** Spectating a room: both players' inputs come from the session, ~1 s behind live. */
+  private watching = false;
+  private watchStarted = false;
+  /** Spectating: this match's input buffers (the session swaps in new ones when the next match starts). */
+  private watchIn: [Map<number, FighterInput>, Map<number, FighterInput>] = [new Map(), new Map()];
+  private watchLatest: [number, number] = [-1, -1];
   private netTick = 0;
+  private netConfirmed = 0;
   private netSent = 0;
-  private netDelay = 3;
+  private netDelay = 2;
   private netStall = 0;
+  /** Local final hashes waiting for the opponent's, and hashes of simulated (maybe predicted) ticks. */
   private netSums = new Map<number, number>();
+  private netPendingSums = new Map<number, number>();
   private netDesync = false;
   private netLeft = false;
   private netChecks = 0;
+  /** Remote input used for each unconfirmed tick, and the world before each unconfirmed tick. */
+  private netUsed = new Map<number, FighterInput>();
+  private netSnaps = new Map<number, WorldSnapshot>();
+  private netLastRemote: FighterInput | undefined;
+  /** Tick on which the fight ended in the current timeline (-1 = still on). */
+  private netEndTick = -1;
+  /** The end is confirmed: no more rollback; the world runs on locally (fighters are locked). */
+  private netFrozen = false;
+  private netFightTicks = 120 * 60;
+  private netLedger = new EventLedger();
+  /** Rollback counters (e2e checks and telemetry). */
+  readonly netStats = { rollbacks: 0, maxDepth: 0, resimTicks: 0, stallFrames: 0, slowFrames: 0 };
   /** First-time tactic tips (once per player, single-player modes only). */
   private tipQ: [string, string][] = [];
   private tipAt = 0;
@@ -185,6 +220,13 @@ export class Match {
   private p2In: FighterInput = emptyInput();
   private practiceMode: 'idle' | 'move' | 'shoot' | 'full' | 'evade' | 'tells' | null = null;
   private practiceLog: { t: number; dmg: number }[] = [];
+  /** Guided first match (brand-new pilots): step machine + prompt card. */
+  private guide: Guide | null = null;
+  private guideView: GuideView | null = null;
+  /** KO camera moment: any key / click / pad button skips to the outro (offline only). */
+  private koSkip = false;
+  private koPads: boolean[] = [];
+  private koListen = () => { this.koSkip = true; };
   /** Play-test telemetry accumulators. */
   private tel = {
     used: { jump: 0, airjump: 0, dash: 0, airdash: 0, fire: 0, bomb: 0, pod: 0, charge: 0 } as Record<string, number>,
@@ -211,18 +253,28 @@ export class Match {
 
     const rival = rivalById(cfg.rivalId);
     const on = cfg.online;
-    if (on) { this.me = on.me; this.net = on.session; this.netDelay = on.session.delay; }
+    if (on) {
+      this.me = on.me;
+      this.net = on.session;
+      this.netDelay = on.session.delay;
+      this.watching = !!on.spectate;
+      if (this.watching) {
+        this.watchIn = on.session.inputs;
+        this.watchLatest = on.session.latest;
+      }
+      this.netFightTicks = Math.round((cfg.timeLimit ?? 120) * 60);
+    }
     const foe = on ? on.players[1 - on.me] : null;
     const vs = cfg.versus ?? (foe ? { p2Loadout: foe.loadout, p2Paint: foe.paint, p2Name: foe.name } : undefined);
     const pLo = resolveLoadout(on ? on.players[on.me].loadout : cfg.playerLoadout);
-    const rLo = resolveLoadout(vs ? vs.p2Loadout : rival.loadout);
+    const rLo = resolveLoadout(vs ? vs.p2Loadout : cfg.rivalLoadout ?? rival.loadout);
     // world ids: the online host is robot 0 on both machines; sides[0] is always the local player
     const pf = new Fighter(this.me, pLo);
     const rf = new Fighter(1 - this.me, rLo);
     // seeds: from the replay being watched, the online room, or fresh (recorded for this match's replay)
     this.worldSeed = cfg.replay ? cfg.replay.worldSeed : on ? on.seed : 12345;
     this.aiSeed = cfg.replay ? cfg.replay.aiSeed : 7;
-    this.world = new World(this.arena, ...((this.me === 0 ? [pf, rf] : [rf, pf]) as [Fighter, Fighter]), { arenaId: cfg.arenaId, pickups: !!cfg.pickups, seed: this.worldSeed });
+    this.world = new World(this.arena, ...((this.me === 0 ? [pf, rf] : [rf, pf]) as [Fighter, Fighter]), { arenaId: cfg.arenaId, pickups: !!cfg.pickups, objective: objectiveEnabled(cfg), seed: this.worldSeed });
     const practice = cfg.practice?.dummy;
     // training dummies: the evader and skill shooter are top-tier readers so the drills are honest
     this.ai = practice === 'evade' || practice === 'tells' ? new AIPilot('champion', practice === 'evade' ? 1 : 0.8, this.aiSeed) : new AIPilot(rival.ai, practice ? 0.5 : rival.skill, this.aiSeed);
@@ -254,6 +306,12 @@ export class Match {
     }
     this.timeLeft = practice ? Infinity : cfg.timeLimit ?? 120;
     if (new URLSearchParams(location.search).has('autoplay')) this.autoPilot = new AIPilot('champion', 1, 99);
+    if (cfg.guided && !this.autoPilot && !on && !vs && !practice) {
+      this.guide = new Guide();
+      if (!cfg.replay) this.guideView = new GuideView(host.hud.el);
+      // room to learn: the clock starts longer than a normal round
+      if (!cfg.timeLimit) this.timeLeft = 180;
+    }
     this.fx = new Effects(s, q);
     this.bombAimViews = Array.from({ length: 3 }, () => new BombAimView(s));
     this.aimView = new AimIndicator(s);
@@ -293,9 +351,13 @@ export class Match {
     this.cam.snapBehind(sp0, sp1);
     this.hazardWarned = this.arena.hazards.map(() => false);
     this.tactics = new TacticsView(this.world, this.fx, s);
+    if (this.world.objective) {
+      const [mine, theirs] = Match.OBJ_COLORS.map((c) => new THREE.Color(c).getHex());
+      this.objectiveView = new ObjectiveView(this.world, this.fx, s, this.me === 0 ? [mine, theirs] : [theirs, mine]);
+    }
 
     const names: [string, string, string, string] = vs
-      ? on ? [on.players[on.me].name, 'YOU', vs.p2Name, on.ranked ? `RATED ${on.players[1 - on.me].rating ?? 1000}` : 'ONLINE'] : [PLAYER_ROBOT_NAME, 'P1', vs.p2Name, 'P2']
+      ? on ? [on.players[on.me].name, on.spectate ? 'P1' : 'YOU', vs.p2Name, on.spectate ? 'P2 · LIVE' : on.ranked ? `RATED ${on.players[1 - on.me].rating ?? 1000}` : 'ONLINE'] : [PLAYER_ROBOT_NAME, 'P1', vs.p2Name, 'P2']
       : practice ? [PLAYER_ROBOT_NAME, 'YOU', 'Training Dummy', 'PRACTICE'] : [rival.robotName, rival.pilot, '', ''];
     if (!vs && !practice) {
       names[2] = names[0];
@@ -330,6 +392,11 @@ export class Match {
     for (const sd of this.sides) sd.model.root.visible = true;
     host.gr.renderer.compile(s, host.gr.camera);
     for (const sd of this.sides) sd.model.root.visible = false;
+    if (this.watching) {
+      // spectating: broadcast-style camera, no controls
+      this.replayCamera = new ReplayCamera(host.gr.camera, this.arena.colliders);
+      this.replayCamera.attach(host.hud.el.parentElement!, host.gr.renderer.domElement);
+    }
     if (cfg.replay) {
       this.replayCamera = new ReplayCamera(host.gr.camera, this.arena.colliders);
       this.replayCamera.attach(host.hud.el.parentElement!, host.gr.renderer.domElement);
@@ -411,19 +478,17 @@ export class Match {
       const st = host.settings;
       audio.setVolumes(seeking ? 0 : st.master, st.sfx, st.music);
     }
-    if (simming && !(this.replayHold && !seeking)) {
+    if (simming && this.net) {
+      if (this.watching) this.watchFrame(dtReal);
+      else this.netFrame(dtReal);
+    } else if (simming && !(this.replayHold && !seeking)) {
       this.acc += seeking ? SIM_DT * 600 : dt;
       let steps = 0;
-      let netRemote: FighterInput | null = null;
       while (this.acc >= SIM_DT && steps < (seeking ? 600 : 5)) {
         if (this.seekTo >= 0 && this.phase !== 'ready' && (this.fightTime >= this.seekTo || this.phase !== 'fight')) {
           this.seekTo = -1;
           this.acc = 0;
           break;
-        }
-        if (this.net) {
-          netRemote = this.netGather();
-          if (!netRemote) break;
         }
         this.beginSimulationStep();
         for (const s of this.sides) s.prevPos.copy(s.fighter.pos);
@@ -432,15 +497,7 @@ export class Match {
         host.input.sample(this.cam.moveYaw, false, this.pInput);
         if (this.autoPilot && !pf.locked) Object.assign(this.pInput, this.autoPilot.think(this.world, pf, rf));
         let aiIn: FighterInput;
-        if (netRemote) {
-          // online: the local input was scheduled netDelay ticks ago; the remote one just arrived
-          Object.assign(this.pInput, emptyInput(), this.netLocal.get(this.netTick)!);
-          delete this.pInput.bombTarget; delete this.pInput.skillTarget; delete this.pInput.skillPressed;
-          Object.assign(this.pInput, this.netLocal.get(this.netTick)!);
-          aiIn = netRemote;
-          this.netLocal.delete(this.netTick);
-          this.net!.remote.delete(this.netTick);
-        } else if (this.players) {
+        if (this.players) {
           // replay playback: recorded inputs; AI re-thinks deterministically from the recorded seed
           Object.assign(this.pInput, this.players[0].next());
           aiIn = this.players[1] ? this.players[1].next() : rf.locked ? emptyInput() : this.ai.think(this.world, rf, pf);
@@ -455,6 +512,10 @@ export class Match {
           else if (this.practiceMode === 'evade') aiIn = { ...aiIn, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, skillPressed: false };
           else if (this.practiceMode === 'tells') aiIn = { ...aiIn, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, chargePressed: false };
         }
+        if (this.guide && !this.guide.rivalArmed && !this.p2 && !(this.players && this.players[1])) {
+          // guided match: the rival moves but holds its attacks until the guard lesson
+          aiIn = { ...aiIn, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, chargePressed: false, skillPressed: false };
+        }
         if (this.recorders) {
           // the sim must see exactly what the replay stores
           quantizeInput(this.pInput);
@@ -465,12 +526,12 @@ export class Match {
           }
         }
         this.world.step(this.me === 0 ? [this.pInput, aiIn] : [aiIn, this.pInput]);
-        if (this.net) this.netAfterStep();
         if (this.phase === 'ready') this.readySteps++;
         if (this.practiceMode) {
           for (const f of [pf, rf]) if (f.hp < f.maxHp * 0.5) f.hp = f.maxHp;
         }
         this.handleEvents(this.world.events);
+        if (this.guide && this.phase === 'fight') this.guide.tick(SIM_DT, Math.hypot(pf.pos.x - this.player.prevPos.x, pf.pos.z - this.player.prevPos.z));
         if (this.phase === 'fight') {
           if (this.players && this.players[0].done) this.onTimeUp();
           this.fightTime += SIM_DT;
@@ -481,11 +542,6 @@ export class Match {
         steps++;
       }
       if (steps === 5 || seeking) this.acc = 0;
-      if (this.net) {
-        // never bank more than a couple of ticks while waiting on the opponent
-        this.acc = Math.min(this.acc, SIM_DT * 2);
-        this.netWatch(dtReal);
-      }
     }
     const alpha = simming ? this.acc / SIM_DT : 1;
 
@@ -497,6 +553,7 @@ export class Match {
       if (this.fightTime > 45) this.tip('dashjump', 'Jump at the end of a dash to keep its speed (dash-jump). Heavier builds start and stop slower.');
       this.showTips();
     }
+    if (this.guideView && this.guide) this.guideView.update(this.guide, this.phase === 'fight' && !this.paused, this.host.input.lastDevice === 'pad', host.settings.bindings, this.renderTime);
 
     this.replayBar?.update(this.fightTime, !this.replayHold, this.seekTo >= 0);
 
@@ -516,6 +573,7 @@ export class Match {
     this.fx.syncBombs(this.world.bombs, dt);
     this.fx.syncPods(this.world.pods, dt);
     this.tactics.update(dt);
+    this.objectiveView?.update(dt);
     this.aimView.update(this.player.fighter, this.sides[1].fighter, this.skillGoal, this.arena.colliders, this.renderTime);
     this.fx.update(dt);
 
@@ -554,6 +612,14 @@ export class Match {
       for (const b of this.world.bombs) if (b.owner !== this.me) add(b.target, b.def.color);
       for (const p of this.world.pods) if (p.owner !== this.me && p.pos.distanceTo(pf.pos) < 14) add(p.pos, p.def.color);
     }
+    const ob = this.world.objective;
+    if (ob && this.phase !== 'intro') {
+      const inSec = this.world.objectiveIn(), online = ob.untilTick >= 0;
+      host.hud.objective({
+        state: online ? 'online' : inSec <= OBJECTIVE.warn ? 'soon' : 'off', inSec, leftSec: online ? (ob.untilTick - ob.tick) * SIM_DT : 0,
+        meters: [ob.meters[this.me] / OBJECTIVE.capture, ob.meters[1 - this.me] / OBJECTIVE.capture], contested: ob.contested, colors: [...Match.OBJ_COLORS],
+      });
+    } else host.hud.objective(null);
     host.hud.update(dtReal, [pf, rf], this.timeLeft, { x: (proj.x * 0.5 + 0.5) * W, y: (-proj.y * 0.5 + 0.5) * H, on: this.phase === 'fight' && rf.alive, behind }, !this.freeCam, threats);
     if (this.phase === 'fight') this.telFrame(dtReal, pf, rf);
     if (this.practiceMode) {
@@ -742,8 +808,15 @@ export class Match {
     } else if (this.phase === 'ko') {
       const loser = this.sideOf(this.winner === 0 ? 1 : 0);
       const lf = loser.fighter;
-      // camera on the KO'd robot during the real-time result beat
-      if (t < 1.8) {
+      const koCam = this.koCamOn();
+      if (koCam && t >= KO_BEAT) {
+        // KO camera moment (real time, no slow-motion): a cut to a low angle that frames the
+        // winner standing over the downed loser, slowly orbiting, then the outro
+        this.koCamera(t);
+        if (!this.koSkip) this.koSkip = this.koPadPressed();
+        if (this.koSkip && !this.net && t > KO_BEAT + 0.15) { this.startOutro(); return; }
+      } else if (t < 1.8) {
+        // camera on the KO'd robot during the real-time result beat
         const c = loser.model.root.position;
         if (this.shotYaw === null) {
           const cp = host.gr.camera.position;
@@ -759,7 +832,7 @@ export class Match {
         loser.model.power = Math.max(0.1, loser.model.power - dt * 0.8) * (Math.random() < 0.1 ? 0.3 : 1);
         if (Math.random() < 0.15) this.fx.impact(loser.model.rig.chest.getWorldPosition(_v).clone(), new THREE.Vector3(0, 1, 0), 0xffa040, 0.4);
       }
-      if (t > 2.2) this.startOutro();
+      if (t > (koCam ? KO_BEAT + KO_CAM : 2.2)) this.startOutro();
     } else if (this.phase === 'timeup') {
       if (t > 2.0) this.startOutro();
     } else if (this.phase === 'outro') {
@@ -773,6 +846,71 @@ export class Match {
   }
 
   private shotYaw: number | null = null;
+  private koYaw: number | null = null;
+  private koDist = 5;
+  private koH = 0.5;
+
+  /** The KO camera runs for clean single-winner KOs with the normal chase camera. */
+  private koCamOn() {
+    return this.winner >= 0 && this.finish === 'ko' && !this.replayCamera && this.seekTo < 0 && !this.practiceMode;
+  }
+
+  private koCamera(t: number) {
+    const w = this.sideOf(this.winner);
+    const l = this.sideOf(1 - this.winner);
+    const W = w.model.root.position, L = l.model.root.position;
+    const u = Math.min(1, (t - KO_BEAT) / KO_CAM);
+    // close KOs: low behind the downed loser, looking across it at the winner standing over it.
+    // long-range KOs: low behind the winner, which towers in the foreground over the distant loser.
+    const near = Math.hypot(W.x - L.x, W.z - L.z) <= 9;
+    const A = near ? L : W, B = near ? W : L;
+    if (this.koYaw === null) {
+      const away = Math.atan2(A.x - B.x, A.z - B.z);
+      this.koYaw = this.clearShot(A, away + 0.75, near ? 5 : 4.8, near ? 0.75 : 0.4);
+      this.koDist = this.shotDist;
+      this.koH = this.shotH;
+    }
+    // ease-in-out orbit across the 1.6 s shot
+    const e = u * u * (3 - 2 * u);
+    const yaw = this.koYaw - 0.25 + e * 0.5;
+    const pos = A.clone().add(new THREE.Vector3(Math.sin(yaw) * this.koDist, this.koH + e * 0.25, Math.cos(yaw) * this.koDist));
+    // aim between the two directions so both robots stay in frame at any range
+    const toW = W.clone().add(new THREE.Vector3(0, 1.4, 0)).sub(pos).normalize();
+    const toL = L.clone().add(new THREE.Vector3(0, 0.5, 0)).sub(pos).normalize();
+    const look = pos.clone().addScaledVector(toW.multiplyScalar(1.25).add(toL).normalize(), 8);
+    this.cam.cine = { pos, look, k: u < 0.04 ? 60 : 7 };
+    // the winner strikes its victory pose once it is standing (offline only: online keeps sim timing untouched)
+    const wf = w.fighter;
+    if (!this.net && wf.mode !== 'victory' && wf.grounded && (wf.mode === 'ground' || wf.mode === 'charge' || wf.mode === 'stagger')) wf.setMode('victory');
+  }
+
+  private koStartListen() {
+    if (this.net || this.cfg.online || this.players) return;
+    this.koSkip = false;
+    this.koPads = this.padButtons();
+    window.addEventListener('keydown', this.koListen, true);
+    window.addEventListener('pointerdown', this.koListen, true);
+  }
+
+  private koStopListen() {
+    window.removeEventListener('keydown', this.koListen, true);
+    window.removeEventListener('pointerdown', this.koListen, true);
+  }
+
+  private padButtons(): boolean[] {
+    const out: boolean[] = [];
+    try { for (const p of navigator.getGamepads?.() ?? []) if (p) for (const b of p.buttons) out.push(b.pressed); } catch { /* no gamepad API */ }
+    return out;
+  }
+
+  /** A gamepad button went down since the KO (held buttons from the fight don't count). */
+  private koPadPressed() {
+    if (this.net || this.cfg.online || this.players) return false;
+    const now = this.padButtons();
+    const hit = now.some((v, i) => v && !this.koPads[i]);
+    this.koPads = now;
+    return hit;
+  }
 
   /** Shared side-on camera that frames both robots (local versus). */
   private versusCamera(a: THREE.Vector3, b: THREE.Vector3) {
@@ -885,43 +1023,188 @@ export class Match {
     if (p === 'ready') {
       this.host.hud.announce('READY', { color: '#37e8ff' });
       audio.play('announce_ready');
-      this.host.hud.showHint(this.players ? 'Replay · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc pause' : this.host.input.lastDevice === 'pad' ? 'RT auto-gun · Hold Y + R-stick: aim skill, release: fire · LT bomb · RB pod · B dash · X charge' : 'Click to capture mouse · LMB auto-gun · Hold R + mouse: aim skill, release: fire · Hold RMB: aim bomb · E pod · Shift dash · Q charge', 5);
-      this.host.input.enabled = true;
-      if (!this.players) this.host.input.requestLock();
+      if (!this.guide) this.host.hud.showHint(this.watching ? 'Spectating live · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc menu' : this.players ? 'Replay · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc pause' : this.host.input.lastDevice === 'pad' ? 'RT auto-gun · Hold Y + R-stick: aim skill, release: fire · LT bomb · RB pod · B dash · X charge' : 'Click to capture mouse · LMB auto-gun · Hold R + mouse: aim skill, release: fire · Hold RMB: aim bomb · E pod · Shift dash · Q charge', 5);
+      this.host.input.enabled = !this.watching;
+      if (!this.players && !this.watching) this.host.input.requestLock();
     }
-    if (p === 'fight') this.host.input.enabled = true;
+    if (p === 'fight') this.host.input.enabled = !this.watching;
   }
 
-  /** Schedule local inputs up to tick + delay; returns the remote input for this tick if it has arrived. */
-  private netGather(): FighterInput | null {
+  /* ------------------------------------------------------------------ online (rollback) */
+
+  /**
+   * One online frame for a player. Confirmed remote inputs that differ from the prediction rewind
+   * the world to that tick and re-simulate to the present; then the frontier advances in real time,
+   * predicting the opponent, at most ROLLBACK_WINDOW ticks past their last confirmed input.
+   */
+  private netFrame(dt: number) {
     const net = this.net!;
-    const n = this.netTick;
-    while (this.netSent <= n + this.netDelay) {
+    if (this.netFrozen) {
+      this.netFreeRun(dt);
+      this.netWatch(dt);
+      return;
+    }
+    let rollTo = -1;
+    const before = this.netConfirmed;
+    while (net.remote.has(this.netConfirmed)) {
+      const t = this.netConfirmed;
+      const ri = net.remote.get(t)!;
+      const used = this.netUsed.get(t);
+      if (rollTo < 0 && used && !sameInput(used, ri)) rollTo = t;
+      this.netLastRemote = ri;
+      this.netConfirmed++;
+    }
+    if (this.netConfirmed > before) this.netStall = 0;
+    if (rollTo >= 0) this.netRollback(rollTo);
+    this.netCheckSums();
+    if (this.netEndTick >= 0 && this.netConfirmed > this.netEndTick && this.netTick > this.netEndTick) {
+      this.netFinish();
+      this.netPrune();
+      return;
+    }
+    // time sync (GGPO-style frame advantage): running ahead of the opponent slows our sim clock a
+    // little until both sides are even, so neither machine keeps predicting further than it must
+    const adv = net.remoteFrontier >= 0 ? this.netTick - net.remoteFrontier : 0;
+    if (net.remoteFrontier >= 0 && adv - net.remoteAdv >= 2) {
+      this.acc -= dt * 0.1;
+      this.netStats.slowFrames++;
+    }
+    this.acc += dt;
+    let steps = 0;
+    let blocked = false;
+    while (this.acc >= SIM_DT && steps < 5) {
+      if (this.netTick - this.netConfirmed >= ROLLBACK_WINDOW) { blocked = true; break; }
+      this.netAdvance(adv);
+      this.acc -= SIM_DT;
+      steps++;
+    }
+    // never bank more than a couple of ticks while waiting on the opponent
+    this.acc = Math.max(0, Math.min(this.acc, SIM_DT * 2));
+    if (blocked) {
+      this.netStall += dt;
+      this.netStats.stallFrames++;
+    }
+    this.netPrune();
+    this.netWatch(dt);
+  }
+
+  /** Simulate the frontier tick: send our input for tick + delay, snapshot, step with a prediction. */
+  private netAdvance(adv: number) {
+    const net = this.net!;
+    const t = this.netTick;
+    while (this.netSent <= t + this.netDelay) {
       // the first `delay` ticks are empty on both machines
       let li = this.netSent < this.netDelay ? emptyInput() : this.host.input.sample(this.cam.moveYaw, false, emptyInput());
       if (this.autoPilot && this.netSent >= this.netDelay && !this.player.fighter.locked) li = { ...li, ...this.autoPilot.think(this.world, this.player.fighter, this.sides[1].fighter) };
       li = quantizeInput(li);
       this.netLocal.set(this.netSent, li);
-      net.sendInput(this.netSent, li);
+      net.sendInput(this.netSent, li, t, adv);
       this.netSent++;
     }
-    const ri = net.remote.get(n);
-    if (!ri) return null;
-    this.netStall = 0;
-    return ri;
+    const ri = net.remote.get(t) ?? predictInput(this.netLastRemote);
+    if (t >= this.netConfirmed) {
+      this.netSnaps.set(t, this.world.snapshot());
+      this.netUsed.set(t, ri);
+    }
+    for (const s of this.sides) s.prevPos.copy(s.fighter.pos);
+    if (t === NET_GO_TICK && this.phase === 'ready') {
+      this.host.hud.announce('GO!', { color: '#ff6a1f' });
+      audio.play('announce_go');
+      this.setPhase('fight');
+    }
+    this.netSimTick(t, this.netLocal.get(t)!, ri);
+    this.netTick = t + 1;
+    this.handleEvents(this.netLedger.fresh(t, this.world.events));
+    this.netClock();
   }
 
-  private netAfterStep() {
-    const n = this.netTick++;
-    if (n % 120 !== 0 || this.netDesync) return;
-    const fs = [0, 1].map((i) => this.sideOf(i).fighter);
-    const h = stateHash(fs.flatMap((f) => [f.hp, f.pos.x, f.pos.y, f.pos.z, f.vel.x, f.vel.z, f.yaw]));
-    this.netSums.set(n, h);
-    this.net!.sendSum(n, h);
+  /** A late input proved a prediction wrong: rewind to that tick and re-simulate to the frontier. */
+  private netRollback(from: number) {
+    const net = this.net!;
+    const snap = this.netSnaps.get(from);
+    if (!snap) return;
+    const depth = this.netTick - from;
+    this.netStats.rollbacks++;
+    this.netStats.maxDepth = Math.max(this.netStats.maxDepth, depth);
+    this.netStats.resimTicks += depth;
+    this.world.restore(snap);
+    if (this.netEndTick >= from) this.netEndTick = -1;
+    for (let t = from; t < this.netTick; t++) {
+      const ri = net.remote.get(t) ?? predictInput(this.netLastRemote);
+      if (t < this.netConfirmed) this.netUsed.delete(t);
+      else {
+        if (t > from) this.netSnaps.set(t, this.world.snapshot());
+        this.netUsed.set(t, ri);
+      }
+      this.netSimTick(t, this.netLocal.get(t)!, ri);
+      // only events the prediction missed reach presentation (hits, KOs and HP always come from the sim)
+      this.handleEvents(this.netLedger.fresh(t, this.world.events));
+    }
+  }
+
+  /** The deterministic part of an online tick: the GO unlock, the step, and the end-of-fight lock. */
+  private netSimTick(t: number, li: FighterInput, ri: FighterInput) {
+    const w = this.world;
+    if (t === NET_GO_TICK) {
+      for (const f of w.fighters) f.locked = false;
+      w.combatEnabled = true;
+    }
+    w.step(this.me === 0 ? [li, ri] : [ri, li]);
+    if (w.combatEnabled && (w.koLoser >= 0 || t + 1 - NET_GO_TICK >= this.netFightTicks)) {
+      w.combatEnabled = false;
+      for (const f of w.fighters) f.locked = true;
+      this.netEndTick = t;
+    }
+    if (t % 120 === 0) this.netPendingSums.set(t, w.digest());
+  }
+
+  /** Fight clock from the frontier tick (online). */
+  private netClock() {
+    if (this.phase !== 'fight') return;
+    this.fightTime = Math.max(0, this.netTick - NET_GO_TICK) / 60;
+    this.timeLeft = Math.max(0, this.netFightTicks / 60 - this.fightTime);
+  }
+
+  /** The KO / time-up tick is confirmed on this machine: show the result and stop rolling back. */
+  private netFinish() {
+    this.netFrozen = true;
+    this.fightTime = Math.max(0, this.netEndTick + 1 - NET_GO_TICK) / 60;
+    this.timeLeft = Math.max(0, this.netFightTicks / 60 - this.fightTime);
+    if (this.phase !== 'fight') return;
+    if (this.world.koLoser >= 0) this.onKO(this.world.koLoser);
+    else this.onTimeUp();
+  }
+
+  /** After the confirmed end both robots are locked: the world just runs on locally for the outro. */
+  private netFreeRun(dt: number) {
+    this.acc += dt;
+    let steps = 0;
+    while (this.acc >= SIM_DT && steps < 5) {
+      for (const s of this.sides) s.prevPos.copy(s.fighter.pos);
+      this.world.step([emptyInput(), emptyInput()]);
+      this.handleEvents(this.world.events);
+      this.acc -= SIM_DT;
+      steps++;
+    }
+    if (steps === 5) this.acc = 0;
+  }
+
+  /** Exchange state hashes for confirmed ticks only (predicted ticks may legitimately differ). */
+  private netCheckSums() {
+    const net = this.net!;
+    if (this.netDesync || this.netFrozen) return;
+    const final = Math.min(this.netConfirmed, this.netTick);
+    for (const [k, h] of this.netPendingSums) {
+      if (k >= final) continue;
+      this.netPendingSums.delete(k);
+      this.netSums.set(k, h);
+      net.sendSum(k, h);
+    }
     for (const [k, v] of this.netSums) {
-      const r = this.net!.remoteSums.get(k);
+      const r = net.remoteSums.get(k);
       if (r === undefined) continue;
       this.netSums.delete(k);
+      net.remoteSums.delete(k);
       this.netChecks++;
       if (r !== v) {
         this.netDesync = true;
@@ -931,16 +1214,85 @@ export class Match {
     }
   }
 
+  /** Drop inputs, snapshots and event records that can no longer be rolled back to. */
+  private netPrune() {
+    const keep = Math.min(this.netConfirmed, this.netTick);
+    for (const m of [this.netLocal, this.netUsed, this.netSnaps, this.net!.remote] as Map<number, unknown>[]) {
+      for (const k of m.keys()) if (k < keep) m.delete(k);
+    }
+    this.netLedger.prune(keep);
+  }
+
   /** Waiting on the opponent: a long stall or a closed socket ends the match as a forfeit. */
   private netWatch(dt: number) {
     const net = this.net!;
-    if (this.phase === 'done' || this.phase === 'outro') return;
-    if (!net.remote.has(this.netTick)) this.netStall += dt;
+    // a confirmed result is final: the opponent closing the results screen is not a disconnect
+    if (this.netFrozen || this.phase === 'done' || this.phase === 'outro') return;
     if (this.netStall > 1 && this.netStall - dt <= 1) this.host.hud.showHint('Waiting for opponent…', 2);
     if (!this.netLeft && (net.closed || this.netStall > 10)) {
       this.netLeft = true;
       this.host.hud.showHint('Opponent disconnected', 3);
       if (this.phase === 'fight' || this.phase === 'ready') this.onForfeit(1 - this.me);
+    }
+  }
+
+  /**
+   * Spectating: both inputs are confirmed, so there is no rollback. Play ~1 s behind the players
+   * (buffered against jitter); a late joiner fast-forwards silently through the match so far.
+   */
+  private watchFrame(dt: number) {
+    const ses = this.net!;
+    if (this.netFrozen) {
+      this.netFreeRun(dt);
+      return;
+    }
+    const avail = Math.min(this.watchLatest[0], this.watchLatest[1]) + 1;
+    if (!this.watchStarted) {
+      if (avail - this.netTick < 60 && !ses.closed) return;
+      this.watchStarted = true;
+    }
+    const behind = avail - this.netTick;
+    const catchUp = behind > 150;
+    // hold ~1 s of buffered input: drift the playback clock ±10% instead of stalling on jitter
+    const rate = behind < 40 ? 0.9 : behind > 90 ? 1.1 : 1;
+    this.acc += catchUp ? (behind - 60) * SIM_DT : dt * rate;
+    let steps = 0;
+    let starved = false;
+    while (this.acc >= SIM_DT && steps < (catchUp ? 900 : 5)) {
+      const t = this.netTick;
+      const a = this.watchIn[0].get(t), b = this.watchIn[1].get(t);
+      if (!a || !b) { starved = true; break; }
+      for (const s of this.sides) s.prevPos.copy(s.fighter.pos);
+      if (t === NET_GO_TICK && this.phase === 'ready') {
+        if (!catchUp) {
+          this.host.hud.announce('GO!', { color: '#ff6a1f' });
+          audio.play('announce_go');
+        }
+        this.setPhase('fight');
+      }
+      this.netSimTick(t, a, b);
+      this.netTick = t + 1;
+      this.watchIn[0].delete(t);
+      this.watchIn[1].delete(t);
+      // fast-forwarding a late join: no sounds or effects for the part already played
+      if (!catchUp) this.handleEvents(this.world.events);
+      this.netClock();
+      this.acc -= SIM_DT;
+      steps++;
+      if (this.netEndTick >= 0) {
+        this.netFinish();
+        break;
+      }
+    }
+    this.acc = Math.max(0, Math.min(this.acc, SIM_DT * 2));
+    if (starved) {
+      this.netStall += dt;
+      this.netStats.stallFrames++;
+    } else this.netStall = 0;
+    // the players left (or the stream stopped) before the end: stop watching
+    if (!this.netFrozen && starved && (ses.closed ? this.netStall > 1.5 : this.netStall > 10) && this.phase !== 'done') {
+      this.host.hud.showHint('The match ended early', 3);
+      this.end({ quit: true });
     }
   }
 
@@ -960,7 +1312,7 @@ export class Match {
   get netClean() { return !this.netDesync && !this.netLeft; }
 
   private tip(id: string, text: string) {
-    if (this.cfg.online || this.players || this.autoPilot || this.cfg.versus) return;
+    if (this.cfg.online || this.players || this.autoPilot || this.cfg.versus || (this.guide && !this.guide.finished)) return;
     if (this.tipQ.some(([k]) => k === id)) return;
     try { if ((JSON.parse(localStorage.getItem('ra-tips') ?? '[]') as string[]).includes(id)) return; } catch { return; }
     this.tipQ.push([id, text]);
@@ -991,6 +1343,8 @@ export class Match {
     audio.play('ko');
     audio.play('announce_ko');
     audio.duck(0.6, 2.5);
+    this.koYaw = null;
+    if (this.koCamOn()) this.koStartListen();
     this.cam.addTrauma(0.35);
     this.punch(0.006);
   }
@@ -1010,6 +1364,7 @@ export class Match {
   }
 
   private startOutro() {
+    this.koStopListen();
     this.setPhase('outro');
     audio.setTimeScale(1);
     this.host.input.releaseLock();
@@ -1030,7 +1385,8 @@ export class Match {
     return {
       v: 1,
       rulesVersion: RULESET_VERSION,
-      config: { ...config },
+      // record the objective explicitly: replays rename the mode, so the default could differ on playback
+      config: { ...config, objective: !!this.world.objective },
       worldSeed: this.worldSeed,
       aiSeed: this.aiSeed,
       streams: this.recorders!.map((r) => r.encode()),
@@ -1067,8 +1423,8 @@ export class Match {
       playerMaxHp: p.maxHp,
       rivalHp: r.hp,
       rivalMaxHp: r.maxHp,
-      player: { ...p.stats, deflects: T.deflects, parries: p.stats.parries, perfectDodges: T.perfect, podsUsed: T.used.pod, bombsUsed: T.used.bomb },
-      rival: { ...r.stats },
+      player: { ...p.stats, deflects: T.deflects, parries: p.stats.parries, perfectDodges: T.perfect, podsUsed: T.used.pod, bombsUsed: T.used.bomb, chargesUsed: T.used.charge, damageBy: { ...T.dmgDealt } },
+      rival: { ...r.stats, damageBy: { ...T.dmgTaken } },
       quit: o.quit,
       restart: o.restart,
       netClean: this.cfg.online ? this.netClean : undefined,
@@ -1175,6 +1531,7 @@ export class Match {
           const isP = e.who === this.me;
           const ev = e.ev;
           if (isP && this.phase === 'fight') {
+            this.guide?.onEvent(ev.type);
             const k = ev.type === 'dash' ? (ev.air ? 'airdash' : 'dash') : ev.type === 'chargeStart' ? 'charge' : ev.type;
             if (k in this.tel.used) this.tel.used[k]++;
             if (ev.type === 'knockdown') this.tel.kdTaken++;
@@ -1395,6 +1752,26 @@ export class Match {
           audio.play('ui_unlock', { pos: e.pickup.pos, volume: 0.6 });
           this.host.hud.popup(this.worldToScreen(e.pickup.pos.clone().add(new THREE.Vector3(0, 1.5, 0))), e.pickup.kind.toUpperCase(), 'tag');
           break;
+        case 'objective': {
+          const at = this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 2.4, 0)));
+          if (e.phase === 'warn') {
+            audio.play('countdown_tick', { volume: 0.9 });
+            this.tip('objective', `Overcharge Core: stand on the glowing centre pad ALONE for ${OBJECTIVE.capture.toFixed(0)}s. Reward: skill instantly ready + ${OBJECTIVE.overdrive}s Overdrive. Both on it = frozen.`);
+          } else if (e.phase === 'online') {
+            audio.play('ui_unlock', { volume: 0.9 });
+            this.host.hud.popup(at, 'CORE ONLINE', 'tag', '#ffd36a');
+          } else if (e.phase === 'capture') {
+            const mine = e.who === this.me;
+            this.objectiveView?.captured(e.who);
+            audio.play('announce_go', { volume: 0.8 });
+            audio.play('getup', { pos: e.pos });
+            this.host.hud.announce(mine ? 'OVERCHARGED' : 'RIVAL OVERCHARGED', { sub: `SKILL READY · OVERDRIVE ${OBJECTIVE.overdrive}s`, color: mine ? Match.OBJ_COLORS[0] : Match.OBJ_COLORS[1], small: true });
+            this.replayBar?.mark({ t: this.fightTime, side: mine ? 0 : 1, big: true, text: `${mine ? 'P1' : 'P2'} core capture` });
+          } else {
+            this.host.hud.popup(at, 'CORE OFFLINE', 'tag', '#8a8f99');
+          }
+          break;
+        }
         case 'pickupTake':
           this.tactics.pickupTaken(e.pickup);
           audio.play('getup', { pos: e.pickup.pos });
@@ -1490,7 +1867,8 @@ export class Match {
           audio.play('hazard_zap', { pos: e.pos });
           break;
         case 'ko':
-          this.onKO(e.loser);
+          // online: shown once the KO tick is confirmed (netFinish), never from a prediction
+          if (!this.net) this.onKO(e.loser);
           break;
         default:
           break;
@@ -1510,9 +1888,12 @@ export class Match {
     this.ambience?.stop();
     audio.setTimeScale(1);
     this.tactics.dispose();
+    this.objectiveView?.dispose();
     this.fx.dispose();
     for (const view of this.bombAimViews) view.dispose();
     this.aimView.dispose();
+    this.guideView?.dispose();
+    this.koStopListen();
     this.arena.dispose();
     this.host.input.enabled = false;
     this.host.input.onPause = null;

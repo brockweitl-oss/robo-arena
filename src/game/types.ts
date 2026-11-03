@@ -14,6 +14,8 @@ export interface MatchConfig {
   timeLimit?: number;
   /** Pick-ups mode (power-ups spawn mid-arena). */
   pickups?: boolean;
+  /** Overcharge Core objective. Default: on in every mode except practice (see objectiveEnabled). */
+  objective?: boolean;
   /** Rival+ ladder index (rivalplus mode). */
   plusIndex?: number;
   /** Survival: round number (1-based) and the HP the player carries in. */
@@ -29,7 +31,11 @@ export interface MatchConfig {
   /** Replay: stay paused after that seek. */
   replayPaused?: boolean;
   /** Online lockstep match: both builds in world order (host = 0), the room seed and which one is local. */
-  online?: { session: NetSession; me: 0 | 1; seed: number; players: [PlayerHello, PlayerHello]; ranked?: boolean };
+  online?: { session: NetSession; me: 0 | 1; seed: number; players: [PlayerHello, PlayerHello]; ranked?: boolean; spectate?: boolean };
+  /** Single-player sets: the rival's counter-picked build (defaults to the rival's own loadout). */
+  rivalLoadout?: Loadout;
+  /** Brand-new pilot's guided first match (contextual control prompts; rival holds fire until taught). */
+  guided?: boolean;
 }
 
 export interface MatchStats {
@@ -61,6 +67,17 @@ export interface MatchStats {
   podsUsed?: number;
   /** Bombs thrown this match. */
   bombsUsed?: number;
+  /** Damage this side dealt, by source (gun, bomb, pod, charge, skill, hazard…). */
+  damageBy?: Record<string, number>;
+  /** Charge attacks started (player only). */
+  chargesUsed?: number;
+  /** Overcharge Core captures. */
+  captures?: number;
+}
+
+/** Whether a match runs the Overcharge Core objective (an explicit flag wins; practice defaults off). */
+export function objectiveEnabled(cfg: Pick<MatchConfig, 'mode' | 'objective'>): boolean {
+  return cfg.objective ?? cfg.mode !== 'practice';
 }
 
 export interface MatchResult {

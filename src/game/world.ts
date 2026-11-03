@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { plannedBomb } from './bombAim';
-import { Fighter, type FighterInput, type HitInfo, type SpawnReq, GRAVITY } from './fighter';
+import { Fighter, type FighterInput, type FighterSnapshot, type HitInfo, type SpawnReq, GRAVITY } from './fighter';
 import type { ArenaBuild, BoxCollider } from '../arena/types';
 import type { BombDef, PodDef } from '../data/parts';
 import { segmentHit, pointInSolid, groundHeightBelow } from './collision';
-import { TACTICS, CRATE, TRAP, PICKUP, PICKUP_KINDS, PICKUP_EFFECT, type PickupKind } from './tactics';
+import { TACTICS, CRATE, WALL, TRAP, PICKUP, PICKUP_KINDS, PICKUP_EFFECT, OBJECTIVE, type PickupKind } from './tactics';
 import { comboBonus, type PrimerClearReason } from './combos';
 
 export const SIM_DT = 1 / 60;
@@ -98,10 +98,33 @@ export interface FireZone {
 
 export interface Crate {
   id: number;
+  /** 'crate' (cube) or 'wall' (low barricade, long axis x). */
+  kind: 'crate' | 'wall';
   collider: BoxCollider;
+  /** Bottom centre. */
   pos: THREE.Vector3;
+  /** Full extents (x, y, z). */
+  size: THREE.Vector3;
   hp: number;
+  maxHp: number;
   alive: boolean;
+}
+
+/** Overcharge Core state (see OBJECTIVE in tactics.ts). Times are combat ticks: the intro does not count. */
+export interface ObjectiveState {
+  pos: THREE.Vector3;
+  radius: number;
+  /** Combat steps elapsed (the objective clock). */
+  tick: number;
+  /** Tick of the next activation. */
+  nextTick: number;
+  /** Tick the current activation expires; -1 while offline. */
+  untilTick: number;
+  /** Capture progress per fighter, in seconds (capture at OBJECTIVE.capture). */
+  meters: [number, number];
+  contested: boolean;
+  captures: [number, number];
+  warned: boolean;
 }
 
 export interface Trap {
@@ -127,6 +150,8 @@ export interface WorldOptions {
   pickups?: boolean;
   /** Enable crates and trap switches (default true). */
   tactics?: boolean;
+  /** Enable the Overcharge Core objective (default false; matches turn it on outside practice). */
+  objective?: boolean;
   seed?: number;
 }
 
@@ -158,7 +183,39 @@ export type GameEvent =
   | { type: 'trapFire'; trap: Trap }
   | { type: 'pickupSpawn'; pickup: Pickup }
   | { type: 'pickupTake'; pickup: Pickup; who: number }
+  | { type: 'objective'; phase: 'warn' | 'online' | 'capture' | 'expire'; who: number; pos: THREE.Vector3 }
   | { type: 'ko'; loser: number };
+
+/**
+ * Complete simulation state between two ticks (rollback netcode). Restoring it and stepping with the
+ * same inputs reproduces the original run bit for bit. Immutable data (part defs, shot specs, arena
+ * geometry) is shared by reference; crates and traps are restored in place because views hold them.
+ */
+export interface WorldSnapshot {
+  readonly time: number;
+  readonly nextId: number;
+  readonly koLoser: number;
+  readonly combatEnabled: boolean;
+  readonly nextPickupAt: number;
+  readonly pickupIndex: number;
+  /** Overcharge Core clock, meters and captures (null when the objective is off). */
+  readonly objective: Omit<ObjectiveState, 'pos' | 'radius'> | null;
+  readonly fighters: readonly [FighterSnapshot, FighterSnapshot];
+  readonly projectiles: readonly Projectile[];
+  readonly bombs: readonly Bomb[];
+  readonly pods: readonly Pod[];
+  readonly fires: readonly FireZone[];
+  readonly crates: readonly (readonly [number, boolean])[];
+  readonly traps: readonly (readonly [number, number, number])[];
+  readonly pickups: readonly Pickup[];
+  readonly colliders: readonly ArenaBuild['colliders'][number][];
+}
+
+const copyProjectile = (p: Projectile): Projectile => ({ ...p, pos: p.pos.clone(), prev: p.prev.clone(), vel: p.vel.clone() });
+const copyBomb = (b: Bomb): Bomb => ({ ...b, pos: b.pos.clone(), vel: b.vel.clone(), spin: b.spin.clone(), target: b.target.clone() });
+const copyPod = (p: Pod): Pod => ({ ...p, pos: p.pos.clone(), vel: p.vel.clone() });
+const copyFire = (z: FireZone): FireZone => ({ ...z, pos: z.pos.clone() });
+const copyPickup = (p: Pickup): Pickup => ({ ...p, pos: p.pos.clone() });
 
 export function gunShotSpec(f: Fighter, power = 1): ShotSpec {
   const g = f.lo.gun;
@@ -195,6 +252,8 @@ export class World {
   crates: Crate[] = [];
   traps: Trap[] = [];
   pickups: Pickup[] = [];
+  /** Overcharge Core, or null when the mode has it off. */
+  objective: ObjectiveState | null = null;
   readonly events: GameEvent[] = [];
   private nextId = 1;
   /** -1 ongoing, 0/1 defeated player, 2 simultaneous knockout (draw). */
@@ -211,13 +270,14 @@ export class World {
     this.nextPickupAt = PICKUP.firstAt;
     const lay = TACTICS[opts.arenaId ?? arena.info.id];
     if (lay && opts.tactics !== false) {
-      for (const [x, z] of lay.crates) {
+      const cover = (kind: Crate['kind'], x: number, z: number, size: THREE.Vector3, hp: number) => {
         const y = groundHeightBelow(x, z, 50, arena.colliders);
-        const h = CRATE.size / 2;
-        const collider: BoxCollider = { kind: 'box', min: new THREE.Vector3(x - h, y, z - h), max: new THREE.Vector3(x + h, y + CRATE.size, z + h) };
+        const collider: BoxCollider = { kind: 'box', min: new THREE.Vector3(x - size.x / 2, y, z - size.z / 2), max: new THREE.Vector3(x + size.x / 2, y + size.y, z + size.z / 2) };
         arena.colliders.push(collider);
-        this.crates.push({ id: this.nextId++, collider, pos: new THREE.Vector3(x, y, z), hp: CRATE.hp, alive: true });
-      }
+        this.crates.push({ id: this.nextId++, kind, collider, pos: new THREE.Vector3(x, y, z), size, hp, maxHp: hp, alive: true });
+      };
+      for (const [x, z] of lay.crates) cover('crate', x, z, new THREE.Vector3(CRATE.size, CRATE.size, CRATE.size), CRATE.hp);
+      for (const [x, z] of lay.walls ?? []) cover('wall', x, z, new THREE.Vector3(WALL.w, WALL.h, WALL.d), WALL.hp);
       lay.pads.forEach((p, i) => {
         const y = groundHeightBelow(p.at[0], p.at[1], 50, arena.colliders);
         this.traps.push({ index: i, pos: new THREE.Vector3(p.at[0], y, p.at[1]), sw: new THREE.Vector3(...p.sw), armedAt: -1, readyAt: 0, owner: -1 });
@@ -225,6 +285,15 @@ export class World {
     }
     this.pickupSpot = lay ? new THREE.Vector3(lay.pickup[0], 0, lay.pickup[1]) : new THREE.Vector3();
     this.pickupSpot.y = groundHeightBelow(this.pickupSpot.x, this.pickupSpot.z, 50, arena.colliders) + 1.0;
+    if (opts.objective) {
+      const o = lay?.objective ?? { at: [0, 0] as [number, number] };
+      const pos = new THREE.Vector3(o.at[0], 0, o.at[1]);
+      pos.y = groundHeightBelow(pos.x, pos.z, o.probe ?? 50, arena.colliders);
+      this.objective = {
+        pos, radius: OBJECTIVE.radius, tick: 0, nextTick: Math.round(OBJECTIVE.firstAt / SIM_DT), untilTick: -1,
+        meters: [0, 0], contested: false, captures: [0, 0], warned: false,
+      };
+    }
   }
 
   private pickupSpot: THREE.Vector3;
@@ -255,6 +324,7 @@ export class World {
       this.stepHazards();
       this.stepTraps();
       this.stepPickups();
+      this.stepObjective();
     }
     // Resolve simultaneous hits as a draw, not a first-projectile/player-slot advantage.
     if (this.koLoser >= 0 && !f0.alive && !f1.alive) {
@@ -265,6 +335,54 @@ export class World {
     for (const f of this.fighters) for (let i = emitted[f.id]; i < f.events.length; i++) this.emitFighterEvent(f, f.events[i]);
     this.separate();
     this.time += dt;
+  }
+
+  /** Capture the full sim state (see WorldSnapshot). Cheap enough to take every tick. */
+  snapshot(): WorldSnapshot {
+    return {
+      time: this.time, nextId: this.nextId, koLoser: this.koLoser, combatEnabled: this.combatEnabled,
+      nextPickupAt: this.nextPickupAt, pickupIndex: this.pickupIndex,
+      fighters: [this.fighters[0].snapshot(), this.fighters[1].snapshot()],
+      projectiles: this.projectiles.map(copyProjectile),
+      bombs: this.bombs.map(copyBomb),
+      pods: this.pods.map(copyPod),
+      fires: this.fires.map(copyFire),
+      crates: this.crates.map((c) => [c.hp, c.alive] as const),
+      traps: this.traps.map((t) => [t.armedAt, t.readyAt, t.owner] as const),
+      pickups: this.pickups.map(copyPickup),
+      colliders: this.arena.colliders.slice(),
+      objective: this.objective ? copyObjective(this.objective) : null,
+    };
+  }
+
+  /** Return to a snapshot. Entities get fresh objects (views re-sync by id); the snapshot stays reusable. */
+  restore(s: WorldSnapshot) {
+    this.time = s.time;
+    this.nextId = s.nextId;
+    this.koLoser = s.koLoser;
+    this.combatEnabled = s.combatEnabled;
+    this.nextPickupAt = s.nextPickupAt;
+    this.pickupIndex = s.pickupIndex;
+    this.fighters[0].restore(s.fighters[0]);
+    this.fighters[1].restore(s.fighters[1]);
+    this.projectiles = s.projectiles.map(copyProjectile);
+    this.bombs = s.bombs.map(copyBomb);
+    this.pods = s.pods.map(copyPod);
+    this.fires = s.fires.map(copyFire);
+    s.crates.forEach(([hp, alive], i) => { this.crates[i].hp = hp; this.crates[i].alive = alive; });
+    s.traps.forEach(([armedAt, readyAt, owner], i) => { const t = this.traps[i]; t.armedAt = armedAt; t.readyAt = readyAt; t.owner = owner; });
+    this.pickups = s.pickups.map(copyPickup);
+    if (this.objective && s.objective) Object.assign(this.objective, copyObjective(s.objective));
+    // same array object (cameras and views hold it), same order (collision resolution is order-sensitive)
+    const cols = this.arena.colliders;
+    cols.length = 0;
+    for (const c of s.colliders) cols.push(c);
+    this.events.length = 0;
+  }
+
+  /** Order-sensitive hash of the full sim state (desync checks, rollback tests). */
+  digest(): number {
+    return digestState(this.snapshot());
   }
 
   private spawn(f: Fighter, s: SpawnReq) {
@@ -801,8 +919,9 @@ export class World {
     for (const p of this.pods) if (p.alive && p.pos.distanceTo(pos) < radius * 0.8 && p.owner !== owner) this.detonatePod(p, true);
     for (const cr of this.crates) {
       if (!cr.alive) continue;
-      const cc = cr.pos.clone().setY(cr.pos.y + CRATE.size / 2);
-      if (cc.distanceTo(pos) < radius + CRATE.size * 0.5) this.damageCrate(cr, damage * 0.8, cc);
+      // distance from the blast to the cover's box (walls are long: use the closest point, not the centre)
+      const cc = pos.clone().clamp(cr.collider.min, cr.collider.max);
+      if (cc.distanceTo(pos) < radius) this.damageCrate(cr, damage * 0.8, cc);
     }
   }
 
@@ -944,6 +1063,68 @@ export class World {
     this.pickups = this.pickups.filter((p) => p.until > this.time);
   }
 
+  /** Seconds until the core's next activation (0 while online), or Infinity when off. */
+  objectiveIn(): number {
+    const o = this.objective;
+    if (!o) return Infinity;
+    return o.untilTick >= 0 ? 0 : (o.nextTick - o.tick) * SIM_DT;
+  }
+
+  /** Whether a fighter counts as standing on the core (alive, upright, feet on the pad). */
+  onObjective(f: Fighter): boolean {
+    const o = this.objective;
+    if (!o || !f.alive || f.mode === 'down' || f.mode === 'getup') return false;
+    const dx = f.pos.x - o.pos.x, dz = f.pos.z - o.pos.z, dy = f.pos.y - o.pos.y;
+    return dx * dx + dz * dz <= o.radius * o.radius && dy >= -OBJECTIVE.below && dy <= OBJECTIVE.above;
+  }
+
+  private stepObjective() {
+    const o = this.objective;
+    if (!o) return;
+    o.tick++;
+    const warnTicks = Math.round(OBJECTIVE.warn / SIM_DT);
+    if (o.untilTick < 0) {
+      if (!o.warned && o.tick >= o.nextTick - warnTicks) {
+        o.warned = true;
+        this.events.push({ type: 'objective', phase: 'warn', who: -1, pos: o.pos.clone() });
+      }
+      if (o.tick < o.nextTick) return;
+      // online on a fixed schedule, independent of when (or whether) the last one was captured
+      o.untilTick = o.nextTick + Math.round(OBJECTIVE.window / SIM_DT);
+      o.nextTick += Math.round(OBJECTIVE.interval / SIM_DT);
+      o.warned = false;
+      o.meters[0] = o.meters[1] = 0;
+      this.events.push({ type: 'objective', phase: 'online', who: -1, pos: o.pos.clone() });
+    }
+    const on = [this.onObjective(this.fighters[0]), this.onObjective(this.fighters[1])];
+    o.contested = on[0] && on[1];
+    if (!o.contested) {
+      for (let i = 0; i < 2; i++) o.meters[i] = on[i] ? o.meters[i] + SIM_DT : Math.max(0, o.meters[i] - OBJECTIVE.decay * SIM_DT);
+      const who = o.meters[0] >= OBJECTIVE.capture - 1e-9 ? 0 : o.meters[1] >= OBJECTIVE.capture - 1e-9 ? 1 : -1;
+      if (who !== -1) {
+        const f = this.fighters[who];
+        f.skillCd = 0;
+        f.buffs.overdrive = Math.max(f.buffs.overdrive, OBJECTIVE.overdrive);
+        f.stats.captures++;
+        o.captures[who]++;
+        this.closeObjective();
+        this.events.push({ type: 'objective', phase: 'capture', who, pos: o.pos.clone() });
+        return;
+      }
+    }
+    if (o.tick >= o.untilTick) {
+      this.closeObjective();
+      this.events.push({ type: 'objective', phase: 'expire', who: -1, pos: o.pos.clone() });
+    }
+  }
+
+  private closeObjective() {
+    const o = this.objective!;
+    o.untilTick = -1;
+    o.meters[0] = o.meters[1] = 0;
+    o.contested = false;
+  }
+
   /** Keep the two robots from overlapping. */
   private separate() {
     const [a, b] = this.fighters;
@@ -986,6 +1167,38 @@ export class World {
 }
 
 export { GRAVITY };
+
+/** The mutable part of the objective (pos and radius never change). */
+function copyObjective(o: Omit<ObjectiveState, 'pos' | 'radius'>): Omit<ObjectiveState, 'pos' | 'radius'> {
+  return { tick: o.tick, nextTick: o.nextTick, untilTick: o.untilTick, meters: [o.meters[0], o.meters[1]], contested: o.contested, captures: [o.captures[0], o.captures[1]], warned: o.warned };
+}
+
+/** Keys holding immutable shared data (part defs, collider geometry): skipped by the digest. */
+const DIGEST_SKIP = new Set(['def', 'lo', 'st', 'colliders', 'groundCollider', 'collider']);
+
+/** FNV-1a over every number/boolean/string in a sim snapshot, in key order. */
+export function digestState(root: unknown): number {
+  let h = 2166136261;
+  const f64 = new Float64Array(1);
+  const u32 = new Uint32Array(f64.buffer);
+  const mix = (x: number) => { h ^= x; h = Math.imul(h, 16777619); };
+  const walk = (v: unknown) => {
+    if (v === null || v === undefined) { mix(0x9e3779b9); return; }
+    if (typeof v === 'number') { f64[0] = v; mix(u32[0]); mix(u32[1]); return; }
+    if (typeof v === 'boolean') { mix(v ? 1 : 2); return; }
+    if (typeof v === 'string') { for (let i = 0; i < v.length; i++) mix(v.charCodeAt(i)); return; }
+    if (v instanceof THREE.Vector3) { walk(v.x); walk(v.y); walk(v.z); return; }
+    if (Array.isArray(v)) { mix(v.length); for (const x of v) walk(x); return; }
+    if (typeof v === 'object') {
+      for (const k of Object.keys(v as object)) {
+        if (DIGEST_SKIP.has(k)) continue;
+        walk((v as Record<string, unknown>)[k]);
+      }
+    }
+  };
+  walk(root);
+  return h >>> 0;
+}
 
 /** Earliest constant-velocity intercept time, bounded by the weapon's flight in spawnShot. */
 export function interceptTime(relative: THREE.Vector3, velocity: THREE.Vector3, speed: number): number {

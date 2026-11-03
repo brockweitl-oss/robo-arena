@@ -66,6 +66,7 @@ const CSS = /* css */ `
 .hud-ann { position:absolute; left:0; right:0; top:38%; text-align:center; font-family:'Russo One'; font-size:clamp(56px,9vw,150px); letter-spacing:.06em; line-height:1; opacity:0; -webkit-text-stroke:2px #0008; text-shadow:0 6px 0 #0007, 0 0 40px var(--glow,#ff6a1f); }
 .hud-ann.show { animation:hudSlam .9s cubic-bezier(.2,1.4,.4,1) forwards; }
 .hud-ann.long { animation:hudSlamLong 2.4s cubic-bezier(.2,1.4,.4,1) forwards; }
+.hud-ann.sm { top:26%; font-size:clamp(30px,4.2vw,68px); }
 .hud-ann small { display:block; font-size:.22em; letter-spacing:.4em; margin-top:.4em; font-family:'Chakra Petch'; font-weight:700; opacity:.85; }
 .hud-pop { position:absolute; font-family:'Russo One'; font-size:28px; white-space:nowrap; transform:translate(-50%,-50%); text-shadow:0 3px 0 #000a, 0 0 12px var(--c,#fff); animation:hudPop .9s ease-out forwards; }
 .hud-pop.big { font-size:40px; }
@@ -88,6 +89,18 @@ const CSS = /* css */ `
 .hud-practice div { display:flex; justify-content:space-between; gap:18px; }
 .hud-practice b { font-family:'Russo One'; color:#37e8ff; }
 .hud-vign { position:absolute; inset:0; box-shadow:inset 0 0 160px #ff1a1a; opacity:0; transition:opacity .2s; }
+.hud-obj { position:absolute; top:94px; left:50%; transform:translateX(-50%); width:240px; text-align:center; font:700 12px 'Chakra Petch',sans-serif; letter-spacing:.14em; text-shadow:0 1px 3px #000; opacity:.55; transition:opacity .3s; }
+.hud-obj.hidden { display:none; }
+.hud-obj.soon, .hud-obj.online { opacity:1; }
+.hud-obj.soon .hud-obj-t { color:#ffd36a; animation:hudPulse .35s infinite alternate; }
+.hud-obj.online .hud-obj-t { color:#ffe7a6; }
+.hud-obj.contested .hud-obj-t { color:#ff6a5a; }
+.hud-obj-m { display:flex; gap:6px; margin-top:4px; height:6px; }
+.hud-obj.off .hud-obj-m { display:none; }
+.hud-obj-m i { position:relative; flex:1; background:#0b0d12cc; box-shadow:inset 0 0 0 1px #ffffff22; overflow:hidden; }
+.hud-obj-m i b { position:absolute; inset:0; background:var(--c); box-shadow:0 0 8px var(--c); transform:scaleX(var(--p)); }
+.hud-obj-m i.l b { transform-origin:right; }
+.hud-obj-m i.r b { transform-origin:left; }
 @keyframes hudPulse { from{filter:brightness(1)} to{filter:brightness(1.6)} }
 @keyframes hudSpin { to { transform:rotate(360deg) } }
 @keyframes hudReady { 0%{transform:scale(1.25)} 100%{transform:scale(1)} }
@@ -147,6 +160,7 @@ export class HUD {
       <div class="hud-off"></div>
       <div class="hud-fuel"><i></i></div>
       <div class="hud-weap"></div>
+      <div class="hud-obj hidden"><div class="hud-obj-t"></div><div class="hud-obj-m"><i class="l"><b></b></i><i class="r"><b></b></i></div></div>
       <div class="hud-buffs"></div><div class="hud-mobility"></div><div class="hud-bomb-aim"></div>
       ${[0, 1, 2, 3].map(() => '<div class="hud-threat"></div>').join('')}
       <div class="hud-hint"></div>
@@ -203,8 +217,8 @@ export class HUD {
     this.el.classList.toggle('hidden', !on);
   }
 
-  announce(text: string, opts: { sub?: string; color?: string; long?: boolean } = {}) {
-    this.ann.className = 'hud-ann';
+  announce(text: string, opts: { sub?: string; color?: string; long?: boolean; small?: boolean } = {}) {
+    this.ann.className = opts.small ? 'hud-ann sm' : 'hud-ann';
     void this.ann.offsetWidth;
     this.ann.innerHTML = text + (opts.sub ? `<small>${opts.sub}</small>` : '');
     this.ann.style.setProperty('--glow', opts.color ?? '#ff6a1f');
@@ -259,6 +273,24 @@ export class HUD {
     const ry = H / 2 - pad;
     const k = Math.min(Math.abs(rx / Math.cos(a)), Math.abs(ry / Math.sin(a)));
     el.style.transform = `translate(${W / 2 + Math.cos(a) * k - 11}px, ${H / 2 + Math.sin(a) * k - 10}px) rotate(${a + Math.PI / 2}rad)`;
+  }
+
+  /**
+   * Overcharge Core readout under the timer (null hides it). Meters are 0..1 in screen order:
+   * [left panel (local player), right panel (opponent)].
+   */
+  objective(o: { state: 'off' | 'soon' | 'online'; inSec: number; leftSec: number; meters: [number, number]; contested: boolean; colors: [string, string] } | null) {
+    const el = this.el.querySelector<HTMLElement>('.hud-obj')!;
+    if (!o) { el.classList.add('hidden'); return; }
+    const cls = `hud-obj ${o.state}${o.contested ? ' contested' : ''}`;
+    if (el.className !== cls) el.className = cls;
+    const text = o.state === 'online' ? (o.contested ? 'CORE CONTESTED' : `OVERCHARGE CORE · ${Math.ceil(o.leftSec)}s`) : o.state === 'soon' ? `CORE ONLINE IN ${Math.ceil(o.inSec)}` : `CORE IN ${Math.ceil(o.inSec)}s`;
+    const t = el.firstElementChild as HTMLElement;
+    if (t.textContent !== text) t.textContent = text;
+    el.querySelectorAll<HTMLElement>('.hud-obj-m b').forEach((b, i) => {
+      b.style.setProperty('--p', o.meters[i].toFixed(3));
+      b.style.setProperty('--c', o.colors[i]);
+    });
   }
 
   setPractice(on: boolean) {

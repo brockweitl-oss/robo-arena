@@ -19,3 +19,11 @@ class_name = "Ratings"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Room", "Lobby", "Ratings"]
+
+[[durable_objects.bindings]]
+name = "REPLAYS"
+class_name = "Replays"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Replays"]

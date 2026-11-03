@@ -10,6 +10,7 @@ import {
   challengeProgress, pilotLevel, equipCosmetic, unequipCosmetic, CREDITS,
 } from '../../src/game/progression';
 import { ACHIEVEMENTS, checkAchievements } from '../../src/game/achievements';
+import { NEW_PILOT_PARTS } from '../../src/game/onboarding';
 import type { MatchResult, MatchStats } from '../../src/game/types';
 
 const stats = (o: Partial<MatchStats> = {}): MatchStats => ({ damageDealt: 800, hits: 12, knockdowns: 1, shots: 40, dodges: 0, ...o });
@@ -62,7 +63,7 @@ describe('mastery', () => {
     expect(s.cosmetics.owned).toContain(up!.cosmetic);
     expect(COSMETICS[up!.cosmetic!].kind).toBe('paint');
     // a level-up must not touch the loadout / parts
-    expect(s.unlocked.sort()).toEqual([...STARTER_PARTS].sort());
+    expect(s.unlocked.sort()).toEqual([...NEW_PILOT_PARTS].sort());
     expect(pilotLevel(s)).toBeGreaterThan(0);
   });
   it('credits the save and records stats', () => {

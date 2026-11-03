@@ -34,6 +34,9 @@ if (quick !== null) {
     .then(({ Menus }) => {
       const menus = new Menus(game, game.menuRoot);
       game.menus = menus;
+      // ?replay=CODE: a shared replay link plays right after the title screen
+      const shared = params.get('replay');
+      if (shared && /^[A-Za-z0-9]{6}$/.test(shared)) menus.queueSharedReplay(shared);
       menus.showTitle();
     })
     .catch((e) => console.error('menus failed to load', e));
