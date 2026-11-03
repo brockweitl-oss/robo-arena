@@ -1118,7 +1118,7 @@ export class Menus implements MenuLayer {
     stagger([panel], 450);
     stagger([insEl], 600);
     stagger([bar], 800);
-    el.append(h('div', 'vig vig-top'), h('div', 'vig vig-bot'), banner, h('div', 'res-body', panel, insEl), bar, hints([['move', 'Move'], ['confirm', 'Select']]));
+    el.append(h('div', 'vig vig-top'), h('div', 'vig vig-bot'), banner, h('div', 'res-body', panel, insEl), bar, hints(championNow ? [['move', 'Move'], ['confirm', 'Select']] : [['move', 'Move'], ['confirm', 'Select'], ['back', 'Main Menu']]));
     this.setScreen(el, { back: championNow ? undefined : () => { this.series = null; this.showMain(); }, initial: acts[0] });
     this.meta.rewardsStrip(el, rewards);
 

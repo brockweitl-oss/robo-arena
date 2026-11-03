@@ -90,7 +90,7 @@ const CSS = /* css */ `
 .hud-practice div { display:flex; justify-content:space-between; gap:18px; }
 .hud-practice b { font-family:'Russo One'; color:#37e8ff; }
 .hud-vign { position:absolute; inset:0; box-shadow:inset 0 0 160px #ff1a1a; opacity:0; transition:opacity .2s; }
-.hud-obj { position:absolute; top:94px; left:50%; transform:translateX(-50%); width:240px; text-align:center; font:700 12px 'Chakra Petch',sans-serif; letter-spacing:.14em; text-shadow:0 1px 3px #000; opacity:.55; transition:opacity .3s; }
+.hud-obj { position:absolute; top:94px; left:50%; transform:translateX(-50%); width:240px; text-align:center; font:700 12px 'Chakra Petch',sans-serif; letter-spacing:.14em; text-shadow:0 1px 3px #000, 0 0 6px #000c; opacity:.8; transition:opacity .3s; }
 .hud-obj.hidden { display:none; }
 .hud-obj.soon, .hud-obj.online { opacity:1; }
 .hud-obj.soon .hud-obj-t { color:#ffd36a; animation:hudPulse .35s infinite alternate; }
@@ -102,13 +102,15 @@ const CSS = /* css */ `
 .hud-obj-m i b { position:absolute; inset:0; background:var(--c); box-shadow:0 0 8px var(--c); transform:scaleX(var(--p)); }
 .hud-obj-m i.l b { transform-origin:right; }
 .hud-obj-m i.r b { transform-origin:left; }
+/* the fullscreen button (src/core/fullscreen.ts) is menu chrome: keep the gameplay corner clear; F11 still works */
+body:has(.hud:not(.hidden)) .fs-toggle { display:none !important; }
 @media (prefers-reduced-motion: reduce) {
   .hud-lock svg, .hud-bar .fill.low, .hud-down.hot i, .hud-timer.warn, .hud-obj.soon .hud-obj-t { animation:none !important; }
 }
 @media (min-height: 1300px) {
   .hud-weap { transform:translateX(-50%) scale(1.3); transform-origin:50% 100%; bottom:34px; }
   .hud-mobility { bottom:186px; font-size:15px; } .hud-hint { bottom:160px; font-size:17px; } .hud-fuel { bottom:146px; }
-  .hud-downlbl2, .hud-ecd b { font-size:13px; } .hud-combat-state, .hud-primer, .hud-obj { font-size:15px; } .hud-obj { top:120px; width:300px; }
+  .hud-downlbl2, .hud-ecd b { font-size:13px; } .hud-ecd::before { font-size:12px; } .hud-combat-state, .hud-primer, .hud-obj { font-size:15px; } .hud-obj { top:120px; width:300px; }
 }
 @keyframes hudPulse { from{filter:brightness(1)} to{filter:brightness(1.6)} }
 @keyframes hudSpin { to { transform:rotate(360deg) } }
@@ -354,7 +356,7 @@ export class HUD {
       const recovery=Math.max(f.recoveryTime,f.landT);
       const recovering=recovery>0 || f.mode==='charge' && f.chargePhase===2;
       label.dataset.state=f.guarding?'guard':recovering?'opening':'ready';
-      label.textContent=f.parrying?'PARRY WINDOW':f.guarding?'FRONTAL GUARD':recovering?`${i?'PUNISH WINDOW':'RECOVERY'} ${recovery>0?recovery.toFixed(1)+'s':''}`:f.attackCommitted?'ATTACK COMMITTED':f.mode==='down'?'KNOCKED DOWN':f.mode==='getup'?'WAKE-UP PROTECTION':'';
+      label.textContent=f.parrying?'PARRY WINDOW':f.guarding?'FRONTAL GUARD':recovering?`${i?'PUNISH WINDOW':'RECOVERY'} ${recovery>=0.05?recovery.toFixed(1)+'s':''}`:f.attackCommitted?'ATTACK COMMITTED':f.mode==='down'?'KNOCKED DOWN':f.mode==='getup'?'WAKE-UP PROTECTION':'';
     });
     // enemy cooldown readout: competitive information for punish windows
     const e = fighters[1];

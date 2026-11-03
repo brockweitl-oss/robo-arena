@@ -165,8 +165,6 @@
   display: flex; gap: calc(var(--u) * 1.6); font-size: max(11px, calc(var(--u) * 0.85)); color: #b9c4d4; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600;
   padding: 0.35em 0.8em; background: rgba(7, 10, 16, 0.72); border-radius: 4px;
 }
-/* the fullscreen toggle is menu chrome: hide it while a match is live (pause shows it again) */
-body:has(.ra-root:not(.is-active)) .fs-toggle { display: none !important; }
 .ra-hint { display: flex; align-items: center; gap: 0.5em; }
 .ra-hint kbd, .ctl-k kbd {
   display: inline-flex; align-items: center; justify-content: center; min-width: 2em; height: 1.8em; padding: 0 0.55em;
