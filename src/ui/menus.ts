@@ -1410,7 +1410,10 @@ export class Menus implements MenuLayer {
   private survivalCfg(round: number, startHp: number): MatchConfig {
     // escalating opponents: early rounds draw from the story ladder, later from Rival+
     const pool = round <= 3 ? RIVALS.slice(0, 3) : round <= 6 ? RIVALS : [...RIVALS.slice(2), ...RIVALS_PLUS];
-    const r = pool[(round * 7 + Math.floor(Math.random() * pool.length)) % pool.length];
+    // same gauntlet for everyone this season, so the survival leaderboard is a fair comparison
+    const seed = [...seasonOf()].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619), 2166136261);
+    const mix = Math.imul(seed ^ Math.imul(round, 2654435761), 2246822519) >>> 0;
+    const r = pool[(round * 7 + (mix >>> 8)) % pool.length];
     const arenas = ARENA_IDS as readonly string[];
     return { mode: 'survival', playerLoadout: { ...this.host.save.loadout }, rivalId: r.id, arenaId: arenas[round % arenas.length], timeLimit: 120, survival: { round, startHp } };
   }
@@ -1558,7 +1561,7 @@ export class Menus implements MenuLayer {
     name.maxLength = 16;
     name.setAttribute('aria-label', 'Pilot name');
     name.addEventListener('change', () => { name.value = netName(name.value); });
-    const rating = h('div', 'md-desc net-me', 'Ranked rating: …');
+    const rating = h('div', 'md-desc net-me', 'Ranked rating: checking the server…');
     fetchMe().then((r) => {
       if (!r) { rating.textContent = 'Ranked: offline'; return; }
       const season = r.season ? `${seasonLabel(r.season)} season · ` : '';
@@ -1579,7 +1582,7 @@ export class Menus implements MenuLayer {
         .catch((e: Error) => { cancel = null; if (e.message !== 'cancelled') stat.textContent = 'Could not reach the online server. Try again in a moment.'; });
     };
     const code = h('input', 'net-input net-code') as HTMLInputElement;
-    code.placeholder = 'CODE';
+    code.placeholder = 'Room code';
     code.maxLength = 5;
     code.setAttribute('aria-label', 'Room code');
     code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });

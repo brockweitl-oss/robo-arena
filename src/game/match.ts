@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameRenderer } from '../render/renderer';
-import type { Input } from '../core/input';
+import { keyName, padName, type Input } from '../core/input';
 import type { Settings } from '../core/save';
 import type { HUD } from '../ui/hud';
 import { ARENA_FACTORIES } from '../arena';
@@ -1059,7 +1059,7 @@ export class Match {
     if (p === 'ready') {
       this.host.hud.announce('READY', { color: '#37e8ff' });
       audio.play('announce_ready');
-      if (!this.guide) this.host.hud.showHint(this.watching ? 'Spectating live · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc menu' : this.players ? 'Replay · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc pause' : this.host.input.lastDevice === 'pad' ? 'RT auto-gun · Hold Y + R-stick: aim skill, release: fire · LT bomb · RB pod · B dash · X charge' : 'Click to capture mouse · LMB auto-gun · Hold R + mouse: aim skill, release: fire · Hold RMB: aim bomb · E pod · Shift dash · Q charge', 5);
+      if (!this.guide) this.host.hud.showHint(this.watching ? 'Spectating live · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc menu' : this.players ? 'Replay · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc pause' : this.controlsHint(), 5);
       this.host.input.enabled = !this.watching;
       if (!this.players && !this.watching) this.host.input.requestLock();
     }
@@ -1945,6 +1945,17 @@ export class Match {
           break;
       }
     }
+  }
+
+  /** Match-start controls line, built from the player's own bindings. */
+  private controlsHint(): string {
+    const b = this.host.input.bindings;
+    if (this.host.input.lastDevice === 'pad') {
+      const p = (a: keyof typeof b.pad) => padName(b.pad[a]?.[0]);
+      return `${p('gun')} fire · Hold ${p('skill')} + R-stick: aim skill · ${p('bomb')} bomb · ${p('pod')} pod · ${p('dash')} dash · ${p('charge')} charge`;
+    }
+    const k = (a: keyof typeof b.keys) => keyName(b.keys[a].find(Boolean) ?? '');
+    return `Click to capture mouse · ${k('gun')} fire · Hold ${k('skill')}: aim skill · Hold ${k('bomb')}: aim bomb · ${k('pod')} pod · ${k('dash')} dash · ${k('charge')} charge`;
   }
 
   dispose() {
