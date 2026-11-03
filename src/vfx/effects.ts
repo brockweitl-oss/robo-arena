@@ -109,7 +109,7 @@ export class Effects {
     this.smoke.scale = Math.max(0.6, q);
     this.group.add(this.sparks.mesh, this.smoke.mesh);
     this.shots = new ProjectileViews(this.sparks, this.smoke);
-    this.group.add(this.shots.group);
+    this.group.add(this.shots.group, this.shots.warm);
     this.weapons = new WeaponFx(this);
     this.fireballs = new Fireballs(quality === 'low' ? 4 : 8, quality === 'high' ? 4 : 3);
     this.group.add(this.fireballs.group);

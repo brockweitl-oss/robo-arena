@@ -51,7 +51,10 @@ export class SkillEffects {
 
   constructor(quality: 'low' | 'medium' | 'high') {
     for (let i = 0; i < (quality === 'low' ? 8 : 16); i++) {
-      const root = new THREE.Group(), core = new THREE.Mesh(this.geo.lance, this.mats.lance), edge = new THREE.Mesh(this.geo.lance, this.white), trail = new THREE.Mesh(this.trailGeo, material(0xffffff,.3)), cable = line();
+      // Slots start on different skill materials so the match pre-compile covers every one (the
+      // ion-wave shader otherwise compiled on its first cast, mid-fight).
+      const kind = (['lance', 'hook', 'frost', 'wave'] as const)[i % 4];
+      const root = new THREE.Group(), core = new THREE.Mesh(this.geo[kind], this.mats[kind]), edge = new THREE.Mesh(this.geo.lance, this.white), trail = new THREE.Mesh(this.trailGeo, material(0xffffff,.3)), cable = line();
       root.add(core, edge, trail); root.visible = cable.visible = false;
       this.group.add(root, cable); this.slots.push({ id: -1, owner: -1, offset: new THREE.Vector3(), seen: false, root, core, edge, trail, cable });
     }

@@ -204,6 +204,8 @@ export function headBounds(head: THREE.Object3D): HeadBounds {
 
 export class ProjectileViews {
   readonly group = new THREE.Group();
+  /** Hidden pre-pooled objects, parked here (in the scene) only so the shader pre-compile sees them. */
+  readonly warm = new THREE.Group();
   private views = new Map<number, View>();
   private ribbons: Ribbon[] = [];
   private heads = new Map<Style['head'], THREE.Object3D[]>();
@@ -253,6 +255,22 @@ export class ProjectileViews {
         }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     });
+    // Pre-pool one hidden head of every kind (plus a ribbon and a halo) so the match's shader
+    // pre-compile sees every material variant. Built lazily, the first frost/hook/wave skill shot of
+    // a match stalled the frame for 60-430 ms, exactly when the player had to read and dodge it.
+    for (const kind of ['bolt', 'pellet', 'spear', 'shard', 'harpoon', 'wall'] as const) {
+      const head = this.makeHead(kind, 0xffffff, 0xffffff);
+      head.visible = false;
+      this.warm.add(head);
+      this.heads.set(kind, [head]);
+    }
+    const ribbon = new Ribbon(); // empty draw range: draws nothing until used
+    this.warm.add(ribbon.mesh);
+    this.ribbons.push(ribbon);
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.haloTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+    halo.visible = false;
+    this.warm.add(halo);
+    this.halos.push(halo);
   }
 
   private glow(color: number, k: number) {

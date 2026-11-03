@@ -59,6 +59,8 @@
 .res-body { display: grid; grid-template-columns: minmax(0, 41fr) minmax(0, 27fr); gap: calc(var(--u) * 1); width: min(calc(var(--u) * 69), 94vw); margin-right: calc(var(--u) * 19); align-items: start; }
 .res-body .res-row { grid-template-columns: calc(var(--u) * 3.4) 1fr calc(var(--u) * 8) 1fr calc(var(--u) * 3.4); }
 .res-body .res-panel { width: auto; }
+/* the action row shares the body column so it never runs under the rewards strip */
+.scr-res .res-acts { width: min(calc(var(--u) * 69), 94vw); margin-right: calc(var(--u) * 19); }
 .res-ins { display: grid; gap: calc(var(--u) * 0.7); animation-delay: 0.2s; }
 .res-ins-h { font-family: 'Russo One', sans-serif; font-size: calc(var(--u) * 1.2); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 0.6em; }
 .res-ins-h::before { content: ''; width: calc(var(--u) * 1.4); height: 3px; background: var(--c); box-shadow: 0 0 8px var(--c); }

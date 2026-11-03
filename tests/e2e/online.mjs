@@ -7,6 +7,10 @@
 //    host keeps mispredicting and rolling back. A spectator joins late (fast-forward) and watches.
 //    The round is shortened (?nettime) and played to the end: no desync, and host, guest and
 //    spectator all agree on the final HP.
+// 3. Alt-tab: the guest's tab is hidden for 12 s (rAF stopped); its sim keeps sending inputs, the host
+//    never sees a disconnect, and both agree after the tab returns.
+// 4. Ranked over the queue (guest on a 100-140 ms link): the winner closes the tab during the outro;
+//    the result is still rated (no forfeit) and the stayer is shown the change. ONLY4=1 runs just this.
 // Zero console errors/warnings throughout.
 import { chromium } from 'playwright';
 
@@ -72,7 +76,7 @@ async function finalHp(p, tag, timeout) {
 }
 
 // ------------------------------------------------------------------ 1. clean link
-{
+if (!process.env.ONLY4) {
   const a = await open('A');
   const b = await open('B');
   await startMatch(a, b);
@@ -95,7 +99,7 @@ async function finalHp(p, tag, timeout) {
 }
 
 // ------------------------------------------------------------------ 2. jittery link + late spectator
-{
+if (!process.env.ONLY4) {
   const a = await open('A2', `&nettime=${ROUND}`);
   const b = await open('B2', `&nettime=${ROUND}&netlag=60,120`);
   const code = await startMatch(a, b);
@@ -124,6 +128,69 @@ async function finalHp(p, tag, timeout) {
   if (ea.stats.rollbacks + eb.stats.rollbacks < 5) await fail('jitter produced no rollbacks (prediction is not being exercised)');
   if (Math.max(ea.stats.maxDepth, eb.stats.maxDepth) > 12) await fail('rolled back past the window');
   if (Math.min(ea.checks, eb.checks) < 3) await fail('too few state checks under jitter');
+  if (problems.length) await fail('console problems');
+}
+// ------------------------------------------------------------------ 3. alt-tab: a hidden tab keeps its inputs flowing
+if (!process.env.ONLY4) {
+  const a = await open('A3');
+  const b = await open('B3');
+  await startMatch(a, b);
+  await a.waitForTimeout(2000);
+  step('guest tab hidden for 12 s (requestAnimationFrame stops)');
+  await b.evaluate(() => {
+    window.__raf = window.requestAnimationFrame;
+    window.requestAnimationFrame = () => 0;
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+  });
+  const t0 = (await snap(b)).tick;
+  await a.waitForTimeout(12000);
+  const [sa, sb] = [await snap(a), await snap(b)];
+  step(`after 12 s hidden: A tick ${sa.tick} phase ${sa.phase} left ${sa.left} | B tick ${sb.tick} (+${sb.tick - t0})`);
+  if (sa.left || sa.phase !== 'fight') await fail('a hidden tab was treated as a disconnect');
+  if (sb.tick - t0 < 400) await fail('the hidden tab stopped simulating');
+  await b.evaluate(() => {
+    delete document.hidden;
+    window.requestAnimationFrame = window.__raf;
+    window.__game.start();
+  });
+  await a.waitForTimeout(3000);
+  const [ra, rb] = [await snap(a), await snap(b)];
+  if (ra.desync || rb.desync) await fail('desync after the tab came back');
+  if (Math.abs(ra.tick - rb.tick) > 30) await fail('clients drifted apart after the tab came back');
+  step(`tab back: A tick ${ra.tick} | B tick ${rb.tick}, no desync`);
+  await a.close(); await b.close();
+  if (problems.length) await fail('console problems');
+}
+
+// ------------------------------------------------------------------ 4. ranked: the winner closes the tab during the outro
+{
+  const a = await open('A4', `&nettime=${ROUND}`);
+  const b = await open('B4', `&nettime=${ROUND}&netlag=100,140`);
+  const me = (p) => p.evaluate(async (net) => (await fetch(`${net}/me?key=${localStorage.getItem('ra-net-key')}`)).json(), NET);
+  const [ma0, mb0] = [await me(a), await me(b)];
+  await click(a, 'Ranked Match');
+  await click(b, 'Ranked Match');
+  for (const p of [a, b]) await p.waitForFunction(() => window.__game?.match?.phase === 'fight', null, { timeout: 30000 }).catch(() => fail('ranked fight did not start'));
+  step('ranked fight started (guest on a 100-140 ms link)');
+  const [ea, eb] = await Promise.all([finalHp(a, 'host', 80000), finalHp(b, 'guest', 80000)]);
+  step(`ranked final: A ${JSON.stringify(ea)} | B ${JSON.stringify(eb)}`);
+  if (JSON.stringify(ea.hp) !== JSON.stringify(eb.hp)) await fail('ranked players disagree on the final HP');
+  // whoever won (or the host on a draw) leaves the moment its end is confirmed
+  const hostWon = ea.hp[0] >= ea.hp[1];
+  const [leaver, stayer] = hostWon ? [a, b] : [b, a];
+  await leaver.waitForTimeout(400);
+  await leaver.close();
+  step(`${hostWon ? 'host' : 'guest'} (winner) closed the tab during the outro`);
+  await stayer.waitForFunction(() => /Opponent left/.test(document.body.innerText), null, { timeout: 30000 }).catch(() => fail('stayer never returned to the online menu'));
+  const text = await stayer.evaluate(() => document.querySelector('.net-status')?.textContent ?? '');
+  const ms = await me(stayer);
+  const ms0 = hostWon ? mb0 : ma0;
+  step(`stayer sees: "${text}" · games ${ms0.games} -> ${ms.games}, rating ${ms0.rating} -> ${ms.rating}`);
+  if (ms.games !== ms0.games + 1) await fail('the ranked result was not recorded');
+  const draw = ea.hp[0] === ea.hp[1];
+  if (!draw && ms.rating >= ms0.rating) await fail('the loser gained rating: the winner was scored as a forfeit');
+  if (!/Rated:/.test(text)) await fail('the stayer was not shown the rating change');
+  await stayer.close();
   if (problems.length) await fail('console problems');
 }
 console.log('PASS');

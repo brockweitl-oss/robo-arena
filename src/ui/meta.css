@@ -211,7 +211,7 @@
 .rw-crow b { color: var(--mute); white-space: nowrap; }
 .rw-crow.done b { color: var(--gold); }
 
-.rw-toasts { position: absolute; left: calc(var(--u) * 1.6); top: calc(var(--u) * 9.5); width: calc(var(--u) * 17); display: grid; gap: calc(var(--u) * 0.6); z-index: 2; pointer-events: none; }
+.rw-toasts { position: absolute; left: calc(var(--u) * 1.6); top: calc(var(--u) * 1.6); width: calc(var(--u) * 17); display: grid; gap: calc(var(--u) * 0.6); z-index: 2; pointer-events: none; }
 .rw-toast {
   display: flex; align-items: center; gap: calc(var(--u) * 0.8); padding: calc(var(--u) * 0.7) calc(var(--u) * 0.9);
   background: linear-gradient(100deg, rgba(70, 34, 8, 0.95), rgba(14, 18, 28, 0.94) 70%); border-left: 3px solid var(--gold);

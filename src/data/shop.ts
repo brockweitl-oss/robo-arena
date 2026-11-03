@@ -4,6 +4,10 @@
  * Fairness rule: everything here is cosmetic. Nothing changes a stat, and the shop
  * NEVER sells parts. Parts come only from ladder / Rival+ unlocks.
  *
+ * Prices were raised 1.5x in the AI/balance audit: at ~100 credits a match plus dailies, a new
+ * pilot could clear the whole day's six-item stock inside the first ~45 minutes of play, after
+ * which credits had nothing left to buy until the next restock (docs/audit/AI-BALANCE.md).
+ *
  * Cosmetic sources:
  *  - 'shop':        appears in the rotating daily stock (6 items, re-rolled from the date)
  *  - 'mastery':     granted by part mastery levels (see progression.ts), never sold
@@ -40,39 +44,39 @@ const P = (primary: number, secondary: number, trim: number, dark: number, glow:
 
 const SHOP_ITEMS: Cosmetic[] = [
   // paint schemes
-  { id: 'paint:ember', kind: 'paint', name: 'Ember Rush', price: 300, source: 'shop', paint: P(0x2a1c18, 0xff5a1f, 0xffc36a, 0x17110f, 0xff8a3a), blurb: 'Charcoal plate, molten edges.' },
-  { id: 'paint:glacier', kind: 'paint', name: 'Glacier', price: 300, source: 'shop', paint: P(0xe8f4ff, 0x5fb8ff, 0x24364f, 0x1a2433, 0x9ff0ff), blurb: 'Clean white armor with ice-blue seams.' },
-  { id: 'paint:verdant', kind: 'paint', name: 'Verdant Ops', price: 250, source: 'shop', paint: P(0x3d5a36, 0xc9b27a, 0x1f241c, 0x232a20, 0xb8ff6a), blurb: 'Field green and desert tan.' },
-  { id: 'paint:noir', kind: 'paint', name: 'Noir Chrome', price: 450, source: 'shop', paint: P(0x16181d, 0x8a919e, 0xe6e9ef, 0x0d0e11, 0xff2e63), blurb: 'Black steel, crimson eyes.' },
-  { id: 'paint:sunset', kind: 'paint', name: 'Boulevard', price: 350, source: 'shop', paint: P(0xff7aa8, 0x6a3cff, 0xffe9a8, 0x2a1b3d, 0x4ef0ff), blurb: 'Neon city pastel.' },
-  { id: 'paint:hazard', kind: 'paint', name: 'Hazard Crew', price: 250, source: 'shop', paint: P(0xf2c230, 0x1d1d1f, 0x5b5b60, 0x262628, 0xff9c1a), blurb: 'Industrial yellow and black.' },
-  { id: 'paint:royal', kind: 'paint', name: 'Royal Guard', price: 500, source: 'shop', paint: P(0x1c2a6b, 0xd9b04a, 0xf3ead2, 0x111733, 0x7ab6ff), blurb: 'Navy and gold parade armor.' },
-  { id: 'paint:toxic', kind: 'paint', name: 'Toxin', price: 350, source: 'shop', paint: P(0x2b2f36, 0x7dff3a, 0x9aa3b0, 0x16191d, 0x7dff3a), blurb: 'Gunmetal with a reactive green glow.' },
-  { id: 'paint:sakura', kind: 'paint', name: 'Petal Drift', price: 400, source: 'shop', paint: P(0xf6e8ec, 0xe26d8f, 0x5a3440, 0x2b1d23, 0xffb3cf), blurb: 'Soft white with blossom pink.' },
-  { id: 'paint:abyss', kind: 'paint', name: 'Abyssal', price: 600, source: 'shop', paint: P(0x0d2b3a, 0x13c6b3, 0x93fff0, 0x061820, 0x3affd8), blurb: 'Deep-sea teal with bioluminescent trim.' },
+  { id: 'paint:ember', kind: 'paint', name: 'Ember Rush', price: 450, source: 'shop', paint: P(0x2a1c18, 0xff5a1f, 0xffc36a, 0x17110f, 0xff8a3a), blurb: 'Charcoal plate, molten edges.' },
+  { id: 'paint:glacier', kind: 'paint', name: 'Glacier', price: 450, source: 'shop', paint: P(0xe8f4ff, 0x5fb8ff, 0x24364f, 0x1a2433, 0x9ff0ff), blurb: 'Clean white armor with ice-blue seams.' },
+  { id: 'paint:verdant', kind: 'paint', name: 'Verdant Ops', price: 400, source: 'shop', paint: P(0x3d5a36, 0xc9b27a, 0x1f241c, 0x232a20, 0xb8ff6a), blurb: 'Field green and desert tan.' },
+  { id: 'paint:noir', kind: 'paint', name: 'Noir Chrome', price: 700, source: 'shop', paint: P(0x16181d, 0x8a919e, 0xe6e9ef, 0x0d0e11, 0xff2e63), blurb: 'Black steel, crimson eyes.' },
+  { id: 'paint:sunset', kind: 'paint', name: 'Boulevard', price: 500, source: 'shop', paint: P(0xff7aa8, 0x6a3cff, 0xffe9a8, 0x2a1b3d, 0x4ef0ff), blurb: 'Neon city pastel.' },
+  { id: 'paint:hazard', kind: 'paint', name: 'Hazard Crew', price: 400, source: 'shop', paint: P(0xf2c230, 0x1d1d1f, 0x5b5b60, 0x262628, 0xff9c1a), blurb: 'Industrial yellow and black.' },
+  { id: 'paint:royal', kind: 'paint', name: 'Royal Guard', price: 750, source: 'shop', paint: P(0x1c2a6b, 0xd9b04a, 0xf3ead2, 0x111733, 0x7ab6ff), blurb: 'Navy and gold parade armor.' },
+  { id: 'paint:toxic', kind: 'paint', name: 'Toxin', price: 500, source: 'shop', paint: P(0x2b2f36, 0x7dff3a, 0x9aa3b0, 0x16191d, 0x7dff3a), blurb: 'Gunmetal with a reactive green glow.' },
+  { id: 'paint:sakura', kind: 'paint', name: 'Petal Drift', price: 600, source: 'shop', paint: P(0xf6e8ec, 0xe26d8f, 0x5a3440, 0x2b1d23, 0xffb3cf), blurb: 'Soft white with blossom pink.' },
+  { id: 'paint:abyss', kind: 'paint', name: 'Abyssal', price: 900, source: 'shop', paint: P(0x0d2b3a, 0x13c6b3, 0x93fff0, 0x061820, 0x3affd8), blurb: 'Deep-sea teal with bioluminescent trim.' },
   // decals
-  { id: 'decal:ace', kind: 'decal', name: 'ACE', price: 200, source: 'shop', decal: 'ACE' },
-  { id: 'decal:00', kind: 'decal', name: 'Double Zero', price: 150, source: 'shop', decal: '00' },
-  { id: 'decal:77', kind: 'decal', name: 'Lucky 77', price: 150, source: 'shop', decal: '77' },
-  { id: 'decal:vx', kind: 'decal', name: 'VX Unit', price: 200, source: 'shop', decal: 'VX' },
-  { id: 'decal:zr', kind: 'decal', name: 'Zero-R', price: 200, source: 'shop', decal: 'ZR' },
-  { id: 'decal:k9', kind: 'decal', name: 'K9 Squad', price: 250, source: 'shop', decal: 'K9' },
-  { id: 'decal:x', kind: 'decal', name: 'Crossmark', price: 150, source: 'shop', decal: 'X' },
-  { id: 'decal:99', kind: 'decal', name: 'Ninety-Nine', price: 150, source: 'shop', decal: '99' },
+  { id: 'decal:ace', kind: 'decal', name: 'ACE', price: 300, source: 'shop', decal: 'ACE' },
+  { id: 'decal:00', kind: 'decal', name: 'Double Zero', price: 200, source: 'shop', decal: '00' },
+  { id: 'decal:77', kind: 'decal', name: 'Lucky 77', price: 200, source: 'shop', decal: '77' },
+  { id: 'decal:vx', kind: 'decal', name: 'VX Unit', price: 300, source: 'shop', decal: 'VX' },
+  { id: 'decal:zr', kind: 'decal', name: 'Zero-R', price: 300, source: 'shop', decal: 'ZR' },
+  { id: 'decal:k9', kind: 'decal', name: 'K9 Squad', price: 400, source: 'shop', decal: 'K9' },
+  { id: 'decal:x', kind: 'decal', name: 'Crossmark', price: 200, source: 'shop', decal: 'X' },
+  { id: 'decal:99', kind: 'decal', name: 'Ninety-Nine', price: 200, source: 'shop', decal: '99' },
   // victory poses
-  { id: 'pose:salute', kind: 'pose', name: 'Salute', price: 350, source: 'shop', pose: 'salute', blurb: 'Crisp and professional.' },
-  { id: 'pose:flex', kind: 'pose', name: 'Power Flex', price: 400, source: 'shop', pose: 'flex', blurb: 'Show off the servos.' },
-  { id: 'pose:spin', kind: 'pose', name: 'Barrel Spin', price: 450, source: 'shop', pose: 'spin', blurb: 'Twirl the gun, holster it.' },
-  { id: 'pose:kneel', kind: 'pose', name: 'Knight Kneel', price: 500, source: 'shop', pose: 'kneel', blurb: 'A gracious winner.' },
-  { id: 'pose:point', kind: 'pose', name: 'Call Out', price: 350, source: 'shop', pose: 'point', blurb: 'You. Next.' },
-  { id: 'pose:boost', kind: 'pose', name: 'Thruster Hop', price: 600, source: 'shop', pose: 'boost', blurb: 'A celebratory jet hop.' },
+  { id: 'pose:salute', kind: 'pose', name: 'Salute', price: 500, source: 'shop', pose: 'salute', blurb: 'Crisp and professional.' },
+  { id: 'pose:flex', kind: 'pose', name: 'Power Flex', price: 600, source: 'shop', pose: 'flex', blurb: 'Show off the servos.' },
+  { id: 'pose:spin', kind: 'pose', name: 'Barrel Spin', price: 700, source: 'shop', pose: 'spin', blurb: 'Twirl the gun, holster it.' },
+  { id: 'pose:kneel', kind: 'pose', name: 'Knight Kneel', price: 750, source: 'shop', pose: 'kneel', blurb: 'A gracious winner.' },
+  { id: 'pose:point', kind: 'pose', name: 'Call Out', price: 500, source: 'shop', pose: 'point', blurb: 'You. Next.' },
+  { id: 'pose:boost', kind: 'pose', name: 'Thruster Hop', price: 900, source: 'shop', pose: 'boost', blurb: 'A celebratory jet hop.' },
   // trails
-  { id: 'trail:cyan', kind: 'trail', name: 'Ion Cyan', price: 200, source: 'shop', trail: 0x37e8ff },
-  { id: 'trail:gold', kind: 'trail', name: 'Gold Rush', price: 400, source: 'shop', trail: 0xffd36a },
-  { id: 'trail:violet', kind: 'trail', name: 'Violet Arc', price: 300, source: 'shop', trail: 0xb36bff },
-  { id: 'trail:crimson', kind: 'trail', name: 'Crimson', price: 300, source: 'shop', trail: 0xff3b52 },
-  { id: 'trail:lime', kind: 'trail', name: 'Lime Volt', price: 250, source: 'shop', trail: 0x9dff4a },
-  { id: 'trail:white', kind: 'trail', name: 'White Noise', price: 200, source: 'shop', trail: 0xf2f6ff },
+  { id: 'trail:cyan', kind: 'trail', name: 'Ion Cyan', price: 300, source: 'shop', trail: 0x37e8ff },
+  { id: 'trail:gold', kind: 'trail', name: 'Gold Rush', price: 600, source: 'shop', trail: 0xffd36a },
+  { id: 'trail:violet', kind: 'trail', name: 'Violet Arc', price: 450, source: 'shop', trail: 0xb36bff },
+  { id: 'trail:crimson', kind: 'trail', name: 'Crimson', price: 450, source: 'shop', trail: 0xff3b52 },
+  { id: 'trail:lime', kind: 'trail', name: 'Lime Volt', price: 400, source: 'shop', trail: 0x9dff4a },
+  { id: 'trail:white', kind: 'trail', name: 'White Noise', price: 300, source: 'shop', trail: 0xf2f6ff },
 ];
 
 const ACHIEVEMENT_ITEMS: Cosmetic[] = [

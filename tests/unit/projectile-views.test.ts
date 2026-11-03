@@ -74,8 +74,9 @@ describe('ProjectileViews pooling', () => {
     // reuse: the same workload allocates nothing new
     const sizes = (s: typeof after) => [s.heads.length, s.halos.length, s.cables.length, s.ribbons.length];
     const known = new Set<unknown>([...after.heads, ...after.halos, ...after.cables, ...after.ribbons.map((r) => r.mesh)]);
-    // (the second lance reused the first lance's head/halo, so five heads exist in total)
-    expect(after.heads).toHaveLength(5);
+    // (the second lance reused the first lance's head/halo, so five heads were used, plus the
+    // never-used pre-pooled pellet head that exists for the shader pre-compile)
+    expect(after.heads).toHaveLength(6);
     const again = ['lance', 'wave', 'hook', 'frost', 'blaster'].map((l) => shot(l as Projectile['spec']['look']));
     pv.sync(again, 1 / 60, anchors); note();
     for (const o of pv.group.children) expect(known.has(o), `${o.type}`).toBe(true);

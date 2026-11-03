@@ -47,8 +47,14 @@ export const KNOCKDOWN_BONUS = 1.25;
 /** Below this HP fraction, bomb/pod cooldowns recover faster (comeback). */
 export const COMEBACK_HP = 0.25;
 export const COMEBACK_CD = 0.85;
-/** Hard landing threshold (m/s downward). */
+/**
+ * Hard landing threshold (m/s downward). Landing lag is for big falls (double jumps, ledge drops),
+ * never a plain hop: a flat single jump lands at jumpVel × √fallMul (12.3-16.6 m/s across builds),
+ * so the threshold sits a margin above the build's own hop. A fixed 13 m/s used to put 6-12 frames
+ * of no-dash/no-shoot lag on every hop for 12 of 20 body/leg combos and none for the other 8.
+ */
 const HARD_LANDING = 13;
+const HARD_LANDING_HOP_MARGIN = 1.12;
 
 /**
  * Ground-movement feel (play-test 3: "a little stiff, needs weight and momentum").
@@ -834,7 +840,8 @@ export class Fighter implements AnimSource {
     if (r.grounded && !wasGrounded) {
       this.resetAir();
       if (this.mode === 'air') this.setMode('ground');
-      const hard = r.landSpeed > HARD_LANDING && this.mode === 'ground';
+      const hop = this.st.jumpVel * Math.sqrt(this.st.fallMul) * HARD_LANDING_HOP_MARGIN;
+      const hard = r.landSpeed > Math.max(HARD_LANDING, hop) && this.mode === 'ground';
       if (hard) this.landT = this.st.landingLag * Math.min(2, r.landSpeed / 18);
       if (this.mode !== 'down' || r.landSpeed > 4) this.events.push({ type: 'land', speed: r.landSpeed, hard });
       if (this.mode === 'down') this.downGroundT = 0;

@@ -8,6 +8,7 @@ export async function toggleFullscreen(doc: Document = document): Promise<boolea
 }
 export function installFullscreen(parent: HTMLElement, resize: () => void) {
   const button = document.createElement('button');
+  button.className = 'fs-toggle';
   button.title = 'Toggle fullscreen (F11)'; button.setAttribute('aria-label', 'Toggle fullscreen');
   Object.assign(button.style, { position: 'absolute', right: '12px', bottom: '10px', zIndex: '40', pointerEvents: 'auto', background: '#101c29dd', color: '#e4f2ff', border: '1px solid #567386', padding: '6px 9px', cursor: 'pointer', font: '11px system-ui' });
   let pending = false;

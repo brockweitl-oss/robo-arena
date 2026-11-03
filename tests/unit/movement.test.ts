@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import { Fighter, emptyInput, MOVE, PACE, moveWeight, type FighterInput } from '../../src/game/fighter';
-import { resolveLoadout, DEFAULT_LOADOUT, type Loadout } from '../../src/data/parts';
+import { resolveLoadout, DEFAULT_LOADOUT, BODIES, LEGS, type Loadout } from '../../src/data/parts';
 import type { Collider } from '../../src/arena/types';
 
 const DT = 1 / 60;
@@ -149,5 +149,25 @@ describe('weighted ground movement', () => {
       return out;
     };
     expect(run()).toEqual(run());
+  });
+
+  it('a plain hop never has landing lag on any build; a double-jump landing still does', () => {
+    const land = (lo: Loadout, double: boolean) => {
+      const { a, b } = settled(lo);
+      tick(a, b, { jumpPressed: true, jumpHeld: true });
+      for (let i = 0; i < 400; i++) {
+        tick(a, b, double && i === 20 ? { jumpPressed: true } : {});
+        const e = a.events.find((x) => x.type === 'land');
+        if (e && e.type === 'land') return { hard: e.hard, landT: a.landT };
+      }
+      throw new Error('never landed');
+    };
+    for (const body of Object.keys(BODIES)) for (const legs of Object.keys(LEGS)) {
+      const lo = { ...DEFAULT_LOADOUT, body, legs } as Loadout;
+      const hop = land(lo, false);
+      expect(hop.hard, `${body}/${legs} hop`).toBe(false);
+      expect(hop.landT).toBe(0);
+      expect(land(lo, true).hard, `${body}/${legs} double jump`).toBe(true);
+    }
   });
 });

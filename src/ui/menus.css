@@ -160,8 +160,10 @@
 
 /* ---------------------------------------------------------------- hints bar */
 .ra-hints {
-  position: absolute; right: calc(var(--u) * 2.5); bottom: calc(var(--u) * 1.4); z-index: 3;
-  display: flex; gap: calc(var(--u) * 1.6); font-size: calc(var(--u) * 0.85); color: var(--mute); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600;
+  /* sits left of the fullscreen button (bottom-right corner, src/core/fullscreen.ts) */
+  position: absolute; right: calc(var(--u) * 1.2 + 124px); bottom: calc(var(--u) * 1.1); z-index: 3;
+  display: flex; gap: calc(var(--u) * 1.6); font-size: max(11px, calc(var(--u) * 0.85)); color: #b9c4d4; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600;
+  padding: 0.35em 0.8em; background: rgba(7, 10, 16, 0.72); border-radius: 4px;
 }
 .ra-hint { display: flex; align-items: center; gap: 0.5em; }
 .ra-hint kbd, .ctl-k kbd {
@@ -278,8 +280,8 @@
 @keyframes ra-pulse { 50% { opacity: 0.45; } }
 @keyframes ra-press-go { 30% { transform: translateX(-50%) scale(1.12); opacity: 1; } 100% { transform: translateX(-50%) scale(1.3); opacity: 0; } }
 .title-foot {
-  position: absolute; left: calc(var(--u) * 2.5); right: calc(var(--u) * 2.5); bottom: calc(var(--u) * 1.4);
-  display: flex; justify-content: space-between; color: var(--dim); font-size: calc(var(--u) * 0.8); letter-spacing: 0.2em; text-transform: uppercase;
+  position: absolute; left: calc(var(--u) * 2.5); right: calc(var(--u) * 1.2 + 124px); bottom: calc(var(--u) * 1.4);
+  display: flex; justify-content: space-between; color: var(--mute); font-size: calc(var(--u) * 0.8); letter-spacing: 0.2em; text-transform: uppercase;
 }
 
 /* ---------------------------------------------------------------- main menu */
@@ -633,7 +635,7 @@
   position: absolute; left: calc(var(--u) * 3); top: calc(var(--u) * 8.6); bottom: calc(var(--u) * 4.2); width: calc(var(--u) * 27);
   display: flex; flex-direction: column; gap: calc(var(--u) * 0.8); padding: calc(var(--u) * 1.1);
 }
-.gar-tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.gar-tabs { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
 .gar-tab {
   --bd: rgba(170, 195, 235, 0.2); --bg: rgba(16, 20, 30, 0.9); --cut: calc(var(--u) * 0.5);
   display: grid; justify-items: center; gap: 3px; padding: calc(var(--u) * 0.6) 0 calc(var(--u) * 0.5); cursor: pointer;
@@ -767,7 +769,17 @@
 /* ---- modes, grades, counter-hints (Claude; Codex may restyle) ---- */
 .md-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(var(--u) * 17), 1fr)); gap: calc(var(--u) * 1); }
 .md-card { padding: calc(var(--u) * 1.2); display: flex; flex-direction: column; gap: calc(var(--u) * 0.5); min-height: calc(var(--u) * 9); }
-.md-card.locked { opacity: 0.5; }
+.md-card { position: relative; border: 1px solid var(--line); background: rgba(16, 21, 32, 0.55); clip-path: var(--chamfer); transition: transform 0.15s var(--ease), border-color 0.15s, background 0.15s; }
+.md-card.is-focus { border-color: var(--o); background: linear-gradient(160deg, rgba(110, 40, 8, 0.75), rgba(30, 14, 6, 0.75)); transform: translateY(-2px); box-shadow: inset 3px 0 0 var(--o); }
+.md-card.is-focus .md-tag { color: var(--o2); }
+.md-card.locked { opacity: 0.55; }
+.md-card.locked.is-focus { border-color: var(--mute); background: rgba(30, 36, 48, 0.75); box-shadow: inset 3px 0 0 var(--mute); }
+.md-title .ra-ico { width: 0.8em; height: 0.8em; margin-right: 0.35em; vertical-align: -0.05em; }
+.surv-best { color: var(--gold); }
+/* left/right value selector (practice arena, local versus robot/arena) */
+.ra-cycler { justify-content: space-between; }
+.ra-cycler .cy-arrow { position: relative; z-index: 1; opacity: 0.55; padding: 0 0.4em; }
+.ra-cycler.is-focus .cy-arrow { opacity: 1; }
 .md-title { font-family: 'Russo One', sans-serif; font-size: calc(var(--u) * 1.3); letter-spacing: 0.04em; text-transform: uppercase; }
 .md-desc { font-size: calc(var(--u) * 0.85); opacity: 0.75; line-height: 1.35; }
 .md-tag { margin-top: auto; font-size: calc(var(--u) * 0.75); letter-spacing: 0.16em; text-transform: uppercase; color: var(--c, #37e8ff); font-weight: 700; }
@@ -818,7 +830,7 @@
 .paint-shop .paint-swatch.selected { border-color: white; box-shadow: 0 0 0 1px #111; }
 .paint-wear-row { display: flex; gap: 12px; align-items: center; font-size: max(11px, calc(var(--u) * .7)); color: #b8c6d6; }
 .paint-wear { min-width: 0; flex: 1; accent-color: #68d7eb; }
-.res-acts { flex-wrap: wrap; }
+.res-acts { flex-wrap: wrap; justify-content: center; }
 .res-acts .ra-btn { font-size: calc(var(--u) * .85); padding-left: .9em; padding-right: .9em; }
 /* Photo studio is outside the menu root and owns its own accessible controls. */
 .photo-studio { position: fixed; inset: 0; z-index: 1000; color: #e4edf4; font-family: 'Chakra Petch', system-ui, sans-serif; background: #101720; }
@@ -863,7 +875,10 @@
   font: 600 calc(var(--u) * 1) 'Chakra Petch', sans-serif; letter-spacing: 0.06em; outline: none;
 }
 .net-input:focus { border-color: #ff8a3a; box-shadow: 0 0 0 1px #ff8a3a55; }
-.net-code { flex: 0 0 calc(var(--u) * 7); text-align: center; text-transform: uppercase; letter-spacing: 0.3em; }
+.net-code { flex: 0 0 calc(var(--u) * 9); text-align: center; text-transform: uppercase; letter-spacing: 0.3em; cursor: text;
+  background: rgba(4, 8, 14, 0.95); border: 1px solid rgba(255, 138, 58, 0.55); box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6); caret-color: #ff8a3a; }
+.net-code::placeholder { color: rgba(220, 232, 250, 0.45); letter-spacing: 0.12em; }
+.net-code:hover { border-color: #ff8a3a; }
 .net-status { min-height: 1.4em; color: #ffd27a; opacity: 0.95; }
 .net-set { font-weight: 700; letter-spacing: 0.08em; opacity: 0.95; }
 .net-board { gap: calc(var(--u) * 0.25); min-width: min(90vw, calc(var(--u) * 32)); }
@@ -875,3 +890,9 @@
 .net-board-row:nth-child(1) { color: #ffd23a; }
 .net-board-row .nb-rating { font-weight: 700; text-align: right; }
 .net-board-row .nb-rec, .net-board-row .nb-tier { opacity: 0.7; }
+
+/* free battle: four sections must fit above the fold at every 16:9 size (the action row used to fall off-screen) */
+.scr-free:not(.scr-modes) .fb-panel { top: calc(var(--u) * 9.6); gap: calc(var(--u) * 0.85); padding-top: calc(var(--u) * 1.1); padding-bottom: calc(var(--u) * 1.1); }
+.scr-free:not(.scr-modes) .fb-arena-art { height: calc(var(--u) * 1.7); }
+.scr-free:not(.scr-modes) .fb-blurb { min-height: 2.6em; }
+.scr-free:not(.scr-modes) .fb-panel .ra-actions { margin-top: 0; }

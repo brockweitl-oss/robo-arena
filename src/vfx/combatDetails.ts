@@ -11,6 +11,10 @@ export class PanelDebris {
   constructor() {
     this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 0.08), new THREE.MeshStandardMaterial({ metalness: 0.65, roughness: 0.4 }), 64);
     this.mesh.frustumCulled = false;
+    // Allocate per-instance colour now: created lazily on the first burst it switched the shader
+    // variant mid-fight (≈200 ms stall on the first guard break).
+    const white = new THREE.Color(0xffffff);
+    for (let i = 0; i < 64; i++) this.mesh.setColorAt(i, white);
     this.mesh.count = 0;
   }
   burst(pos: THREE.Vector3, color: number, count = 12, size = 0.35) {

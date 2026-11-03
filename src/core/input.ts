@@ -298,11 +298,21 @@ export class Input {
       this.padMoveX = this.padMoveY = this.padLookX = this.padLookY = 0;
       return;
     }
-    const dz = (v: number) => (Math.abs(v) < 0.18 ? 0 : (v - Math.sign(v) * 0.18) / 0.82);
-    this.padMoveX = dz(pad.axes[0] ?? 0);
-    this.padMoveY = -dz(pad.axes[1] ?? 0);
-    this.padLookX = dz(pad.axes[2] ?? 0);
-    this.padLookY = dz(pad.axes[3] ?? 0);
+    // Radial deadzone (the old per-axis one snapped shallow diagonals to the cardinal directions:
+    // a stick at 10° off forward read as dead-ahead), rescaled so output starts at 0 at the edge.
+    // Look gets a 1.6 power curve: fine aim near centre, full speed at the rim.
+    const stick = (x: number, y: number, dead: number, curve: number): [number, number] => {
+      const m = Math.hypot(x, y);
+      if (m < dead) return [0, 0];
+      const k = Math.pow(Math.min(1, (m - dead) / (1 - dead)), curve) / m;
+      return [x * k, y * k];
+    };
+    const [mx, my] = stick(pad.axes[0] ?? 0, pad.axes[1] ?? 0, 0.16, 1);
+    const [lx, ly] = stick(pad.axes[2] ?? 0, pad.axes[3] ?? 0, 0.14, 1.6);
+    this.padMoveX = mx;
+    this.padMoveY = -my;
+    this.padLookX = lx;
+    this.padLookY = ly;
     if (Math.abs(this.padMoveX) + Math.abs(this.padMoveY) + Math.abs(this.padLookX) > 0.1) this.lastDevice = 'pad';
     for (const a of BUTTON_ACTIONS) {
       const down = this.bind.pad[a].some((i) => {
@@ -332,7 +342,7 @@ export class Input {
   /** Camera look delta since last call (pixels-equivalent). */
   consumeLook(dt: number, sens: number): { dx: number; dy: number } {
     const k = 0.0022 * sens;
-    const dx = this.lookDX * k + this.padLookX * 2.6 * sens * dt;
+    const dx = this.lookDX * k + this.padLookX * 3.2 * sens * dt; // ≈185°/s at full tilt (was 150°/s: slow to swing the free camera)
     const dy = this.lookDY * k + this.padLookY * 1.8 * sens * dt;
     this.lookDX = this.lookDY = 0;
     return { dx, dy };

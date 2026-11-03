@@ -76,3 +76,25 @@ Small tweaks only, applied where a part lacked a niche or sat at the edge of the
 | Grapple Harpoon | cooldown 7 → 6.5 s | Near the floor (43–46%); its engage niche needs to come up more often. |
 
 The final tournament results are in `tests/balance/report.json`. Deterministic scenarios aren't independent statistical trials. Field rates carry roughly ±3–4 points of noise at n=96, and ±8 at n=16.
+
+## Changes in the AI / balance audit pass (docs/audit/AI-BALANCE.md)
+
+The tournament now uses 144 distinct declared scenarios per pairing (6 lanes × 4 tactics layouts × 3 pilot
+styles × 2 sides) instead of 18, and the AI pilots dodge bombs/pods, flank cover and fire at a skill-scaled
+tempo. Several parts moved once the pilots stopped ignoring them, so this pass re-centres them on that field.
+
+| Part | Change | Why (field win rate, new AI, before → after) |
+|---|---|---|
+| Aegis Drone | life 8 → 6.5 s, cooldown 7.5 → 9 s, intercept interval 1.0 → 1.3 s | 65% → 56%. Its 8 s life outlasted its 7.5 s cooldown: a permanent shield. Now ~70% uptime. |
+| Rail Lance | damage 195 → 185, cooldown 1.85 → 2.05 s | 60% → 51%. Pilots that fire at full tempo made the biggest punish in the game also the most frequent. |
+| Drift Mines | arm 0.8 → 0.6 s, trigger 2.2 → 2.4 m, fuse 0.6 → 0.45 s, damage 85 → 100, cooldown 5.2 → 4.6 s | 37% → 43%. Once pilots walked around them they almost never popped on anyone. The fuse is still visible. |
+| Cinder Pot | blast 75 → 82, fire 27 → 30/tick | 46% → 43% (bomb nerfs elsewhere moved the field); keeps its Core-denial niche paying. |
+| Anchor Legs | speed ×1.0 → ×1.03, dash ×0.94 → ×0.97, endurance +45 → +55 | 40% → 43%. Still the shortest dash on a heavy build. |
+| Grapple Harpoon | cooldown 6.5 → 6 s, damage 55 → 60 | 41% → 47%. |
+| Frost Spike | cooldown 4 → 4.5 s, damage 62 → 58 | 58% → 55%; still the shortest skill cooldown. |
+| Ion Wave | cooldown 5 → 5.5 s, damage 75 → 70 | 59% → 55%. |
+| Phase Blink | cooldown 5 → 4.5 s | 43% (unchanged within noise; its value is underrated by bots). |
+| Arc Homer | damage 44 → 47 | 43% → 47%. |
+| Pulse Blaster | damage 22 → 23 | 42% → 45% (the starter gun should not be the floor). |
+
+Every part now sits at 43–55% field win rate (target 42–58%). Field fights average 41 s and all end by KO.

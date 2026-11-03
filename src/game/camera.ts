@@ -35,9 +35,10 @@ export class ChaseCamera {
 
   constructor(readonly camera: THREE.PerspectiveCamera) {}
 
+  /** Screen shake: trauma 0..1, shake amplitude = trauma² (≈0.3° roll on a heavy hit, ≈1° on a KO). */
   addTrauma(t: number) {
     if (!this.shakeEnabled) return;
-    this.trauma = Math.min(0.6, this.trauma + t * 0.6);
+    this.trauma = Math.min(1, this.trauma + t);
   }
   kickFov(v: number) {
     if (!this.shakeEnabled) return;
@@ -110,6 +111,7 @@ export class ChaseCamera {
     );
     if (!this.initialized) this.look.copy(lookTarget);
     this.look.lerp(lookTarget, 1 - Math.exp(-10 * dt));
+    if (!this.cine) this.keepInFrame(camPos, player);
     this.initialized = true;
 
     const cam = this.camera;
@@ -124,16 +126,16 @@ export class ChaseCamera {
     cam.lookAt(this.look);
 
     // shake (trauma²), smooth noise
-    this.trauma = Math.max(0, this.trauma - dt * 1.6);
+    this.trauma = Math.max(0, this.trauma - dt * 2.2);
     const s = this.trauma * this.trauma;
     if (s > 0.0001) {
       const t = this.time * 32;
       const n = (o: number) => Math.sin(t * 1.13 + o) * 0.6 + Math.sin(t * 2.37 + o * 2.1) * 0.4;
-      cam.rotateX(n(1) * 0.045 * s);
-      cam.rotateY(n(5) * 0.045 * s);
-      cam.rotateZ(n(9) * 0.06 * s);
-      cam.position.x += n(13) * 0.14 * s;
-      cam.position.y += n(17) * 0.14 * s;
+      cam.rotateX(n(1) * 0.028 * s);
+      cam.rotateY(n(5) * 0.028 * s);
+      cam.rotateZ(n(9) * 0.035 * s);
+      cam.position.x += n(13) * 0.12 * s;
+      cam.position.y += n(17) * 0.12 * s;
     }
     this.fovKick = Math.max(0, this.fovKick - dt * 4);
     const fov = 55 + this.fovKick * 10;
@@ -141,6 +143,27 @@ export class ChaseCamera {
       cam.fov = fov;
       cam.updateProjectionMatrix();
     }
+  }
+
+  /**
+   * Hard framing guarantee: backed against a wall the boom shortens to ~1.6 m and the view used to
+   * stare past the player's head (robot cut off at the bottom edge, measured chest at -1.6 NDC). If
+   * the player's body leaves a cone around the view axis, rotate the look point toward it just
+   * enough to keep it on screen. Continuous, so it never pops; inactive at normal boom lengths.
+   */
+  private keepInFrame(camPos: THREE.Vector3, player: THREE.Vector3) {
+    const toLook = this.look.clone().sub(camPos);
+    const dist = toLook.length();
+    if (dist < 1e-3) return;
+    toLook.divideScalar(dist);
+    const toBody = new THREE.Vector3(player.x, player.y + 0.9, player.z).sub(camPos).normalize();
+    // vertical half-FOV is 27.5°: keep the body centre within ~19° of the view axis
+    const maxA = 0.33;
+    const a = toLook.angleTo(toBody);
+    if (a <= maxA) return;
+    const k = (a - maxA) / a;
+    toLook.lerp(toBody, k).normalize();
+    this.look.copy(camPos).addScaledVector(toLook, dist);
   }
 
   /** Camera-forward yaw used to convert stick input to world movement. */

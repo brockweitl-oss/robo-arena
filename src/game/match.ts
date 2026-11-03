@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameRenderer } from '../render/renderer';
-import type { Input } from '../core/input';
+import { keyName, padName, DEFAULT_BINDINGS, type Input } from '../core/input';
 import type { Settings } from '../core/save';
 import type { HUD } from '../ui/hud';
 import { ARENA_FACTORIES } from '../arena';
@@ -91,6 +91,21 @@ class Capsule {
     this.top.scale.setScalar(Math.max(0.001, 1 - Math.max(0, t - 0.5) * 2));
     this.glowMat.emissiveIntensity = 5 + e * 20;
   }
+
+  dispose() {
+    disposeTree(this.group);
+  }
+}
+
+/** Free the GPU geometry and materials of a match-owned object tree (nothing in it is shared). */
+function disposeTree(root: THREE.Object3D) {
+  root.removeFromParent();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.geometry.dispose();
+    for (const mat of Array.isArray(m.material) ? m.material : [m.material]) mat.dispose();
+  });
 }
 
 interface Side {
@@ -163,6 +178,7 @@ export class Match {
   private skillGoal: THREE.Vector3 | null = null;
   private hazardWarned: boolean[] = [];
   private lowHpT = 0;
+  private lowHpBeeps = 0;
   private renderTime = 0;
   private ambience: LoopHandle | null = null;
   private steer = new THREE.Vector3();
@@ -390,7 +406,7 @@ export class Match {
     host.gr.camera.position.copy(this.cam.cine.pos).add(new THREE.Vector3(6, 6, 6));
     // pre-compile every shader now (robots are hidden until their capsules open)
     for (const sd of this.sides) sd.model.root.visible = true;
-    host.gr.renderer.compile(s, host.gr.camera);
+    host.gr.precompile(s, host.gr.camera);
     for (const sd of this.sides) sd.model.root.visible = false;
     if (this.watching) {
       // spectating: broadcast-style camera, no controls
@@ -450,6 +466,24 @@ export class Match {
   }
 
   /* ------------------------------------------------------------------ frame */
+
+  /**
+   * The tab is hidden, so requestAnimationFrame has stopped. An online player's sim and input
+   * stream keep running here (nothing renders) so the opponent is not stalled into a false
+   * "disconnected" forfeit by an alt-tab. Offline matches and spectating simply wait.
+   */
+  backgroundTick(dt: number) {
+    if (this.disposed || !this.net || this.watching || this.phase === 'done') return;
+    let left = Math.min(dt, 1);
+    while (left > 1e-6 && this.net) {
+      const d = Math.min(left, 1 / 60);
+      left -= d;
+      this.phaseT += d;
+      this.renderTime += d;
+      this.updatePhase(d);
+      if (this.phase !== 'intro' && this.net) this.netFrame(d);
+    }
+  }
 
   frame(dtReal: number) {
     if (this.disposed) return;
@@ -636,8 +670,10 @@ export class Match {
     if (this.phase === 'fight' && pf.hp / pf.maxHp < 0.25) {
       this.lowHpT -= dtReal;
       if (this.lowHpT <= 0) {
-        audio.play('low_hp', { volume: 0.7 });
-        this.lowHpT = 1.3;
+        // urgent while it is news, then a slower reminder instead of a 1.3 s alarm for the rest of the round
+        this.lowHpBeeps++;
+        audio.play('low_hp', { volume: this.lowHpBeeps <= 4 ? 0.7 : 0.45 });
+        this.lowHpT = this.lowHpBeeps <= 4 ? 1.3 : 3.2;
       }
     }
     host.gr.render(dtReal);
@@ -1023,7 +1059,7 @@ export class Match {
     if (p === 'ready') {
       this.host.hud.announce('READY', { color: '#37e8ff' });
       audio.play('announce_ready');
-      if (!this.guide) this.host.hud.showHint(this.watching ? 'Spectating live · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc menu' : this.players ? 'Replay · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc pause' : this.host.input.lastDevice === 'pad' ? 'RT auto-gun · Hold Y + R-stick: aim skill, release: fire · LT bomb · RB pod · B dash · X charge' : 'Click to capture mouse · LMB auto-gun · Hold R + mouse: aim skill, release: fire · Hold RMB: aim bomb · E pod · Shift dash · Q charge', 5);
+      if (!this.guide) this.host.hud.showHint(this.watching ? 'Spectating live · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc menu' : this.players ? 'Replay · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc pause' : this.controlsHint(), 5);
       this.host.input.enabled = !this.watching;
       if (!this.players && !this.watching) this.host.input.requestLock();
     }
@@ -1041,6 +1077,9 @@ export class Match {
     const net = this.net!;
     if (this.netFrozen) {
       this.netFreeRun(dt);
+      // the final state hash is still being compared; the ranked report waits for it (briefly)
+      this.netCheckSums();
+      this.netTryReport();
       this.netWatch(dt);
       return;
     }
@@ -1129,6 +1168,8 @@ export class Match {
     this.netStats.resimTicks += depth;
     this.world.restore(snap);
     if (this.netEndTick >= from) this.netEndTick = -1;
+    // hashes of the abandoned timeline (e.g. a predicted end tick) must never be compared
+    for (const k of this.netPendingSums.keys()) if (k >= from) this.netPendingSums.delete(k);
     for (let t = from; t < this.netTick; t++) {
       const ri = net.remote.get(t) ?? predictInput(this.netLastRemote);
       if (t < this.netConfirmed) this.netUsed.delete(t);
@@ -1154,8 +1195,11 @@ export class Match {
       w.combatEnabled = false;
       for (const f of w.fighters) f.locked = true;
       this.netEndTick = t;
+      // the end state itself is hash-checked too: a desync in the last two seconds would otherwise
+      // only show up as two different results
+      this.netPendingSums.set(t, w.digest());
     }
-    if (t % 120 === 0) this.netPendingSums.set(t, w.digest());
+    if (t % 120 === 0 && !(this.netEndTick >= 0 && t > this.netEndTick)) this.netPendingSums.set(t, w.digest());
   }
 
   /** Fight clock from the frontier tick (online). */
@@ -1173,6 +1217,23 @@ export class Match {
     if (this.phase !== 'fight') return;
     if (this.world.koLoser >= 0) this.onKO(this.world.koLoser);
     else this.onTimeUp();
+    // ranked: report the confirmed result now (once the end-state hash is compared), not after the
+    // outro. A winner who closes the tab during the victory pose must not be scored as a forfeit
+    // (the server counts leaving an unreported ranked match as a loss).
+    this.netReportBy = this.renderTime + 2.5;
+    this.netTryReport();
+  }
+
+  /** Ranked report deadline (render time): sent when the end hash matched, or at the deadline. */
+  private netReportBy = -1;
+  private netTryReport() {
+    const net = this.net;
+    if (this.netReportBy < 0 || !net) return;
+    const end = this.netEndTick;
+    const pending = end >= 0 && (this.netSums.has(end) || this.netPendingSums.has(end));
+    if (pending && !this.netDesync && this.renderTime < this.netReportBy) return;
+    this.netReportBy = -1;
+    if (this.cfg.online?.ranked && !this.watching && !net.reported) net.report(this.netDesync ? -2 : this.winner);
   }
 
   /** After the confirmed end both robots are locked: the world just runs on locally for the outro. */
@@ -1192,7 +1253,7 @@ export class Match {
   /** Exchange state hashes for confirmed ticks only (predicted ticks may legitimately differ). */
   private netCheckSums() {
     const net = this.net!;
-    if (this.netDesync || this.netFrozen) return;
+    if (this.netDesync) return;
     const final = Math.min(this.netConfirmed, this.netTick);
     for (const [k, h] of this.netPendingSums) {
       if (k >= final) continue;
@@ -1345,7 +1406,7 @@ export class Match {
     audio.duck(0.6, 2.5);
     this.koYaw = null;
     if (this.koCamOn()) this.koStartListen();
-    this.cam.addTrauma(0.35);
+    this.cam.addTrauma(0.65);
     this.punch(0.006);
   }
 
@@ -1549,6 +1610,8 @@ export class Match {
               break;
             case 'dash':
               audio.play('dash', { pos: f.pos });
+              // speed read: a brief FOV push on your own dash (no time change)
+              if (isP) this.cam.kickFov(0.3);
               fx.dashBurst(f.chestPoint(), f.dashDir, s.paint.glow, !ev.air);
               s.anim.event({ type: 'dash' });
               break;
@@ -1579,7 +1642,8 @@ export class Match {
               break;
             }
             case 'railCharge':
-              audio.play('gun_rail_charge', { pos: f.pos });
+              // enemy tells cut through the mix (they are distance-attenuated from the camera)
+              audio.play('gun_rail_charge', { pos: f.pos, volume: isP ? 0.85 : 1.25 });
               if (!isP) {
                 // telegraph: bright glint at the enemy muzzle
                 s.model.root.updateMatrixWorld(true);
@@ -1608,7 +1672,7 @@ export class Match {
               if (!isP) this.tip('tell', 'Red lane on the ground = the enemy is winding up a skill shot. Dash sideways to dodge it.');
               else if (f.stats.skillCasts >= 2 && !f.lo.skill.blink) this.tip('feint', 'Feint: press dash during your skill wind-up to cancel it. Half the cooldown comes back. Bait their dodge.');
               // telegraph: charge sound + glint (the enemy's lane shows on the ground during the cast)
-              audio.play('gun_rail_charge', { pos: f.pos, volume: 0.8, pitch: 1.3 });
+              audio.play('gun_rail_charge', { pos: f.pos, volume: isP ? 0.8 : 1.2, pitch: 1.3 });
               s.model.root.updateMatrixWorld(true);
               fx.skillCharge(s.model.rig.skillMuzzle.getWorldPosition(_v2), f.lo.skill.color, !isP);
               break;
@@ -1624,7 +1688,7 @@ export class Match {
               break;
             }
             case 'chargeStart':
-              audio.play('charge_windup', { pos: f.pos });
+              audio.play('charge_windup', { pos: f.pos, volume: isP ? 0.9 : 1.3 });
               if (!isP) fx.chargeWarning(f.chestPoint(), new THREE.Vector3(Math.sin(f.yaw), 0, Math.cos(f.yaw)));
               if (ev.wakeup) this.host.hud.popup(this.worldToScreen(f.chestPoint().add(new THREE.Vector3(0, 1, 0))), 'WAKE-UP!', 'tag');
               fx.sparks.emit({ pos: f.chestPoint(), count: 16, speed: [1, 3], size: [0.1, 0.16], life: [0.2, 0.35], color: s.paint.glow, intensity: 2.6, drag: 2 });
@@ -1651,7 +1715,7 @@ export class Match {
             case 'knockdown': {
               audio.play('knockdown', { pos: f.pos });
               fx.knockdownBurst(f.chestPoint(), s.paint.glow);
-              this.cam.addTrauma(0.25);
+              this.cam.addTrauma(0.45);
               this.punch(0.004);
               if (f.alive && !comboVictims.has(f.id)) {
 
@@ -1686,7 +1750,7 @@ export class Match {
           const n = Math.max(3, Math.round(e.from.distanceTo(e.to) * 2));
           for (let i = 0; i <= n; i++) fx.sparks.emit({ pos: c0.clone().lerp(c1, i / n), count: 2, spread: 0.25, size: [0.5, 0.8], life: [0.12, 0.25], color: col, intensity: 2 });
           audio.play('dash', { pos: e.to, volume: 0.9, pitch: 1.4 });
-          if (e.who === this.me) this.cam.addTrauma(0.05);
+          if (e.who === this.me) this.cam.addTrauma(0.1);
           break;
         }
         case 'sweetSpot': {
@@ -1784,8 +1848,9 @@ export class Match {
         case 'explosion': {
           fx.weapons.explosion(e.look, e.pos, e.radius, e.color, e.big, e.onGround);
           audio.play(e.big ? 'explosion_big' : 'explosion_small', { pos: e.pos });
-          const d = e.pos.distanceTo(this.player.fighter.pos);
-          void d;
+          // blasts you can feel: shake falls off over ~3 blast radii from your robot
+          const near = 1 - e.pos.distanceTo(this.player.fighter.pos) / Math.max(4, e.radius * 3);
+          if (near > 0) this.cam.addTrauma(near * (e.big ? 0.32 : 0.18));
           break;
         }
         case 'hit': {
@@ -1824,6 +1889,12 @@ export class Match {
             audio.play('ui_move', { volume: e.heavy ? 0.9 : 0.6, pitch: e.heavy ? 1.6 : 2.2 });
           }
           if (isPV) this.host.hud.hurtFlash(e.heavy ? 0.4 : e.blocked ? 0.08 : 0.18);
+          // Hits used to move the camera only on knockdown/KO: taking a heavy shot or landing one had
+          // no physical feedback. Burn ticks stay still (they would buzz the screen).
+          if (e.source !== 'fire' && !e.parried && !e.knockdown && !e.ko) {
+            if (isPV) this.cam.addTrauma(e.blocked ? 0.08 : e.heavy ? 0.38 : 0.12);
+            else if (e.attacker === this.me && e.heavy) this.cam.addTrauma(0.16);
+          }
           break;
         }
         case 'dodge':
@@ -1876,6 +1947,17 @@ export class Match {
     }
   }
 
+  /** Match-start controls line, built from the player's own bindings. */
+  private controlsHint(): string {
+    const b = this.host.input.bindings ?? DEFAULT_BINDINGS;
+    if (this.host.input.lastDevice === 'pad') {
+      const p = (a: keyof typeof b.pad) => padName(b.pad[a]?.[0]);
+      return `${p('gun')} fire · Hold ${p('skill')} + R-stick: aim skill · ${p('bomb')} bomb · ${p('pod')} pod · ${p('dash')} dash · ${p('charge')} charge`;
+    }
+    const k = (a: keyof typeof b.keys) => keyName(b.keys[a].find(Boolean) ?? '');
+    return `Click to capture mouse · ${k('gun')} fire · Hold ${k('skill')}: aim skill · Hold ${k('bomb')}: aim bomb · ${k('pod')} pod · ${k('dash')} dash · ${k('charge')} charge`;
+  }
+
   dispose() {
     this.disposed = true;
     this.replayCamera?.dispose();
@@ -1884,6 +1966,9 @@ export class Match {
     for (const s of this.sides) {
       s.thruster.stop();
       s.model.dispose();
+      // the drop capsule and guard shield are built per match (they leaked ~30 GPU geometries a match)
+      s.capsule.dispose();
+      disposeTree(s.shield);
     }
     this.ambience?.stop();
     audio.setTimeScale(1);

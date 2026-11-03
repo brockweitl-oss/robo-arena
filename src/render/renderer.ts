@@ -197,6 +197,21 @@ export class GameRenderer {
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * Compile every material in `scene` for the variant the composer actually draws: the scene renders
+   * into an offscreen buffer (linear output), not the canvas. Compiling against the canvas built
+   * sRGB-output programs that were never used, so effects first seen mid-fight still compiled on
+   * first use (100-400 ms freezes on the first frost shot, guard break, etc.).
+   */
+  precompile(scene: THREE.Object3D, camera: THREE.Camera) {
+    const prev = this.renderer.getRenderTarget();
+    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
+    this.renderer.setRenderTarget(rt);
+    this.renderer.compile(scene, camera);
+    this.renderer.setRenderTarget(prev);
+    rt.dispose();
+  }
+
   render(dt: number) {
     this.chromaAmount = Math.max(0, this.chromaAmount - dt * 0.02);
     const a = this.chromaAmount;
