@@ -14,6 +14,8 @@ export interface MatchConfig {
   timeLimit?: number;
   /** Pick-ups mode (power-ups spawn mid-arena). */
   pickups?: boolean;
+  /** Overcharge Core objective. Default: on in every mode except practice (see objectiveEnabled). */
+  objective?: boolean;
   /** Rival+ ladder index (rivalplus mode). */
   plusIndex?: number;
   /** Survival: round number (1-based) and the HP the player carries in. */
@@ -61,6 +63,13 @@ export interface MatchStats {
   podsUsed?: number;
   /** Bombs thrown this match. */
   bombsUsed?: number;
+  /** Overcharge Core captures. */
+  captures?: number;
+}
+
+/** Whether a match runs the Overcharge Core objective (an explicit flag wins; practice defaults off). */
+export function objectiveEnabled(cfg: Pick<MatchConfig, 'mode' | 'objective'>): boolean {
+  return cfg.objective ?? cfg.mode !== 'practice';
 }
 
 export interface MatchResult {

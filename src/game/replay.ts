@@ -10,7 +10,7 @@ import { ARENA_INFO } from '../arena/index';
  * player (quantized stick + button bits) and run-length encoded.
  */
 /** Reject recordings made against older simulation rules instead of silently desyncing. */
-export const RULESET_VERSION = 6;
+export const RULESET_VERSION = 7;
 
 export interface Replay {
   rulesVersion: number;
@@ -201,6 +201,7 @@ export function validateReplay(r: unknown): r is Replay {
   if (!c || typeof c !== 'object') return false;
   if (![...RIVALS, ...RIVALS_PLUS].some((rv) => rv.id === c.rivalId)) return false;
   if (typeof c.arenaId !== 'string' || !Object.hasOwn(ARENA_INFO, c.arenaId)) return false;
+  if (c.objective !== undefined && typeof c.objective !== 'boolean') return false;
   const lo = c.playerLoadout as unknown as Record<Slot, string> | undefined;
   if (!lo) return false;
   const partOk = (slot: Slot, id: unknown) => typeof id === 'string' && Object.hasOwn(ALL_PARTS[slot], id);

@@ -1,7 +1,8 @@
 import { landingMaterial } from './combatDetails';
 import * as THREE from 'three';
 import type { World, Crate, Trap, Pickup, FireZone, Bomb } from '../game/world';
-import { CRATE, TRAP, PICKUP } from '../game/tactics';
+import { TRAP, PICKUP } from '../game/tactics';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { chamferBox, rbox, xf } from '../robot/kit';
 import { panelMaps, decalTexture } from '../render/textures';
 import type { Effects } from './effects';
@@ -39,6 +40,7 @@ export class TacticsView {
   private markers = new Map<number, THREE.Mesh>();
   private crateMat: THREE.MeshStandardMaterial;
   private stripeMat: THREE.MeshStandardMaterial;
+  private debrisMat = new THREE.MeshStandardMaterial({ color: 0x2f3338, metalness: 0.5, roughness: 0.75 });
   private markerGeo = new THREE.PlaneGeometry(2, 2);
   private time = 0;
 
@@ -53,12 +55,14 @@ export class TacticsView {
 
   private makeCrate(c: Crate) {
     const g = new THREE.Group();
-    const s = CRATE.size;
-    const body = new THREE.Mesh(chamferBox(s, s, s, 0.12, 0.03), this.crateMat);
-    body.position.y = s / 2;
-    const band = new THREE.Mesh(xf(rbox(s + 0.03, 0.18, s + 0.03, 0.02), [0, s * 0.72, 0]), this.stripeMat);
-    const band2 = new THREE.Mesh(xf(rbox(s + 0.03, 0.18, s + 0.03, 0.02), [0, s * 0.28, 0]), this.stripeMat);
-    for (const m of [body, band, band2]) {
+    const { x: w, y: h, z: d } = c.size;
+    // visuals match the collider box exactly (bands overhang by 1.5 cm)
+    const body = new THREE.Mesh(chamferBox(w, h, d, c.kind === 'wall' ? 0.08 : 0.12, 0.03), this.crateMat);
+    body.position.y = h / 2;
+    const bands = c.kind === 'wall'
+      ? [new THREE.Mesh(xf(rbox(w + 0.03, 0.16, d + 0.03, 0.02), [0, h - 0.14, 0]), this.stripeMat)]
+      : [new THREE.Mesh(xf(rbox(w + 0.03, 0.18, d + 0.03, 0.02), [0, h * 0.72, 0]), this.stripeMat), new THREE.Mesh(xf(rbox(w + 0.03, 0.18, d + 0.03, 0.02), [0, h * 0.28, 0]), this.stripeMat)];
+    for (const m of [body, ...bands]) {
       m.castShadow = true;
       m.receiveShadow = true;
       g.add(m);
@@ -100,13 +104,41 @@ export class TacticsView {
   crateBreak(c: Crate) {
     const g = this.crates.get(c.id);
     if (!g) return;
-    const center = c.pos.clone().add(new THREE.Vector3(0, CRATE.size / 2, 0));
-    this.fx.panels.burst(center, 0x8b959f, 14, 0.45);
+    const center = c.pos.clone().add(new THREE.Vector3(0, c.size.y / 2, 0));
+    this.fx.panels.burst(center, 0x8b959f, c.kind === 'wall' ? 18 : 14, 0.45);
     this.fx.sparks.emit({ pos: center, count: 20, speed: [3, 7], size: [0.04, 0.08], life: [0.2, 0.5], color: 0xffd693, intensity: 2.5, gravity: 10 });
     this.fx.smoke.emit({ pos: center, count: 7, speed: [1, 3], size: [0.3, 0.5], grow: 2, life: [0.4, 0.8], color: 0x5b626a, alpha: 0.3 });
     g.traverse(o => { const mesh = o as THREE.Mesh; if (mesh.isMesh) mesh.geometry.dispose(); });
     this.group.remove(g);
     this.crates.delete(c.id);
+    this.makeDebris(c);
+  }
+
+  /**
+   * Broken cover stays readable for the rest of the round: a low, non-colliding rubble pile
+   * (under 25 cm, so it never looks like it should still block). One merged mesh per break.
+   */
+  private makeDebris(c: Crate) {
+    const { x: w, z: d } = c.size;
+    const parts: THREE.BufferGeometry[] = [];
+    // fixed layout (no randomness): slabs splayed around the footprint, plus a bent stripe band
+    const slabs: [number, number, number, number, number][] = [
+      [-0.28, -0.22, 0.45, 0.08, 0.3], [0.3, 0.18, 0.4, 0.06, -0.5], [0.05, 0.35, 0.3, 0.1, 1.2],
+      [-0.35, 0.3, 0.25, 0.07, 2.1], [0.32, -0.33, 0.28, 0.09, -1.4], [0, -0.02, 0.5, 0.12, 0.8],
+    ];
+    for (const [fx, fz, size, th, rot] of slabs) {
+      const sx = c.kind === 'wall' ? size * 1.5 : size;
+      parts.push(xf(chamferBox(sx, th, size * 0.8, 0.02, 0.01), [fx * w, th / 2 + 0.01, fz * d * (c.kind === 'wall' ? 1.6 : 1)], [0.12 * Math.sin(rot * 3), rot, 0.1 * Math.cos(rot * 2)]));
+    }
+    const mesh = new THREE.Mesh(mergeGeometries(parts), this.debrisMat);
+    parts.forEach((p) => p.dispose());
+    const band = new THREE.Mesh(xf(rbox(Math.min(1.1, w * 0.6), 0.05, 0.16, 0.01), [0.1 * w, 0.2, -0.05 * d], [0.4, 0.6, 0.25]), this.stripeMat);
+    for (const m of [mesh, band]) {
+      m.position.add(c.pos);
+      m.castShadow = false;
+      m.receiveShadow = true;
+      this.group.add(m);
+    }
   }
 
   pickupTaken(p: Pickup) {
@@ -261,7 +293,7 @@ export class TacticsView {
   dispose() {
     this.group.parent?.remove(this.group);
     const geometries = new Set<THREE.BufferGeometry>([this.markerGeo]);
-    const materials = new Set<THREE.Material>([this.crateMat, this.stripeMat]);
+    const materials = new Set<THREE.Material>([this.crateMat, this.stripeMat, this.debrisMat]);
     this.group.traverse(o => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh) return;
