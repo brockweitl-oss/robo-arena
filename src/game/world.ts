@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { plannedBomb } from './bombAim';
-import { Fighter, type FighterInput, type HitInfo, type SpawnReq, GRAVITY } from './fighter';
+import { Fighter, type FighterInput, type FighterSnapshot, type HitInfo, type SpawnReq, GRAVITY } from './fighter';
 import type { ArenaBuild, BoxCollider } from '../arena/types';
 import type { BombDef, PodDef } from '../data/parts';
 import { segmentHit, pointInSolid, groundHeightBelow } from './collision';
@@ -186,6 +186,37 @@ export type GameEvent =
   | { type: 'objective'; phase: 'warn' | 'online' | 'capture' | 'expire'; who: number; pos: THREE.Vector3 }
   | { type: 'ko'; loser: number };
 
+/**
+ * Complete simulation state between two ticks (rollback netcode). Restoring it and stepping with the
+ * same inputs reproduces the original run bit for bit. Immutable data (part defs, shot specs, arena
+ * geometry) is shared by reference; crates and traps are restored in place because views hold them.
+ */
+export interface WorldSnapshot {
+  readonly time: number;
+  readonly nextId: number;
+  readonly koLoser: number;
+  readonly combatEnabled: boolean;
+  readonly nextPickupAt: number;
+  readonly pickupIndex: number;
+  /** Overcharge Core clock, meters and captures (null when the objective is off). */
+  readonly objective: Omit<ObjectiveState, 'pos' | 'radius'> | null;
+  readonly fighters: readonly [FighterSnapshot, FighterSnapshot];
+  readonly projectiles: readonly Projectile[];
+  readonly bombs: readonly Bomb[];
+  readonly pods: readonly Pod[];
+  readonly fires: readonly FireZone[];
+  readonly crates: readonly (readonly [number, boolean])[];
+  readonly traps: readonly (readonly [number, number, number])[];
+  readonly pickups: readonly Pickup[];
+  readonly colliders: readonly ArenaBuild['colliders'][number][];
+}
+
+const copyProjectile = (p: Projectile): Projectile => ({ ...p, pos: p.pos.clone(), prev: p.prev.clone(), vel: p.vel.clone() });
+const copyBomb = (b: Bomb): Bomb => ({ ...b, pos: b.pos.clone(), vel: b.vel.clone(), spin: b.spin.clone(), target: b.target.clone() });
+const copyPod = (p: Pod): Pod => ({ ...p, pos: p.pos.clone(), vel: p.vel.clone() });
+const copyFire = (z: FireZone): FireZone => ({ ...z, pos: z.pos.clone() });
+const copyPickup = (p: Pickup): Pickup => ({ ...p, pos: p.pos.clone() });
+
 export function gunShotSpec(f: Fighter, power = 1): ShotSpec {
   const g = f.lo.gun;
   const p = Math.max(0, Math.min(1, power));
@@ -304,6 +335,54 @@ export class World {
     for (const f of this.fighters) for (let i = emitted[f.id]; i < f.events.length; i++) this.emitFighterEvent(f, f.events[i]);
     this.separate();
     this.time += dt;
+  }
+
+  /** Capture the full sim state (see WorldSnapshot). Cheap enough to take every tick. */
+  snapshot(): WorldSnapshot {
+    return {
+      time: this.time, nextId: this.nextId, koLoser: this.koLoser, combatEnabled: this.combatEnabled,
+      nextPickupAt: this.nextPickupAt, pickupIndex: this.pickupIndex,
+      fighters: [this.fighters[0].snapshot(), this.fighters[1].snapshot()],
+      projectiles: this.projectiles.map(copyProjectile),
+      bombs: this.bombs.map(copyBomb),
+      pods: this.pods.map(copyPod),
+      fires: this.fires.map(copyFire),
+      crates: this.crates.map((c) => [c.hp, c.alive] as const),
+      traps: this.traps.map((t) => [t.armedAt, t.readyAt, t.owner] as const),
+      pickups: this.pickups.map(copyPickup),
+      colliders: this.arena.colliders.slice(),
+      objective: this.objective ? copyObjective(this.objective) : null,
+    };
+  }
+
+  /** Return to a snapshot. Entities get fresh objects (views re-sync by id); the snapshot stays reusable. */
+  restore(s: WorldSnapshot) {
+    this.time = s.time;
+    this.nextId = s.nextId;
+    this.koLoser = s.koLoser;
+    this.combatEnabled = s.combatEnabled;
+    this.nextPickupAt = s.nextPickupAt;
+    this.pickupIndex = s.pickupIndex;
+    this.fighters[0].restore(s.fighters[0]);
+    this.fighters[1].restore(s.fighters[1]);
+    this.projectiles = s.projectiles.map(copyProjectile);
+    this.bombs = s.bombs.map(copyBomb);
+    this.pods = s.pods.map(copyPod);
+    this.fires = s.fires.map(copyFire);
+    s.crates.forEach(([hp, alive], i) => { this.crates[i].hp = hp; this.crates[i].alive = alive; });
+    s.traps.forEach(([armedAt, readyAt, owner], i) => { const t = this.traps[i]; t.armedAt = armedAt; t.readyAt = readyAt; t.owner = owner; });
+    this.pickups = s.pickups.map(copyPickup);
+    if (this.objective && s.objective) Object.assign(this.objective, copyObjective(s.objective));
+    // same array object (cameras and views hold it), same order (collision resolution is order-sensitive)
+    const cols = this.arena.colliders;
+    cols.length = 0;
+    for (const c of s.colliders) cols.push(c);
+    this.events.length = 0;
+  }
+
+  /** Order-sensitive hash of the full sim state (desync checks, rollback tests). */
+  digest(): number {
+    return digestState(this.snapshot());
   }
 
   private spawn(f: Fighter, s: SpawnReq) {
@@ -1088,6 +1167,38 @@ export class World {
 }
 
 export { GRAVITY };
+
+/** The mutable part of the objective (pos and radius never change). */
+function copyObjective(o: Omit<ObjectiveState, 'pos' | 'radius'>): Omit<ObjectiveState, 'pos' | 'radius'> {
+  return { tick: o.tick, nextTick: o.nextTick, untilTick: o.untilTick, meters: [o.meters[0], o.meters[1]], contested: o.contested, captures: [o.captures[0], o.captures[1]], warned: o.warned };
+}
+
+/** Keys holding immutable shared data (part defs, collider geometry): skipped by the digest. */
+const DIGEST_SKIP = new Set(['def', 'lo', 'st', 'colliders', 'groundCollider', 'collider']);
+
+/** FNV-1a over every number/boolean/string in a sim snapshot, in key order. */
+export function digestState(root: unknown): number {
+  let h = 2166136261;
+  const f64 = new Float64Array(1);
+  const u32 = new Uint32Array(f64.buffer);
+  const mix = (x: number) => { h ^= x; h = Math.imul(h, 16777619); };
+  const walk = (v: unknown) => {
+    if (v === null || v === undefined) { mix(0x9e3779b9); return; }
+    if (typeof v === 'number') { f64[0] = v; mix(u32[0]); mix(u32[1]); return; }
+    if (typeof v === 'boolean') { mix(v ? 1 : 2); return; }
+    if (typeof v === 'string') { for (let i = 0; i < v.length; i++) mix(v.charCodeAt(i)); return; }
+    if (v instanceof THREE.Vector3) { walk(v.x); walk(v.y); walk(v.z); return; }
+    if (Array.isArray(v)) { mix(v.length); for (const x of v) walk(x); return; }
+    if (typeof v === 'object') {
+      for (const k of Object.keys(v as object)) {
+        if (DIGEST_SKIP.has(k)) continue;
+        walk((v as Record<string, unknown>)[k]);
+      }
+    }
+  };
+  walk(root);
+  return h >>> 0;
+}
 
 /** Earliest constant-velocity intercept time, bounded by the weapon's flight in spawnShot. */
 export function interceptTime(relative: THREE.Vector3, velocity: THREE.Vector3, speed: number): number {

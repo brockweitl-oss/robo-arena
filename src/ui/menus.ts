@@ -16,7 +16,7 @@ import { RIVALS, RIVALS_PLUS, PLAYER_PAINT, PLAYER_ROBOT_NAME, rivalById, type P
 import { gradeMatch } from '../game/grades';
 import { saveReplay, loadReplays, downloadReplay, parseReplay, validateReplay, RULESET_VERSION, type Replay } from '../game/replay';
 import { connectedPads } from '../core/padInput';
-import { NetSession, netName, type PlayerHello, type StartMsg, type RatedMsg } from '../net/online';
+import { NetSession, netName, fetchLive, netTimeLimit, type PlayerHello, type StartMsg, type RatedMsg } from '../net/online';
 import { fetchMe, fetchSeasonTop, fetchSurvivalTop, postSurvival, shareReplay, fetchSharedReplay, replayShareUrl, type MeInfo } from '../net/ranked';
 import { PLACEMENT_GAMES, seasonLabel, seasonOf, prevSeason, seasonRewardIds } from '../net/season';
 import { rankBadge, rankResultPanel, type RankResult } from './ranked';
@@ -1467,6 +1467,19 @@ export class Menus implements MenuLayer {
         .catch((e: Error) => { stat.textContent = e.message === 'full' ? 'That room is full.' : 'Could not join that room.'; });
     };
     code.addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
+    const watch = (c: string) => {
+      if (c.length !== 5) { this.host.sfx('ui_error'); stat.textContent = 'Enter a 5-letter room code to watch.'; return; }
+      this.host.sfx('ui_select');
+      stat.textContent = 'Connecting…';
+      NetSession.spectate(c).then((ses) => this.showWatch(ses)).catch(() => { stat.textContent = 'Could not watch that room.'; });
+    };
+    // live matches (newest first); each one can be watched
+    const liveList = h('div', 'net-row net-live');
+    liveList.hidden = true;
+    fetchLive().then((rooms) => {
+      liveList.hidden = !rooms.length;
+      liveList.replaceChildren(...rooms.slice(0, 2).map((r) => btn(`Watch: ${r.names.join(' vs ')}${r.ranked ? ' · Ranked' : ''}`, () => watch(r.code))));
+    });
     const quick = btn('Quick Match', searching('Quick match', false), 'primary big');
     const opts = [
       quick,
@@ -1476,15 +1489,54 @@ export class Menus implements MenuLayer {
         stat.textContent = 'Creating room…';
         NetSession.create(this.onlineHello()).then((ses) => this.showOnlineLobby(ses, {})).catch(() => { stat.textContent = 'Could not reach the online server.'; });
       }, 'big'),
-      h('div', 'net-row', code, btn('Join Room', join, 'big')),
-      btn('Leaderboard', () => { this.host.sfx('ui_select'); this.showLeaderboard(); }, 'big'),
-      btn('Garage', () => { this.host.sfx('ui_select'); this.showGarage(() => this.showOnline()); }, 'big', SLOT_ICON.body),
+      h('div', 'net-row', code, btn('Join Room', join, 'big'), btn('Watch', () => watch(code.value), 'big')),
+      liveList,
+      h('div', 'net-row net-split',
+        btn('Leaderboard', () => { this.host.sfx('ui_select'); this.showLeaderboard(); }, 'big'),
+        btn('Garage', () => { this.host.sfx('ui_select'); this.showGarage(() => this.showOnline()); }, 'big', SLOT_ICON.body)),
     ];
-    const note = h('div', 'md-desc', 'Both players run the same deterministic simulation; only button presses travel over the network. Lower ping = less input delay. Ranked seasons run by calendar month: 5 placement matches, then Bronze to Diamond in three divisions each. A new season pulls ratings halfway back to 1000, and your best tier earns a reward.');
-    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', h('label', 'net-row', h('span', 'md-desc', 'Pilot name'), name), rating, ...opts, stat, note),
+    const note = h('div', 'md-desc', 'Both players run the same deterministic simulation; only button presses travel over the network. Rollback hides the ping. Ranked seasons run by calendar month: 5 placement matches, then Bronze to Diamond in three divisions each. A new season pulls ratings halfway back to 1000, and your best tier earns a reward.');
+    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col net-col', h('label', 'net-row', h('span', 'md-desc', 'Pilot name'), name), rating, ...opts, stat, note),
       h('div', 'ra-actions', btn('Back', () => { cancel?.abort(); this.host.sfx('ui_back'); this.showModes(); }, 'big')));
     el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
     this.setScreen(el, { back: () => { cancel?.abort(); this.showModes(); }, initial: quick });
+  }
+
+  /** Spectating a room: wait for its next (or current) match, watch it, repeat. */
+  private showWatch(ses: NetSession, status = '') {
+    this.backdrop('title');
+    this.music('menu');
+    const el = h('div', 'scr-free scr-modes');
+    const hd = this.header(`Room ${ses.code}`, 'Spectating');
+    const who = ses.watchNames.length ? `In the room: ${ses.watchNames.join(' vs ')}` : 'Nobody is in this room yet.';
+    const stat = h('div', 'md-desc net-status', status || `${who}. The next round starts here automatically.`);
+    const leave = () => { ses.onStart = ses.onLeft = undefined; ses.close(); this.showOnline(); };
+    ses.onLeft = () => { stat.textContent = 'A player left the room.'; };
+    ses.onStart = (st) => this.playWatch(ses, st);
+    const back = btn('Stop Watching', () => { this.host.sfx('ui_back'); leave(); }, 'big');
+    el.append(h('div', 'vig vig-left'), hd, h('div', 'ra-panel fb-panel', h('div', 'md-col', stat), h('div', 'ra-actions', back)), hints([['back', 'Back']]));
+    this.setScreen(el, { back: leave, initial: back });
+    const pending = ses.pendingStart;
+    ses.pendingStart = null;
+    if (pending) this.playWatch(ses, pending);
+  }
+
+  private async playWatch(ses: NetSession, st: StartMsg) {
+    ses.onStart = undefined;
+    const arena = (ARENA_IDS as readonly string[]).includes(st.arena) ? st.arena : ARENA_IDS[0];
+    this.hideAll();
+    this.musicNow = null;
+    await this.host.startMatch({
+      mode: 'online', playerLoadout: st.players[0].loadout, rivalId: RIVALS[0].id, arenaId: arena, timeLimit: netTimeLimit(),
+      online: { session: ses, me: 0, seed: st.seed, players: st.players, ranked: st.ranked, spectate: true },
+    });
+    this.musicNow = null;
+    if (ses.closed && !ses.pendingStart) {
+      ses.close();
+      this.showOnline('The match you were watching has ended.');
+      return;
+    }
+    this.showWatch(ses, 'Round over. Waiting for the next one…');
   }
 
   private async showLeaderboard(season = seasonOf()) {
@@ -1562,7 +1614,7 @@ export class Menus implements MenuLayer {
     this.hideAll();
     this.musicNow = null;
     const res = await this.host.startMatch({
-      mode: 'online', playerLoadout: st.players[me].loadout, rivalId: RIVALS[0].id, arenaId: arena, timeLimit: 120,
+      mode: 'online', playerLoadout: st.players[me].loadout, rivalId: RIVALS[0].id, arenaId: arena, timeLimit: netTimeLimit(),
       online: { session: ses, me, seed: st.seed, players: st.players, ranked },
     });
     this.musicNow = null;

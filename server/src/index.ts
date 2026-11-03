@@ -14,6 +14,11 @@
  *
  * Messages are JSON strings. Client -> room: hello, ready, result; anything else is relayed.
  * Room -> client: seat, peer, start, rated, left, error.
+ *
+ * Spectators (`/room/CODE?spectate=1`) take no seat and send nothing that is relayed. They get
+ * `watch`, then the current match's `start` (players' builds + seed) and a `log` batch of every
+ * input so far, then each player's input live, tagged with the sender's slot (`"s":0|1`).
+ * `/live` lists rooms with a match in progress (names, arena, start time) for the watch screen.
  */
 import { DurableObject } from 'cloudflare:workers';
 import { START, PLACEMENT_GAMES, carryRating, kFactor, isPlaced, isSeasonId, prevSeason, rankOf, seasonEnds, seasonOf } from '../../src/net/season';
@@ -38,6 +43,8 @@ async function body(req: Request, max: number): Promise<string | undefined> {
   const t = await req.text();
   return t.length > max ? undefined : t;
 }
+/** The live-match directory: one well-known Lobby instance (no extra binding or migration needed). */
+const live = (env: Env) => (env.LOBBY as DurableObjectNamespace<Lobby>).get(env.LOBBY.idFromName('live'));
 
 async function keyHash(key: unknown): Promise<string | undefined> {
   if (typeof key !== 'string' || key.length < 16 || key.length > 64) return undefined;
@@ -57,6 +64,7 @@ export default {
     if (url.pathname === '/season') return json(await ratings(env).seasonInfo());
     // old clients read an array of {name, rating, games, wins}; season fields are extra
     if (url.pathname === '/top') return json(await ratings(env).top(season ?? undefined));
+    if (url.pathname === '/live') return json(await live(env).list());
     if (url.pathname === '/me') {
       const k = await keyHash(url.searchParams.get('key'));
       return k ? json(await ratings(env).me(k)) : json({ error: 'bad key' }, 400);
@@ -99,7 +107,10 @@ function upgrade(req: Request): [WebSocket, Response] | Response {
 }
 
 interface Seat {
-  slot: 0 | 1;
+  /** 0/1 players; -1 rejected; -2 spectator. */
+  slot: 0 | 1 | -1 | -2;
+  /** Room code (from the URL; the live directory is keyed by it). */
+  code?: string;
   hello?: Record<string, unknown>;
   /** Hash of the private key (never sent to the other player). */
   k?: string;
@@ -108,9 +119,20 @@ interface Seat {
   result?: number;
 }
 
+/** Most input messages a room keeps for late-joining spectators (two players, 60 Hz, ~5 minutes). */
+const LOG_MAX = 36000;
+
 export class Room extends DurableObject<Env> {
   private ranked = false;
   private settled = true;
+  /** Current match: its start message (also persisted) and every relayed input, tagged by slot. */
+  private startMsg: string | null = null;
+  private log: string[] = [];
+  private loaded = false;
+
+  private spectators(): WebSocket[] {
+    return this.ctx.getWebSockets().filter((ws) => (ws.deserializeAttachment() as Seat | null)?.slot === -2);
+  }
 
   private seats(): { ws: WebSocket; seat: Seat }[] {
     return this.ctx.getWebSockets().map((ws) => ({ ws, seat: ws.deserializeAttachment() as Seat }));
@@ -120,6 +142,21 @@ export class Room extends DurableObject<Env> {
     const up = upgrade(req);
     if (up instanceof Response) return up;
     const [ws, res] = up;
+    const url = new URL(req.url);
+    const code = url.pathname.split('/').pop();
+    if (url.searchParams.get('spectate')) {
+      this.ctx.acceptWebSocket(ws);
+      ws.serializeAttachment({ slot: -2, code } satisfies Seat);
+      const names = this.seats().filter((s) => s.seat.slot === 0 || s.seat.slot === 1).sort((a, b) => a.seat.slot - b.seat.slot)
+        .map((s) => String(s.seat.hello?.name ?? 'Pilot'));
+      ws.send(JSON.stringify({ t: 'watch', players: names }));
+      this.startMsg ??= (await this.ctx.storage.get<string>('start')) ?? null;
+      if (this.startMsg) {
+        ws.send(this.startMsg);
+        if (this.log.length) ws.send(`{"t":"log","m":[${this.log.join(',')}]}`);
+      }
+      return res;
+    }
     const taken = this.seats().map((s) => s.seat.slot).filter((s) => s === 0 || s === 1);
     this.ctx.acceptWebSocket(ws);
     if (taken.length >= 2) {
@@ -129,7 +166,7 @@ export class Room extends DurableObject<Env> {
       return res;
     }
     const slot: 0 | 1 = taken.includes(0) ? 1 : 0;
-    ws.serializeAttachment({ slot } satisfies Seat);
+    ws.serializeAttachment({ slot, code } satisfies Seat);
     ws.send(JSON.stringify({ t: 'seat', slot }));
     return res;
   }
@@ -139,9 +176,20 @@ export class Room extends DurableObject<Env> {
     const me = ws.deserializeAttachment() as Seat;
     if (me.slot !== 0 && me.slot !== 1) return;
     const other = this.seats().find((s) => s.ws !== ws && (s.seat.slot === 0 || s.seat.slot === 1));
+    if (!this.loaded) {
+      // woke from hibernation: the current match's start message survives in storage
+      this.loaded = true;
+      this.startMsg ??= (await this.ctx.storage.get<string>('start')) ?? null;
+    }
     // hot path: relay inputs untouched
     if (!raw.startsWith('{"t":"hello"') && !raw.startsWith('{"t":"ready"') && !raw.startsWith('{"t":"result"')) {
       other?.ws.send(raw);
+      if (raw.startsWith('{"t":"i"') && this.startMsg) {
+        // spectators: the same input, tagged with its sender's slot
+        const tagged = `{"s":${me.slot},${raw.slice(1)}`;
+        if (this.log.length < LOG_MAX) this.log.push(tagged);
+        for (const sp of this.spectators()) try { sp.send(tagged); } catch { /* closed */ }
+      }
       return;
     }
     let msg: { t: string; [k: string]: unknown };
@@ -203,6 +251,10 @@ export class Room extends DurableObject<Env> {
     this.settled = !this.ranked;
     const seed = crypto.getRandomValues(new Uint32Array(1))[0] % 2147483647;
     const start = { t: 'start', seed, arena: h[0].arena, players: h, ranked: this.ranked };
+    // spectators see the new match from its first input
+    this.startMsg = JSON.stringify({ ...start, spectate: true });
+    this.log = [];
+    for (const sp of this.spectators()) try { sp.send(this.startMsg); } catch { /* closed */ }
     other.seat.ready = false;
     other.seat.result = undefined;
     me.ready = false;
@@ -210,11 +262,20 @@ export class Room extends DurableObject<Env> {
     other.ws.serializeAttachment(other.seat);
     ws.send(JSON.stringify(start));
     other.ws.send(JSON.stringify(start));
+    // after the players have their start: persist it for late spectators, list the room as live
+    await this.ctx.storage.put('start', this.startMsg);
+    if (me.code) {
+      await live(this.env).set(me.code, { names: h.map((x) => String(x.name ?? 'Pilot')), arena: String(h[0].arena ?? ''), ranked: this.ranked, at: Date.now() })
+        .catch(() => undefined);
+    }
   }
 
   async webSocketClose(ws: WebSocket) {
     const me = ws.deserializeAttachment() as Seat;
     if (me.slot !== 0 && me.slot !== 1) return;
+    if (me.code) await live(this.env).set(me.code, null).catch(() => undefined);
+    this.startMsg = null;
+    await this.ctx.storage.delete('start');
     for (const s of this.seats()) if (s.ws !== ws) try { s.ws.send(JSON.stringify({ t: 'left', slot: me.slot })); } catch { /* closed */ }
     // leaving an unsettled ranked match counts as a loss
     const other = this.seats().find((s) => s.ws !== ws && (s.seat.slot === 0 || s.seat.slot === 1));
@@ -231,7 +292,29 @@ export class Room extends DurableObject<Env> {
   }
 }
 
+export interface LiveRoom { names: string[]; arena: string; ranked: boolean; at: number }
+
 export class Lobby extends DurableObject<Env> {
+  /** Live directory (only on the 'live' instance): a room's match starts or its players leave. */
+  async set(code: string, info: LiveRoom | null) {
+    if (!/^[A-Z0-9]{5}$/.test(code)) return;
+    if (info) await this.ctx.storage.put(`room:${code}`, info);
+    else await this.ctx.storage.delete(`room:${code}`);
+  }
+
+  /** Rooms whose match started in the last 4 minutes, newest first (stale entries are dropped). */
+  async list(): Promise<(LiveRoom & { code: string })[]> {
+    const now = Date.now();
+    const out: (LiveRoom & { code: string })[] = [];
+    const stale: string[] = [];
+    for (const [k, v] of await this.ctx.storage.list<LiveRoom>({ prefix: 'room:' })) {
+      if (now - v.at > 4 * 60_000) stale.push(k);
+      else out.push({ code: k.slice(5), ...v, names: v.names.map(cleanName) });
+    }
+    if (stale.length) await this.ctx.storage.delete(stale);
+    return out.sort((a, b) => b.at - a.at).slice(0, 20);
+  }
+
   async fetch(req: Request): Promise<Response> {
     const up = upgrade(req);
     if (up instanceof Response) return up;

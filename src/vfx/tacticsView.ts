@@ -148,6 +148,8 @@ export class TacticsView {
   update(dt: number) {
     this.time += dt;
     const w = this.world;
+    // online rollback can undo a predicted crate break: rebuild the crate
+    for (const c of w.crates) if (c.alive && !this.crates.has(c.id)) this.makeCrate(c);
     // crate hit shake
     for (const [id, g] of this.crates) {
       const c = w.crates.find((x) => x.id === id);
