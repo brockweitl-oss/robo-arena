@@ -34,6 +34,8 @@ export class GuideView {
   private x: HTMLElement;
   private pips: HTMLElement;
   private niceUntil = 0;
+  /** Device the prompt was last drawn for (keyboard/mouse vs pad glyphs). */
+  private drawnPad: boolean | null = null;
   private static styled = false;
 
   constructor(parent: HTMLElement) {
@@ -70,14 +72,15 @@ export class GuideView {
     this.el.classList.remove('nice');
     const s = g.step;
     if (!s) return;
-    if (!g.changed && this.t.textContent === s.title) return;
+    if (!g.changed && this.t.textContent === s.title && this.drawnPad === pad) return;
     g.changed = false;
+    this.drawnPad = pad;
     const glyph = s.action === 'move' ? (pad ? 'L-Stick' : `${keyName(b.keys.forward[0])}${keyName(b.keys.left[0])}${keyName(b.keys.back[0])}${keyName(b.keys.right[0])}`)
       : pad ? padName(b.pad[s.action]?.[0]) : keyName(b.keys[s.action]?.[0] ?? '');
     this.key.textContent = glyph;
     this.n.textContent = `Step ${Math.min(g.index + 1, GUIDE_STEPS.length)} / ${GUIDE_STEPS.length}`;
     this.t.textContent = s.title;
-    this.x.textContent = s.text.replace('{key}', glyph);
+    this.x.textContent = (pad && s.padText ? s.padText : s.text).replace('{key}', glyph);
     this.pips.querySelectorAll('i').forEach((p, i) => {
       p.className = i < g.index ? (g.done.includes(GUIDE_STEPS[i].id) ? 'ok' : 'on') : i === g.index ? 'on' : '';
     });

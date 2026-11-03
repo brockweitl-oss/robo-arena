@@ -99,6 +99,8 @@ function unlockSource(slot: Slot, id: string): Rival | undefined {
 function lockText(slot: Slot, id: string): string {
   const src = unlockSource(slot, id);
   if (src) return `Beat ${src.pilot} to unlock`;
+  const plus = RIVALS_PLUS.find((r) => r.unlocks.includes(`${slot}:${id}`));
+  if (plus) return `Beat ${plus.robotName} in Rival+ to unlock`;
   const stage = STAGED_UNLOCKS.findIndex((st) => st.includes(`${slot}:${id}`));
   if (stage >= 0) return `Win ${stage + 1} ladder fight${stage ? 's' : ''} to unlock`;
   return 'Locked';
@@ -223,6 +225,7 @@ export class Menus implements MenuLayer {
   private sharedReplay: string | null = null;
   private resizeFn: (() => void) | null = null;
   private mainIdx = 0;
+  private practiceArena: string = ARENA_IDS[0];
   private gSlot: Slot = 'gun';
   private fb = { rival: RIVALS[0].id, arena: RIVALS[0].arena as string, time: 90, set: false };
   /** Running first-to-2 set (free battle vs AI or local versus). `live` is the config of the round in play. */
@@ -659,6 +662,16 @@ export class Menus implements MenuLayer {
 
   /* ---------------- shared widgets */
 
+  /** A button that cycles a value: left/right (keys, d-pad) step it, confirm/click steps forward. */
+  private cycler(label: () => string, step: (dir: -1 | 1) => void): HTMLElement {
+    const prev = h('span', 'cy-arrow', '◀');
+    const b = h('div', 'ra-btn big ra-cycler', prev, h('span', 'ra-btn-l', label()), h('span', 'cy-arrow', '▶'));
+    const go = (d: -1 | 1) => { step(d); b.querySelector('.ra-btn-l')!.textContent = label(); this.host.sfx('ui_move'); };
+    // mouse: the left arrow steps back (the rest of the button steps forward)
+    prev.addEventListener('click', (e) => { e.stopPropagation(); this.setFocusKeep(b); go(-1); });
+    return nav(b, { act: () => go(1), adjust: go });
+  }
+
   private logo(size: 'big' | 'small'): HTMLElement {
     const l = h('div', `ra-logo ${size}`);
     const robo = h('div', 'logo-word w1', 'ROBO');
@@ -713,8 +726,8 @@ export class Menus implements MenuLayer {
     const items: [string, string, string | null, () => void][] = [
       ['Story Ladder', champ ? 'You hold the crown. Defend it.' : fresh ? 'New pilot? Start here: a guided first fight teaches the controls.' : 'Climb the circuit. Five rivals stand between you and the crown.', champ ? 'CHAMPION' : fresh ? 'START HERE' : `Ladder ${done}/${RIVALS.length}`, () => this.showLadder()],
       ['Free Battle', 'Any rival, any arena, your rules.', null, () => this.showFree()],
-      ['Modes', 'Rival+ ladder, survival, practice room, local versus and replays.', champ ? 'RIVAL+' : null, () => this.showModes()],
-      ['Garage', 'Swap guns, bombs, pods, frames and legs.', `${s.unlocked.length} parts`, () => this.showGarage(() => this.showMain())],
+      ['Modes', 'Online, survival, practice room, local versus, Rival+ and replays.', champ ? 'RIVAL+' : null, () => this.showModes()],
+      ['Garage', 'Swap guns, bombs, pods, skills, frames and legs. Paint and save presets.', `${s.unlocked.length} parts`, () => this.showGarage(() => this.showMain())],
       ['Profile', 'Pilot card, achievements, challenges and part mastery.', `Lv ${pilotLevel(s)}`, () => this.meta.showProfile(() => this.showMain())],
       ['Shop', 'Spend credits on paint, decals, trails and victory poses.', `${s.credits.toLocaleString('en-US')} CR`, () => this.meta.showShop(() => this.showMain())],
       ['Settings', 'Audio, camera, graphics and controls.', null, () => this.showSettings(() => this.showMain())],
@@ -1105,7 +1118,7 @@ export class Menus implements MenuLayer {
     stagger([panel], 450);
     stagger([insEl], 600);
     stagger([bar], 800);
-    el.append(h('div', 'vig vig-top'), h('div', 'vig vig-bot'), banner, h('div', 'res-body', panel, insEl), bar, hints([['move', 'Move'], ['confirm', 'Select']]));
+    el.append(h('div', 'vig vig-top'), h('div', 'vig vig-bot'), banner, h('div', 'res-body', panel, insEl), bar, hints(championNow ? [['move', 'Move'], ['confirm', 'Select']] : [['move', 'Move'], ['confirm', 'Select'], ['back', 'Main Menu']]));
     this.setScreen(el, { back: championNow ? undefined : () => { this.series = null; this.showMain(); }, initial: acts[0] });
     this.meta.rewardsStrip(el, rewards);
 
@@ -1226,7 +1239,7 @@ export class Menus implements MenuLayer {
     const epi = h('div', 'end-epi');
     const lines = [
       'Sovereign drops to one knee on the Halo Deck, and the ring goes silent — then erupts.',
-      'Five rivals. Three arenas. One rookie pilot and a robot bolted together part by part.',
+      'Five rivals. One rookie pilot, and a robot bolted together part by part.',
       'The crown is yours now. Somewhere far below, someone is already building the machine that will come for it.',
     ];
     lines.forEach((t, i) => {
@@ -1428,12 +1441,10 @@ export class Menus implements MenuLayer {
     const el = h('div', 'scr-free scr-modes');
     const hd = this.header('Modes', 'More Ways to Fight');
     const card = (title: string, desc: string, tag: string, act: (() => void) | null) => {
-      const c = nav(h('div', `ra-tile md-card ${act ? '' : 'locked'}`, h('div', 'md-title', title), h('div', 'md-desc', desc), h('div', 'md-tag', tag)), {
+      const c = nav(h('div', `ra-tile md-card ${act ? '' : 'locked'}`, h('div', 'md-title', !act ? svg(LOCK_ICON) : null, title), h('div', 'md-desc', desc), h('div', 'md-tag', tag)), {
+        locked: !act,
         act: () => {
-          if (!act) {
-            this.host.sfx('ui_error');
-            return;
-          }
+          if (!act) return;
           this.host.sfx('ui_select');
           act();
         },
@@ -1455,20 +1466,20 @@ export class Menus implements MenuLayer {
     const panel = h('div', 'ra-panel fb-panel', grid, h('div', 'ra-actions', back));
     stagger(cards, 100, 60);
     el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
-    this.setScreen(el, { back: () => this.showMain(), initial: cards[0] });
+    this.setScreen(el, { back: () => this.showMain(), initial: cards.find((c) => !c.classList.contains('locked')) ?? cards[0] });
   }
 
   private showPractice() {
-    this.backdrop('garage', { loadout: this.host.save.loadout });
+    this.backdrop('title');
+    this.music('menu');
     const el = h('div', 'scr-free scr-modes');
     const hd = this.header('Practice Room', 'Training Dummy');
-    let arena: string = ARENA_IDS[0];
-    const arenaBtn = btn(`Arena: ${ARENA_INFO[arena as ArenaId].name}`, () => {
+    let arena: string = ARENA_IDS.includes(this.practiceArena as ArenaId) ? this.practiceArena : ARENA_IDS[0];
+    const arenaBtn = this.cycler(() => `Arena: ${ARENA_INFO[arena as ArenaId].name}`, (d) => {
       const ids = ARENA_IDS as readonly string[];
-      arena = ids[(ids.indexOf(arena) + 1) % ids.length];
-      arenaBtn.querySelector('span')!.textContent = `Arena: ${ARENA_INFO[arena as ArenaId].name}`;
-      this.host.sfx('ui_move');
-    }, 'big');
+      arena = ids[(ids.indexOf(arena) + d + ids.length) % ids.length];
+      this.practiceArena = arena;
+    });
     const go = (dummy: 'idle' | 'move' | 'shoot' | 'full' | 'evade' | 'tells') => () => {
       this.host.sfx('ui_select');
       this.runMatch({ mode: 'practice', playerLoadout: { ...this.host.save.loadout }, rivalId: 'dex', arenaId: arena, practice: { dummy } });
@@ -1478,12 +1489,12 @@ export class Menus implements MenuLayer {
       btn('Dummy: Move Only', go('move'), 'big'),
       btn('Dummy: Shoot Only', go('shoot'), 'big'),
       btn('Dummy: Full AI', go('full'), 'big'),
-      btn('Drill: Evader (land skill shots, practice feints)', go('evade'), 'big'),
-      btn('Drill: Skill Shooter (dodge the tells)', go('tells'), 'big'),
+      btn('Drill: Evader · land skill shots', go('evade'), 'big'),
+      btn('Drill: Skill Shooter · dodge the tells', go('tells'), 'big'),
     ];
-    const note = h('div', 'md-desc', 'Hold the bomb mouse button, move the landing marker, then release to throw. Clean bomb/pod blasts prime a target for 2 seconds; follow with rail or a charged beam after the marker closes. A perfect dodge, parry or frontal block clears the primer. Both robots refill automatically. Esc → Quit leaves practice.');
-    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', ...opts, arenaBtn, note), h('div', 'ra-actions', btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big')));
-    el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
+    const note = h('div', 'md-desc', 'Both robots refill automatically; there is no clock. Combo practice: a clean bomb or pod blast primes the target for 2 seconds, then a rail shot, a beam charged past 75% or Breaker Lance cashes it in. Pause and choose Quit to leave.');
+    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', arenaBtn, ...opts, note), h('div', 'ra-actions', btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big')));
+    el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['adjust', 'Arena'], ['confirm', 'Select'], ['back', 'Back']]));
     this.setScreen(el, { back: () => this.showModes(), initial: opts[0] });
   }
 
@@ -1504,14 +1515,11 @@ export class Menus implements MenuLayer {
       sub.textContent = `${L.body.name} · ${L.legs.name} · ${L.gun.name} / ${L.bomb.name} / ${L.pod.name}`;
       this.backdrop('versus', { loadout: s.loadout, rivalId: r.id });
     };
-    const prev = btn('◀ Robot', () => { pick = (pick + pool.length - 1) % pool.length; this.host.sfx('ui_move'); refresh(); }, 'big');
-    const next = btn('Robot ▶', () => { pick = (pick + 1) % pool.length; this.host.sfx('ui_move'); refresh(); }, 'big');
-    const arenaBtn = btn(`Arena: ${ARENA_INFO[arena as ArenaId].name}`, () => {
+    const robotBtn = this.cycler(() => `P2 Robot ${pick + 1} / ${pool.length}`, (d) => { pick = (pick + d + pool.length) % pool.length; refresh(); });
+    const arenaBtn = this.cycler(() => `Arena: ${ARENA_INFO[arena as ArenaId].name}`, (d) => {
       const ids = ARENA_IDS as readonly string[];
-      arena = ids[(ids.indexOf(arena) + 1) % ids.length];
-      arenaBtn.querySelector('span')!.textContent = `Arena: ${ARENA_INFO[arena as ArenaId].name}`;
-      this.host.sfx('ui_move');
-    }, 'big');
+      arena = ids[(ids.indexOf(arena) + d + ids.length) % ids.length];
+    });
     const pads = connectedPads().length;
     const start = btn('Fight!', () => {
       if (connectedPads().length === 0) {
@@ -1524,8 +1532,8 @@ export class Menus implements MenuLayer {
       this.startSet('versus', { mode: 'versus', playerLoadout: { ...s.loadout }, rivalId: r.id, arenaId: arena, timeLimit: 120, versus: { p2Loadout: { ...r.loadout }, p2Paint: r.paint, p2Name: r.robotName } });
     }, 'primary big');
     const info = h('div', 'md-desc', `${pads >= 2 ? 'Two pads: Player 1 uses pad 1, Player 2 uses pad 2.' : 'Player 1: keyboard and mouse. Player 2: gamepad. Shared camera.'} First to ${SET_TARGET} rounds; the loser of each round counter-picks one part first.`);
-    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', label, sub, h('div', 'ra-actions', prev, next), arenaBtn, info), h('div', 'ra-actions', start, btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big')));
-    el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
+    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', label, sub, robotBtn, arenaBtn, info), h('div', 'ra-actions', start, btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big')));
+    el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['adjust', 'Change'], ['confirm', 'Select'], ['back', 'Back']]));
     this.setScreen(el, { back: () => this.showModes(), initial: start });
     refresh();
   }
@@ -1541,8 +1549,7 @@ export class Menus implements MenuLayer {
   }
 
   private showOnline(status = '') {
-    const s = this.host.save;
-    this.backdrop('garage', { loadout: s.loadout });
+    this.backdrop('title');
     this.music('menu');
     const el = h('div', 'scr-free scr-modes');
     const hd = this.header('Online', 'Fight Real Pilots');
@@ -1905,11 +1912,11 @@ export class Menus implements MenuLayer {
 
   private showSurvival() {
     const s = this.host.save;
-    this.backdrop('garage', { loadout: s.loadout });
+    this.backdrop('title');
     this.music('menu');
     const el = h('div', 'scr-free scr-modes');
     const hd = this.header('Survival', 'Gauntlet');
-    const mine = h('div', 'md-desc', `Your best run: ${s.survivalBest} round${s.survivalBest === 1 ? '' : 's'}`);
+    const mine = h('div', 'md-title surv-best', `Your best: ${s.survivalBest} round${s.survivalBest === 1 ? '' : 's'}`);
     const global = h('div', 'md-desc surv-me', '');
     const list = h('div', 'md-col net-board surv-board', h('div', 'md-desc', 'Loading the global board…'));
     const start = btn('Start Run', () => { this.host.sfx('ui_select'); this.runMatch(this.survivalCfg(1, 99999)); }, 'primary big');
@@ -1917,7 +1924,7 @@ export class Menus implements MenuLayer {
     const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col',
       h('div', 'md-desc', 'Fight until you fall. You heal 25% between rounds, and the opponents get tougher. Runs post to the monthly global board.'),
       mine, global, h('div', 'md-title', `Global Top 10 · ${seasonLabel(seasonOf())}`), list), h('div', 'ra-actions', start, back));
-    el.append(h('div', 'vig vig-left'), hd, panel, hints([['confirm', 'Select'], ['back', 'Back']]));
+    el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
     this.setScreen(el, { back: () => this.showModes(), initial: start });
     fetchSurvivalTop().then((t) => {
       if (this.screen?.el !== el) return;
@@ -2056,7 +2063,7 @@ export class Menus implements MenuLayer {
         const el = nav(h('div', `gar-part ${owned ? '' : 'locked'} ${equipped ? 'equipped' : ''}`,
           h('div', 'gp-visual', thumbnails.image(slot, p.id)),
           h('div', 'gp-body', h('div', 'gp-name', owned ? p.name : p.name), owned ? pips : h('div', 'gp-lock', lockText(slot, p.id))),
-          equipped ? h('div', 'gp-eq', svg(CHECK_ICON), 'E') : null), {
+          equipped ? h('div', 'gp-eq', svg(CHECK_ICON), 'ON') : null), {
           locked: !owned,
           focus: () => { renderDetail(p); this.host.focusPreview(slot); },
           act: () => {
