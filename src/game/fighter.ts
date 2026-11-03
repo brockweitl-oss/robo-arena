@@ -249,7 +249,7 @@ export class Fighter implements AnimSource {
   readonly spawns: SpawnReq[] = [];
 
   // stats
-  stats = { damageDealt: 0, hits: 0, knockdowns: 0, knockdownsTaken: 0, shots: 0, dodges: 0, parries: 0, gunProjectiles: 0, gunHits: 0, gunDamage: 0, gunDeflected: 0, primes: 0, combos: 0, comboDamage: 0, skillCasts: 0, skillHits: 0, skillDamage: 0, feints: 0, sweetSpots: 0 };
+  stats = { damageDealt: 0, hits: 0, knockdowns: 0, knockdownsTaken: 0, shots: 0, dodges: 0, parries: 0, gunProjectiles: 0, gunHits: 0, gunDamage: 0, gunDeflected: 0, primes: 0, combos: 0, comboDamage: 0, skillCasts: 0, skillHits: 0, skillDamage: 0, feints: 0, sweetSpots: 0, captures: 0 };
 
   constructor(readonly id: number, readonly lo: ResolvedLoadout) {
     this.st = deriveStats(lo);

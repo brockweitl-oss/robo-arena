@@ -17,8 +17,10 @@ import { ReplayCamera } from '../render/replayCamera';
 import { ReplayBar } from '../ui/replayBar';
 import { Effects } from '../vfx/effects';
 import { TacticsView } from '../vfx/tacticsView';
+import { ObjectiveView } from '../vfx/objectiveView';
+import { OBJECTIVE } from './tactics';
 import { audio, type LoopHandle } from '../audio/audio';
-import type { MatchConfig, MatchResult } from './types';
+import { objectiveEnabled, type MatchConfig, type MatchResult } from './types';
 import { groundHeightBelow, segmentHit } from './collision';
 import { track } from '../core/telemetry';
 import { InputRecorder, InputPlayer, quantizeInput, quantizeBombTarget, RULESET_VERSION, type Replay } from './replay';
@@ -128,6 +130,9 @@ export class Match {
   private seekMuted = false;
   readonly fx: Effects;
   private tactics!: TacticsView;
+  private objectiveView: ObjectiveView | null = null;
+  /** Local player first, opponent second (HUD + pad colours). */
+  private static readonly OBJ_COLORS = ['#37e8ff', '#ff4a3a'] as const;
   private sides: [Side, Side];
   private ai: AIPilot;
   /** Testing: an AI also drives the player (?autoplay). */
@@ -222,7 +227,7 @@ export class Match {
     // seeds: from the replay being watched, the online room, or fresh (recorded for this match's replay)
     this.worldSeed = cfg.replay ? cfg.replay.worldSeed : on ? on.seed : 12345;
     this.aiSeed = cfg.replay ? cfg.replay.aiSeed : 7;
-    this.world = new World(this.arena, ...((this.me === 0 ? [pf, rf] : [rf, pf]) as [Fighter, Fighter]), { arenaId: cfg.arenaId, pickups: !!cfg.pickups, seed: this.worldSeed });
+    this.world = new World(this.arena, ...((this.me === 0 ? [pf, rf] : [rf, pf]) as [Fighter, Fighter]), { arenaId: cfg.arenaId, pickups: !!cfg.pickups, objective: objectiveEnabled(cfg), seed: this.worldSeed });
     const practice = cfg.practice?.dummy;
     // training dummies: the evader and skill shooter are top-tier readers so the drills are honest
     this.ai = practice === 'evade' || practice === 'tells' ? new AIPilot('champion', practice === 'evade' ? 1 : 0.8, this.aiSeed) : new AIPilot(rival.ai, practice ? 0.5 : rival.skill, this.aiSeed);
@@ -293,6 +298,10 @@ export class Match {
     this.cam.snapBehind(sp0, sp1);
     this.hazardWarned = this.arena.hazards.map(() => false);
     this.tactics = new TacticsView(this.world, this.fx, s);
+    if (this.world.objective) {
+      const [mine, theirs] = Match.OBJ_COLORS.map((c) => new THREE.Color(c).getHex());
+      this.objectiveView = new ObjectiveView(this.world, this.fx, s, this.me === 0 ? [mine, theirs] : [theirs, mine]);
+    }
 
     const names: [string, string, string, string] = vs
       ? on ? [on.players[on.me].name, 'YOU', vs.p2Name, on.ranked ? `RATED ${on.players[1 - on.me].rating ?? 1000}` : 'ONLINE'] : [PLAYER_ROBOT_NAME, 'P1', vs.p2Name, 'P2']
@@ -516,6 +525,7 @@ export class Match {
     this.fx.syncBombs(this.world.bombs, dt);
     this.fx.syncPods(this.world.pods, dt);
     this.tactics.update(dt);
+    this.objectiveView?.update(dt);
     this.aimView.update(this.player.fighter, this.sides[1].fighter, this.skillGoal, this.arena.colliders, this.renderTime);
     this.fx.update(dt);
 
@@ -554,6 +564,14 @@ export class Match {
       for (const b of this.world.bombs) if (b.owner !== this.me) add(b.target, b.def.color);
       for (const p of this.world.pods) if (p.owner !== this.me && p.pos.distanceTo(pf.pos) < 14) add(p.pos, p.def.color);
     }
+    const ob = this.world.objective;
+    if (ob && this.phase !== 'intro') {
+      const inSec = this.world.objectiveIn(), online = ob.untilTick >= 0;
+      host.hud.objective({
+        state: online ? 'online' : inSec <= OBJECTIVE.warn ? 'soon' : 'off', inSec, leftSec: online ? (ob.untilTick - ob.tick) * SIM_DT : 0,
+        meters: [ob.meters[this.me] / OBJECTIVE.capture, ob.meters[1 - this.me] / OBJECTIVE.capture], contested: ob.contested, colors: [...Match.OBJ_COLORS],
+      });
+    } else host.hud.objective(null);
     host.hud.update(dtReal, [pf, rf], this.timeLeft, { x: (proj.x * 0.5 + 0.5) * W, y: (-proj.y * 0.5 + 0.5) * H, on: this.phase === 'fight' && rf.alive, behind }, !this.freeCam, threats);
     if (this.phase === 'fight') this.telFrame(dtReal, pf, rf);
     if (this.practiceMode) {
@@ -1030,7 +1048,8 @@ export class Match {
     return {
       v: 1,
       rulesVersion: RULESET_VERSION,
-      config: { ...config },
+      // record the objective explicitly: replays rename the mode, so the default could differ on playback
+      config: { ...config, objective: !!this.world.objective },
       worldSeed: this.worldSeed,
       aiSeed: this.aiSeed,
       streams: this.recorders!.map((r) => r.encode()),
@@ -1395,6 +1414,26 @@ export class Match {
           audio.play('ui_unlock', { pos: e.pickup.pos, volume: 0.6 });
           this.host.hud.popup(this.worldToScreen(e.pickup.pos.clone().add(new THREE.Vector3(0, 1.5, 0))), e.pickup.kind.toUpperCase(), 'tag');
           break;
+        case 'objective': {
+          const at = this.worldToScreen(e.pos.clone().add(new THREE.Vector3(0, 2.4, 0)));
+          if (e.phase === 'warn') {
+            audio.play('countdown_tick', { volume: 0.9 });
+            this.tip('objective', `Overcharge Core: stand on the glowing centre pad ALONE for ${OBJECTIVE.capture.toFixed(0)}s. Reward: skill instantly ready + ${OBJECTIVE.overdrive}s Overdrive. Both on it = frozen.`);
+          } else if (e.phase === 'online') {
+            audio.play('ui_unlock', { volume: 0.9 });
+            this.host.hud.popup(at, 'CORE ONLINE', 'tag', '#ffd36a');
+          } else if (e.phase === 'capture') {
+            const mine = e.who === this.me;
+            this.objectiveView?.captured(e.who);
+            audio.play('announce_go', { volume: 0.8 });
+            audio.play('getup', { pos: e.pos });
+            this.host.hud.announce(mine ? 'OVERCHARGED' : 'RIVAL OVERCHARGED', { sub: `SKILL READY · OVERDRIVE ${OBJECTIVE.overdrive}s`, color: mine ? Match.OBJ_COLORS[0] : Match.OBJ_COLORS[1], small: true });
+            this.replayBar?.mark({ t: this.fightTime, side: mine ? 0 : 1, big: true, text: `${mine ? 'P1' : 'P2'} core capture` });
+          } else {
+            this.host.hud.popup(at, 'CORE OFFLINE', 'tag', '#8a8f99');
+          }
+          break;
+        }
         case 'pickupTake':
           this.tactics.pickupTaken(e.pickup);
           audio.play('getup', { pos: e.pickup.pos });
@@ -1510,6 +1549,7 @@ export class Match {
     this.ambience?.stop();
     audio.setTimeScale(1);
     this.tactics.dispose();
+    this.objectiveView?.dispose();
     this.fx.dispose();
     for (const view of this.bombAimViews) view.dispose();
     this.aimView.dispose();

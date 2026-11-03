@@ -47,7 +47,8 @@ function fight(a: Loadout, b: Loadout, seed: number, timeLimit = 120): number {
   const ar = arena([-7, 0, 7][scenario % 3]);
   fa.pos.copy(ar.spawns[0]);
   fb.pos.copy(ar.spawns[1]);
-  const w = new World(ar, fa, fb, { arenaId: 'lab', seed });
+  // matches run the Overcharge Core everywhere except practice; balance is measured with it on
+  const w = new World(ar, fa, fb, { arenaId: 'lab', seed, objective: process.env.BALANCE_OBJECTIVE !== '0' });
   w.combatEnabled = true;
   const personality = (['duelist', 'champion', 'rusher'] as const)[Math.floor(scenario / 3)];
   const ia = new AIPilot(personality, 0.8);
