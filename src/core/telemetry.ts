@@ -4,6 +4,8 @@
  * mirrored to localStorage. In a static build the POST simply fails silently.
  */
 const KEY = 'robo-arena-telemetry';
+/** Mirrored events kept in localStorage. Bounded well below the quota the save and replays share. */
+const MIRROR_MAX = 400;
 const session = Math.random().toString(36).slice(2, 10);
 let buf: object[] = [];
 const t0 = performance.now();
@@ -32,10 +34,12 @@ export function track(type: string, data: Record<string, unknown> = {}) {
   buf.push(ev);
   try {
     const arr = JSON.parse(localStorage.getItem(KEY) || '[]');
-    arr.push(ev);
-    localStorage.setItem(KEY, JSON.stringify(arr.slice(-3000)));
+    const list = Array.isArray(arr) ? arr : [];
+    list.push(ev);
+    localStorage.setItem(KEY, JSON.stringify(list.slice(-MIRROR_MAX)));
   } catch {
-    /* storage full/unavailable */
+    // storage full / corrupt mirror: drop the mirror rather than starve the save of quota
+    try { localStorage.removeItem(KEY); } catch { /* storage unavailable */ }
   }
   if (type.startsWith('match_') || buf.length > 20) flush();
 }

@@ -91,6 +91,21 @@ class Capsule {
     this.top.scale.setScalar(Math.max(0.001, 1 - Math.max(0, t - 0.5) * 2));
     this.glowMat.emissiveIntensity = 5 + e * 20;
   }
+
+  dispose() {
+    disposeTree(this.group);
+  }
+}
+
+/** Free the GPU geometry and materials of a match-owned object tree (nothing in it is shared). */
+function disposeTree(root: THREE.Object3D) {
+  root.removeFromParent();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.geometry.dispose();
+    for (const mat of Array.isArray(m.material) ? m.material : [m.material]) mat.dispose();
+  });
 }
 
 interface Side {
@@ -451,6 +466,24 @@ export class Match {
   }
 
   /* ------------------------------------------------------------------ frame */
+
+  /**
+   * The tab is hidden, so requestAnimationFrame has stopped. An online player's sim and input
+   * stream keep running here (nothing renders) so the opponent is not stalled into a false
+   * "disconnected" forfeit by an alt-tab. Offline matches and spectating simply wait.
+   */
+  backgroundTick(dt: number) {
+    if (this.disposed || !this.net || this.watching || this.phase === 'done') return;
+    let left = Math.min(dt, 1);
+    while (left > 1e-6 && this.net) {
+      const d = Math.min(left, 1 / 60);
+      left -= d;
+      this.phaseT += d;
+      this.renderTime += d;
+      this.updatePhase(d);
+      if (this.phase !== 'intro' && this.net) this.netFrame(d);
+    }
+  }
 
   frame(dtReal: number) {
     if (this.disposed) return;
@@ -1044,6 +1077,9 @@ export class Match {
     const net = this.net!;
     if (this.netFrozen) {
       this.netFreeRun(dt);
+      // the final state hash is still being compared; the ranked report waits for it (briefly)
+      this.netCheckSums();
+      this.netTryReport();
       this.netWatch(dt);
       return;
     }
@@ -1132,6 +1168,8 @@ export class Match {
     this.netStats.resimTicks += depth;
     this.world.restore(snap);
     if (this.netEndTick >= from) this.netEndTick = -1;
+    // hashes of the abandoned timeline (e.g. a predicted end tick) must never be compared
+    for (const k of this.netPendingSums.keys()) if (k >= from) this.netPendingSums.delete(k);
     for (let t = from; t < this.netTick; t++) {
       const ri = net.remote.get(t) ?? predictInput(this.netLastRemote);
       if (t < this.netConfirmed) this.netUsed.delete(t);
@@ -1157,8 +1195,11 @@ export class Match {
       w.combatEnabled = false;
       for (const f of w.fighters) f.locked = true;
       this.netEndTick = t;
+      // the end state itself is hash-checked too: a desync in the last two seconds would otherwise
+      // only show up as two different results
+      this.netPendingSums.set(t, w.digest());
     }
-    if (t % 120 === 0) this.netPendingSums.set(t, w.digest());
+    if (t % 120 === 0 && !(this.netEndTick >= 0 && t > this.netEndTick)) this.netPendingSums.set(t, w.digest());
   }
 
   /** Fight clock from the frontier tick (online). */
@@ -1176,6 +1217,23 @@ export class Match {
     if (this.phase !== 'fight') return;
     if (this.world.koLoser >= 0) this.onKO(this.world.koLoser);
     else this.onTimeUp();
+    // ranked: report the confirmed result now (once the end-state hash is compared), not after the
+    // outro. A winner who closes the tab during the victory pose must not be scored as a forfeit
+    // (the server counts leaving an unreported ranked match as a loss).
+    this.netReportBy = this.renderTime + 2.5;
+    this.netTryReport();
+  }
+
+  /** Ranked report deadline (render time): sent when the end hash matched, or at the deadline. */
+  private netReportBy = -1;
+  private netTryReport() {
+    const net = this.net;
+    if (this.netReportBy < 0 || !net) return;
+    const end = this.netEndTick;
+    const pending = end >= 0 && (this.netSums.has(end) || this.netPendingSums.has(end));
+    if (pending && !this.netDesync && this.renderTime < this.netReportBy) return;
+    this.netReportBy = -1;
+    if (this.cfg.online?.ranked && !this.watching && !net.reported) net.report(this.netDesync ? -2 : this.winner);
   }
 
   /** After the confirmed end both robots are locked: the world just runs on locally for the outro. */
@@ -1195,7 +1253,7 @@ export class Match {
   /** Exchange state hashes for confirmed ticks only (predicted ticks may legitimately differ). */
   private netCheckSums() {
     const net = this.net!;
-    if (this.netDesync || this.netFrozen) return;
+    if (this.netDesync) return;
     const final = Math.min(this.netConfirmed, this.netTick);
     for (const [k, h] of this.netPendingSums) {
       if (k >= final) continue;
@@ -1897,6 +1955,9 @@ export class Match {
     for (const s of this.sides) {
       s.thruster.stop();
       s.model.dispose();
+      // the drop capsule and guard shield are built per match (they leaked ~30 GPU geometries a match)
+      s.capsule.dispose();
+      disposeTree(s.shield);
     }
     this.ambience?.stop();
     audio.setTimeScale(1);

@@ -60,6 +60,14 @@ export class Game implements MenuHost {
       (window as any).__fps = frames;
       frames = 0;
     }, 1000);
+    // hidden tab: rAF stops, but an online match must keep exchanging inputs (see Match.backgroundTick)
+    let pumpAt = performance.now();
+    setInterval(() => {
+      const now = performance.now();
+      const dt = (now - pumpAt) / 1000;
+      pumpAt = now;
+      if (document.hidden && this.match) this.match.backgroundTick(dt);
+    }, 50);
     const loop = () => {
       this.timer.update();
       frames++;

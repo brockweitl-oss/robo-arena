@@ -117,6 +117,11 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 const KEY = 'robo-arena-save-v1';
+/** An unreadable save is copied here once before anything overwrites it (manual recovery). */
+const CORRUPT_KEY = 'robo-arena-save-corrupt';
+/** Optional local data that may be dropped to make room for the save (replays, telemetry mirror). */
+const EXPENDABLE_KEYS = ['robo-arena-telemetry', 'robo-arena-replays'];
+const QUALITIES: readonly Settings['quality'][] = ['low', 'medium', 'high'];
 
 export function defaultStats(): LifetimeStats {
   return {
@@ -181,9 +186,20 @@ export function migrateSave(raw: unknown): SaveData {
   const d = obj(raw) as Partial<SaveData> & Record<string, unknown>;
   if (!raw || typeof raw !== 'object') return base;
   const settingsIn = obj(d.settings);
+  const bool = (v: unknown, dflt: boolean) => (typeof v === 'boolean' ? v : dflt);
+  const ds = base.settings;
+  // every field typed and ranged: a hand-edited or damaged save must not feed NaN volumes or an
+  // unknown quality level to the renderer
   const settings: Settings = {
-    ...base.settings,
-    ...(settingsIn as Partial<Settings>),
+    ...ds,
+    master: num(settingsIn.master, ds.master, 0, 1),
+    sfx: num(settingsIn.sfx, ds.sfx, 0, 1),
+    music: num(settingsIn.music, ds.music, 0, 1),
+    sensitivity: num(settingsIn.sensitivity, ds.sensitivity, 0.2, 3),
+    invertY: bool(settingsIn.invertY, ds.invertY),
+    cameraShake: bool(settingsIn.cameraShake, ds.cameraShake),
+    quality: QUALITIES.includes(settingsIn.quality as Settings['quality']) ? (settingsIn.quality as Settings['quality']) : ds.quality,
+    damageNumbers: bool(settingsIn.damageNumbers, ds.damageNumbers),
     bindings: normalizeBindings(settingsIn.bindings),
     aimAssist: num(settingsIn.aimAssist, 1, 0.5, 1),
   };
@@ -253,20 +269,37 @@ export function migrateSave(raw: unknown): SaveData {
 }
 
 export function loadSave(): SaveData {
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(KEY);
+    raw = localStorage.getItem(KEY);
     if (!raw) return defaultSave();
     return migrateSave(JSON.parse(raw));
   } catch {
+    // unreadable (truncated write, manual edit): keep a copy before the next write replaces it
+    try { if (raw && !localStorage.getItem(CORRUPT_KEY)) localStorage.setItem(CORRUPT_KEY, raw); } catch { /* storage unavailable */ }
     return defaultSave();
   }
 }
 
-export function writeSave(d: SaveData) {
+/**
+ * Persist the save. Returns false if it could not be written (private mode, storage blocked).
+ * A full storage quota frees optional data first (telemetry mirror, then saved replays):
+ * progress always wins over replays.
+ */
+export function writeSave(d: SaveData): boolean {
+  const text = JSON.stringify(d);
   try {
-    localStorage.setItem(KEY, JSON.stringify(d));
+    localStorage.setItem(KEY, text);
+    return true;
   } catch {
-    /* storage unavailable (private mode) — progress lives for this session only */
+    for (const k of EXPENDABLE_KEYS) {
+      try {
+        localStorage.removeItem(k);
+        localStorage.setItem(KEY, text);
+        return true;
+      } catch { /* still full / unavailable */ }
+    }
+    return false;
   }
 }
 

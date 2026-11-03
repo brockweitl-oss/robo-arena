@@ -1749,14 +1749,23 @@ export class Menus implements MenuLayer {
     if (res.outcome === 'win') this.host.save.totals.wins++;
     else if (res.outcome === 'lose') this.host.save.totals.losses++;
     const worldWinner = res.outcome === 'draw' ? -1 : res.outcome === 'win' ? me : 1 - me;
-    if (ranked && !res.quit) ses.report(res.netClean ? worldWinner : -2);
+    if (ranked && !res.quit && !ses.reported) ses.report(res.netClean ? worldWinner : -2);
     const next: [number, number] = [score[0] + (res.outcome === 'win' ? 1 : 0), score[1] + (res.outcome === 'lose' ? 1 : 0)];
     const setDone = !ranked && (next[0] >= 2 || next[1] >= 2);
     let line = res.quit ? 'You forfeited.' : res.outcome === 'win' ? 'You won the round!' : res.outcome === 'lose' ? 'You lost the round.' : 'Draw.';
     if (setDone) line = next[0] >= 2 ? `You win the set ${next[0]}–${next[1]}!` : `They win the set ${next[1]}–${next[0]}.`;
     if (res.quit || ses.closed) {
+      let msg = res.quit ? 'You left the match.' : 'Opponent left the match.';
+      if (ranked && !res.quit && ses.ws.readyState === WebSocket.OPEN) {
+        // the opponent left after the result: the server still settles it (or scores the forfeit)
+        const t0 = performance.now();
+        while (!rated && performance.now() - t0 < 3000) await new Promise((r) => setTimeout(r, 100));
+        const r = rated as RatedMsg | null;
+        const d = r?.counted && r.deltas ? r.deltas[me] : null;
+        if (d !== null) msg += ` Rated: ${d >= 0 ? '+' : ''}${d} (${r!.ratings![me]}).`;
+      }
       ses.close();
-      this.showOnline(res.quit ? 'You left the match.' : 'Opponent left the match.');
+      this.showOnline(msg);
       return;
     }
     const lobby = { ranked, score: setDone ? [0, 0] as [number, number] : next, last: line, build: setDone ? undefined : build, cp };
@@ -1847,10 +1856,13 @@ export class Menus implements MenuLayer {
     file.addEventListener('change', async () => {
       const f = file.files?.[0];
       if (!f) return;
-      const rp = parseReplay(await f.text());
+      const text = await f.text();
+      const rp = parseReplay(text);
       if (!rp) {
         this.host.sfx('ui_error');
-        this.toast('That file is not a Robo Arena replay');
+        let other = false;
+        try { const v = (JSON.parse(text) as { rulesVersion?: unknown } | null)?.rulesVersion; other = typeof v === 'number' && v !== RULESET_VERSION; } catch { /* not JSON */ }
+        this.toast(other ? 'That replay was recorded on a different game version' : 'That file is not a Robo Arena replay');
         return;
       }
       saveReplay(rp);

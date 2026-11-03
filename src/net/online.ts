@@ -1,7 +1,7 @@
 import { emptyInput, type FighterInput } from '../game/fighter';
-import { RULESET_VERSION } from '../game/replay';
-import type { Loadout } from '../data/parts';
-import type { Paint } from '../data/characters';
+import { RULESET_VERSION, quantizeBombTarget } from '../game/replay';
+import { ALL_PARTS, DEFAULT_LOADOUT, type Loadout, type Slot } from '../data/parts';
+import { PLAYER_PAINT, type Paint } from '../data/characters';
 
 /**
  * Online play: deterministic rollback netcode over a tiny Cloudflare relay (server/).
@@ -106,8 +106,74 @@ export function encodeInput(i: FighterInput): Record<string, unknown> {
   }
   return o;
 }
+const INPUT_BOOLS = ['jumpPressed', 'jumpHeld', 'dashPressed', 'gunPressed', 'gunHeld', 'bombPressed', 'podPressed', 'chargePressed', 'faceTarget'] as const;
+/** A stick axis as the replay quantizer stores it (k/127, |k| <= 127). */
+const axis = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(-127, Math.min(127, Math.round(v * 127))) / 127 : 0);
+/**
+ * Decode a relayed input. Untrusted: only known fields survive, booleans stay booleans, the stick
+ * is clamped to the replay grid and targets to quantized finite points. An honest client's
+ * (already quantized) input round-trips unchanged; a doctored one (moveX: 5) cannot drive the
+ * sim out of range, it only desyncs the sender.
+ */
 export function decodeInput(o: Record<string, unknown>): FighterInput {
-  return { ...emptyInput(), ...(o as Partial<FighterInput>) };
+  const src = (o && typeof o === 'object' ? o : {}) as Record<string, unknown>;
+  const i = emptyInput();
+  i.moveX = axis(src.moveX);
+  i.moveZ = axis(src.moveZ);
+  for (const k of INPUT_BOOLS) i[k] = src[k] === true;
+  const vec = (v: unknown) => (Array.isArray(v) ? quantizeBombTarget(v.map(Number)) : undefined);
+  const bt = vec(src.bombTarget);
+  if (bt) i.bombTarget = bt;
+  if (src.skillPressed === true) {
+    i.skillPressed = true;
+    const st = vec(src.skillTarget);
+    if (st) i.skillTarget = st;
+  }
+  return i;
+}
+
+/**
+ * Clean a relayed player hello (peer and start messages carry the other client's data). Unknown or
+ * hostile part ids ("constructor") fall back to the default part and bad colors to the default
+ * paint, so a doctored build can never crash the model builders. Deterministic: both machines agree.
+ */
+export function sanitizeHello(raw: unknown): PlayerHello {
+  const h = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const lo = (h.loadout && typeof h.loadout === 'object' ? h.loadout : {}) as Record<string, unknown>;
+  const loadout = { ...DEFAULT_LOADOUT };
+  for (const slot of Object.keys(DEFAULT_LOADOUT) as Slot[]) {
+    const id = lo[slot];
+    if (typeof id === 'string' && Object.hasOwn(ALL_PARTS[slot], id)) loadout[slot] = id;
+  }
+  const pi = (h.paint && typeof h.paint === 'object' ? h.paint : {}) as Record<string, unknown>;
+  const col = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffffff;
+  const paint: Paint = { ...PLAYER_PAINT };
+  for (const k of ['primary', 'secondary', 'trim', 'dark', 'glow'] as const) { const v = pi[k]; if (col(v)) paint[k] = v; }
+  if (typeof pi.emblem === 'string') paint.emblem = pi.emblem.slice(0, 3);
+  for (const k of ['trail', 'flame'] as const) { const v = pi[k]; if (col(v)) paint[k] = v; }
+  if (['gloss', 'matte', 'metal', 'chrome', 'carbon'].includes(String(pi.finish))) paint.finish = pi.finish as Paint['finish'];
+  if (typeof pi.wear === 'number' && Number.isFinite(pi.wear)) paint.wear = Math.max(0, Math.min(1, pi.wear));
+  if (['unit', 'chevron', 'cross', 'none'].includes(String(pi.decal))) paint.decal = pi.decal as Paint['decal'];
+  const out = {
+    ...h,
+    name: (typeof h.name === 'string' ? h.name.replace(/[^\w \-.]/g, '').trim().slice(0, 16) : '') || 'Pilot',
+    loadout,
+    paint,
+  } as PlayerHello & Record<string, unknown>;
+  if (h.arena !== undefined && typeof h.arena !== 'string') delete out.arena;
+  if (h.rating !== undefined && !(typeof h.rating === 'number' && Number.isFinite(h.rating))) delete out.rating;
+  return out;
+}
+
+/** Clean a start message (both machines apply the same cleaning, so the sims still agree). */
+export function sanitizeStart(m: Record<string, unknown>): StartMsg {
+  const p = Array.isArray(m.players) ? m.players : [];
+  return {
+    ...(m as unknown as StartMsg),
+    seed: typeof m.seed === 'number' && Number.isFinite(m.seed) ? m.seed : 1,
+    arena: typeof m.arena === 'string' ? m.arena : '',
+    players: [sanitizeHello(p[0]), sanitizeHello(p[1])],
+  };
 }
 
 /** Deterministic state hash for desync checks. */
@@ -163,23 +229,26 @@ export class NetSession {
     this.ws.onmessage = (e) => {
       let m: Msg;
       try { m = JSON.parse(e.data as string); } catch { return; }
+      if (!m || typeof m !== 'object') return;
       switch (m.t) {
         case 'i': this.onInput(m); break;
         case 'log': for (const x of (m.m ?? []) as Msg[]) this.onInput(x); break;
         case 'watch': this.watchNames = m.players ?? []; seatedRes(); break;
-        case 'sum': this.remoteSums.set(m.n, m.h); break;
+        case 'sum': if (typeof m.n === 'number' && typeof m.h === 'number' && this.remoteSums.size < 4096) this.remoteSums.set(m.n, m.h); break;
         case 'ping': this.send({ t: 'pong', c: m.c }); break;
-        case 'pong': { const r = performance.now() - m.c; this.rtt = this.pongs++ ? this.rtt * 0.8 + r * 0.2 : r; break; }
+        case 'pong': { if (typeof m.c !== 'number') break; const r = performance.now() - m.c; this.rtt = this.pongs++ ? this.rtt * 0.8 + r * 0.2 : r; break; }
         case 'seat': this.slot = m.slot; seatedRes(); break;
-        case 'peer': this.peer = m.hello; this.onPeer?.(m.hello); break;
-        case 'start':
+        case 'peer': { const p = sanitizeHello(m.hello); this.peer = p; this.onPeer?.(p); break; }
+        case 'start': {
+          const st = sanitizeStart(m);
           if (this.spectator) {
             this.resetWatch();
-            if (!this.onStart) { this.pendingStart = m as unknown as StartMsg; break; }
+            if (!this.onStart) { this.pendingStart = st; break; }
           }
-          this.onStart?.(m as unknown as StartMsg);
+          this.onStart?.(st);
           break;
-        case 'left': this.closed = true; this.onLeft?.(); break;
+        }
+        case 'left': this.closed = true; clearInterval(this.pingTimer); this.onLeft?.(); break;
         case 'rated': this.onRated?.(m as unknown as RatedMsg); break;
         case 'error': seatedRej(new Error(m.reason)); this.onError?.(m.reason); break;
       }
@@ -199,7 +268,7 @@ export class NetSession {
   }
 
   private onInput(m: Msg) {
-    if (typeof m.n !== 'number') return;
+    if (typeof m.n !== 'number' || !Number.isInteger(m.n) || m.n < 0) return;
     if (this.spectator) {
       const s = m.s === 1 ? 1 : 0;
       this.inputs[s].set(m.n, decodeInput(m.i ?? {}));
@@ -248,15 +317,21 @@ export class NetSession {
   static quick(hello: PlayerHello, signal: AbortSignal, ranked = false): Promise<NetSession> {
     return new Promise((res, rej) => {
       const q = new WebSocket(`${netUrl().replace(/^http/, 'ws')}/quick?key=${netKey()}${ranked ? '&ranked=1' : ''}`);
+      let matched = false;
       const abort = () => { q.close(); rej(new Error('cancelled')); };
       signal.addEventListener('abort', abort, { once: true });
       q.onmessage = (e) => {
-        const m = JSON.parse(e.data as string) as Msg;
-        if (m.t !== 'match') return;
+        let m: Msg;
+        try { m = JSON.parse(e.data as string) as Msg; } catch { return; }
+        if (m?.t !== 'match' || typeof m.code !== 'string' || matched) return;
+        matched = true;
         signal.removeEventListener('abort', abort);
         NetSession.join(m.code, { ...hello, ranked }).then(res, rej);
       };
       q.onerror = () => rej(new Error('connect'));
+      // the queue socket dropping (server restart, network change, idle proxy) must not leave the
+      // search spinning forever
+      q.onclose = () => { if (!matched) { signal.removeEventListener('abort', abort); rej(new Error('connect')); } };
     });
   }
 
@@ -267,8 +342,11 @@ export class NetSession {
   /** The last hello sent (for re-sending after a build change). */
   last: PlayerHello | null = null;
   /** Ranked: report the winner (world id, -1 draw, -2 desync) for the server to settle. */
-  report(winner: number) { this.raw({ t: 'result', winner }); }
+  report(winner: number) { this.reported = true; this.raw({ t: 'result', winner }); }
+  /** This match's result went to the server (a match reports as soon as its end is confirmed). */
+  reported = false;
   ready() {
+    this.reported = false;
     this.remote.clear();
     this.remoteSums.clear();
     this.remoteTick = -1;
