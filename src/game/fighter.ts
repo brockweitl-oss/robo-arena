@@ -144,6 +144,26 @@ export interface HitResult {
 export type SpawnReq = { kind: 'shot'; index: number; air: boolean; power: number } | { kind: 'bomb' } | { kind: 'pod' }
   | { kind: 'skill'; target: readonly [number, number, number] | null };
 
+export type FighterSnapshot = Readonly<Record<string, unknown>> & { readonly __fighterSnapshot?: never };
+/** Immutable per-match fields and per-step scratch lists: never part of a snapshot. */
+const FIGHTER_STATIC = new Set(['id', 'lo', 'st', 'weight', 'events', 'spawns']);
+/** Shared references (arena objects, immutable tuples) restored as-is. */
+const FIGHTER_REFS = new Set(['groundCollider', 'bombTarget', 'skillTarget', 'castTarget']);
+/** Readonly vectors restored in place (other code may hold them). */
+const FIGHTER_VECTORS = new Set(['pos', 'vel', 'dashDir']);
+
+/** Deep copy of plain sim state: primitives, vectors, arrays and plain objects. */
+export function cloneState<T>(v: T): T {
+  if (v === null || typeof v !== 'object') return v;
+  if (v instanceof THREE.Vector3) return v.clone() as T;
+  if (Array.isArray(v)) return v.map(cloneState) as T;
+  const proto = Object.getPrototypeOf(v);
+  if (proto !== Object.prototype && proto !== null) throw new Error('cloneState: unsupported sim value');
+  const o: Record<string, unknown> = {};
+  for (const k of Object.keys(v as object)) o[k] = cloneState((v as Record<string, unknown>)[k]);
+  return o as T;
+}
+
 export class Fighter implements AnimSource {
   primer: PrimerState | null = null;
   bombTarget: readonly [number, number, number] | undefined;
@@ -257,6 +277,33 @@ export class Fighter implements AnimSource {
     this.maxHp = this.hp = this.st.hp;
     this.dashCharges = this.st.dashCharges;
     this.resetAir();
+  }
+
+  /**
+   * Rollback netcode: every mutable sim field, deep-copied. Loadout/derived stats are immutable and
+   * the ground collider is an arena object (kept by reference). Generic over own fields so new sim
+   * state is captured automatically; see `World.snapshot`.
+   */
+  snapshot(): FighterSnapshot {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(this)) {
+      if (FIGHTER_STATIC.has(k)) continue;
+      const v = (this as unknown as Record<string, unknown>)[k];
+      out[k] = FIGHTER_REFS.has(k) ? v : cloneState(v);
+    }
+    return out as FighterSnapshot;
+  }
+
+  restore(s: FighterSnapshot) {
+    const self = this as unknown as Record<string, unknown>;
+    for (const k of Object.keys(s)) {
+      const v = (s as Record<string, unknown>)[k];
+      const cur = self[k];
+      if (cur instanceof THREE.Vector3 && v instanceof THREE.Vector3 && FIGHTER_VECTORS.has(k)) cur.copy(v);
+      else self[k] = FIGHTER_REFS.has(k) ? v : cloneState(v);
+    }
+    this.events.length = 0;
+    this.spawns.length = 0;
   }
 
   get alive() {

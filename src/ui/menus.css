@@ -854,6 +854,9 @@
 
 /* ---------------- online */
 .net-row { display: flex; align-items: center; gap: calc(var(--u) * 0.8); }
+.net-split > .ra-btn { flex: 1; }
+.net-col { max-height: none; }
+.net-live .ra-btn { font-size: 0.85em; }
 .net-input {
   flex: 1; min-width: 0; padding: calc(var(--u) * 0.6) calc(var(--u) * 0.9);
   background: rgba(10, 14, 22, 0.9); color: var(--ink); border: 1px solid rgba(170, 195, 235, 0.35);

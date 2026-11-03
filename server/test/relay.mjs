@@ -26,7 +26,33 @@ for (let i = 0; i < 120; i++) ra.send({ t: 'i', n: i, x: i });
 for (let i = 0; i < 120; i++) { const m = await rb.next(); assert(m.n === i, 'ordered relay ' + i); }
 console.log('relay 120 inputs in', Date.now() - t0, 'ms');
 const third = await open('/room/' + ma.code); assert((await third.next()).reason === 'full', 'third rejected');
+
+// spectators: a late joiner gets the start + every input so far; then live inputs tagged by slot
+for (let i = 0; i < 30; i++) rb.send({ t: 'i', n: i, i: {}, f: i });
+for (let i = 0; i < 30; i++) await ra.next();
+const sp = await open('/room/' + ma.code + '?spectate=1');
+const w = await sp.next();
+assert(w.t === 'watch' && w.players.join() === 'A,B', 'watch hello ' + JSON.stringify(w));
+const ss = await sp.next();
+assert(ss.t === 'start' && ss.spectate && ss.seed === st1.seed && ss.players[1].name === 'B', 'spectator start');
+const lg = await sp.next();
+assert(lg.t === 'log' && lg.m.length === 150 && lg.m[0].s === 0 && lg.m[0].n === 0 && lg.m[149].s === 1 && lg.m[149].n === 29, 'spectator log ' + lg.m?.length);
+ra.send({ t: 'i', n: 120, i: { moveX: 1 } }); rb.send({ t: 'i', n: 30, i: {} });
+const l1 = await sp.next(), l2 = await sp.next();
+assert(l1.s === 0 && l1.n === 120 && l1.i.moveX === 1 && l2.s === 1 && l2.n === 30, 'live tagged inputs');
+await rb.next(); await ra.next();
+// spectators never reach the players, and pings/sums are not forwarded to them
+sp.send({ t: 'i', n: 999 }); ra.send({ t: 'sum', n: 0, h: 1 });
+const sm = await rb.next(); assert(sm.t === 'sum', 'spectator input not relayed');
+const live = await (await fetch(base.replace(/^ws/, 'http') + '/live')).json();
+assert(live.some((r) => r.code === ma.code && r.names.join() === 'A,B'), 'live directory ' + JSON.stringify(live));
+const late = await open('/room/' + ma.code + '?spectate=1'); await late.next(); await late.next();
+assert((await late.next()).m.length === 152, 'second spectator sees the whole log');
+
 ra.ws.close(); const left = await rb.next(); assert(left.t === 'left', 'left notice');
+assert((await sp.next()).t === 'left', 'spectator told the match ended');
+const live2 = await (await fetch(base.replace(/^ws/, 'http') + '/live')).json();
+assert(!live2.some((r) => r.code === ma.code), 'room left the live directory');
 
 // ranked writes to the leaderboard: only against a local `wrangler dev`
 if (!/127\.0\.0\.1|localhost/.test(base)) { console.log('PASS (ranked skipped: not local)'); process.exit(0); }

@@ -4,10 +4,12 @@ import type { Loadout } from '../data/parts';
 import type { Paint } from '../data/characters';
 
 /**
- * Online play: deterministic lockstep over a tiny Cloudflare relay (server/).
+ * Online play: deterministic rollback netcode over a tiny Cloudflare relay (server/).
  * Both clients run the same sim. Each tick, each side sends its own quantized input for
- * tick + delay; a tick only runs once both inputs for it are here. Inputs are plain JSON
- * of already-quantized values, so both machines feed the sim bit-identical numbers.
+ * tick + a small fixed delay. A tick runs at once with the opponent's input predicted; when the
+ * real input arrives and differs, the client rewinds to that tick and re-simulates (see Match).
+ * Inputs are plain JSON of already-quantized values, so both machines feed the sim bit-identical
+ * numbers. Spectators receive both players' inputs from the room and run the same sim.
  */
 
 const DEFAULT_URL = 'https://robo-arena-net.brockweitl.workers.dev';
@@ -15,6 +17,12 @@ const DEFAULT_URL = 'https://robo-arena-net.brockweitl.workers.dev';
 export function netUrl(): string {
   const q = new URLSearchParams(location.search).get('net');
   return (q ?? (import.meta.env.VITE_NET_URL as string | undefined) ?? DEFAULT_URL).replace(/\/$/, '');
+}
+
+/** Round length (s). Testing hook: ?nettime=40 shortens it (every client in the room must use the same value). */
+export function netTimeLimit(): number {
+  const q = Number(new URLSearchParams(location.search).get('nettime'));
+  return q >= 20 && q <= 120 ? q : 120;
 }
 
 /** Rules both clients must share. Bump with any sim change (the replay ruleset covers sim rules). */
@@ -37,7 +45,12 @@ export interface StartMsg {
   arena: string;
   players: [PlayerHello, PlayerHello];
   ranked?: boolean;
+  /** Sent to spectators. */
+  spectate?: boolean;
 }
+
+/** A room with a match in progress (`/live`). */
+export interface LiveRoom { code: string; names: string[]; arena: string; ranked: boolean; at: number }
 
 export interface RatedMsg { counted: boolean; forfeit?: boolean; ratings?: [number, number]; deltas?: [number, number] }
 
@@ -67,6 +80,13 @@ export async function fetchMyRating(): Promise<{ rating: number; games: number; 
 }
 export async function fetchLeaderboard(): Promise<{ name: string; rating: number; games: number; wins: number }[]> {
   try { return await (await fetch(`${netUrl()}/top`)).json(); } catch { return []; }
+}
+
+export async function fetchLive(): Promise<LiveRoom[]> {
+  try {
+    const r = await (await fetch(`${netUrl()}/live`)).json();
+    return Array.isArray(r) ? r : [];
+  } catch { return []; }
 }
 
 type Msg = { t: string; [k: string]: any };
@@ -111,6 +131,18 @@ export class NetSession {
   onError?: (reason: string) => void;
   /** Remote inputs by tick. */
   readonly remote = new Map<number, FighterInput>();
+  /** Spectating: both players' inputs by tick (world slot order). */
+  inputs: [Map<number, FighterInput>, Map<number, FighterInput>] = [new Map(), new Map()];
+  /** Spectating: highest input tick received from each player. */
+  latest: [number, number] = [-1, -1];
+  /** Spectating: a match start that arrived while nobody was listening (shown next). */
+  pendingStart: StartMsg | null = null;
+  readonly spectator: boolean;
+  /** Spectating: the room's players (names) when we connected. */
+  watchNames: string[] = [];
+  /** Opponent's simulation frontier when it sent its newest input, and its frame advantage over us. */
+  remoteFrontier = -1;
+  remoteAdv = 0;
   /** Remote desync checksums by tick. */
   readonly remoteSums = new Map<number, number>();
   /** Last tick the opponent reported reaching (for pacing). */
@@ -118,7 +150,8 @@ export class NetSession {
   private pingTimer = 0;
   private seated: Promise<void>;
 
-  private constructor(url: string) {
+  private constructor(url: string, spectator = false) {
+    this.spectator = spectator;
     this.ws = new WebSocket(url);
     let seatedRes!: () => void;
     let seatedRej!: (e: Error) => void;
@@ -127,16 +160,21 @@ export class NetSession {
       let m: Msg;
       try { m = JSON.parse(e.data as string); } catch { return; }
       switch (m.t) {
-        case 'i':
-          this.remote.set(m.n, decodeInput(m.i ?? {}));
-          if (m.n > this.remoteTick) this.remoteTick = m.n;
-          break;
+        case 'i': this.onInput(m); break;
+        case 'log': for (const x of (m.m ?? []) as Msg[]) this.onInput(x); break;
+        case 'watch': this.watchNames = m.players ?? []; seatedRes(); break;
         case 'sum': this.remoteSums.set(m.n, m.h); break;
-        case 'ping': this.raw({ t: 'pong', c: m.c }); break;
+        case 'ping': this.send({ t: 'pong', c: m.c }); break;
         case 'pong': { const r = performance.now() - m.c; this.rtt = this.pongs++ ? this.rtt * 0.8 + r * 0.2 : r; break; }
         case 'seat': this.slot = m.slot; seatedRes(); break;
         case 'peer': this.peer = m.hello; this.onPeer?.(m.hello); break;
-        case 'start': this.onStart?.(m as unknown as StartMsg); break;
+        case 'start':
+          if (this.spectator) {
+            this.resetWatch();
+            if (!this.onStart) { this.pendingStart = m as unknown as StartMsg; break; }
+          }
+          this.onStart?.(m as unknown as StartMsg);
+          break;
         case 'left': this.closed = true; this.onLeft?.(); break;
         case 'rated': this.onRated?.(m as unknown as RatedMsg); break;
         case 'error': seatedRej(new Error(m.reason)); this.onError?.(m.reason); break;
@@ -150,7 +188,40 @@ export class NetSession {
       this.onLeft?.();
     };
     this.ws.onerror = () => seatedRej(new Error('connect'));
-    this.pingTimer = window.setInterval(() => this.raw({ t: 'ping', c: performance.now() }), 1000);
+    this.pingTimer = window.setInterval(() => this.send({ t: 'ping', c: performance.now() }), 1000);
+    // testing: ?netlag=60,120 delays every outgoing message by 60-120 ms (order kept)
+    const lag = new URLSearchParams(location.search).get('netlag')?.split(',').map(Number);
+    if (lag && lag.length === 2 && lag.every((x) => x >= 0)) this.lag = [lag[0], lag[1]];
+  }
+
+  private onInput(m: Msg) {
+    if (typeof m.n !== 'number') return;
+    if (this.spectator) {
+      const s = m.s === 1 ? 1 : 0;
+      this.inputs[s].set(m.n, decodeInput(m.i ?? {}));
+      if (m.n > this.latest[s]) this.latest[s] = m.n;
+      return;
+    }
+    this.remote.set(m.n, decodeInput(m.i ?? {}));
+    if (m.n > this.remoteTick) {
+      this.remoteTick = m.n;
+      if (typeof m.f === 'number') this.remoteFrontier = m.f;
+      if (typeof m.a === 'number') this.remoteAdv = m.a;
+    }
+  }
+
+  /** Watch a room's matches (no seat); resolves once connected. */
+  static async spectate(code: string): Promise<NetSession> {
+    const s = new NetSession(`${netUrl().replace(/^http/, 'ws')}/room/${code.toUpperCase()}?spectate=1`, true);
+    s.code = code.toUpperCase();
+    await s.seated;
+    return s;
+  }
+
+  /** Spectating: a new match gets fresh input buffers (a match still playing keeps its own). */
+  resetWatch() {
+    this.inputs = [new Map(), new Map()];
+    this.latest = [-1, -1];
   }
 
   /** Join a room by code; resolves once seated. */
@@ -197,13 +268,26 @@ export class NetSession {
     this.remote.clear();
     this.remoteSums.clear();
     this.remoteTick = -1;
+    this.remoteFrontier = -1;
+    this.remoteAdv = 0;
     this.raw({ t: 'ready' });
   }
-  sendInput(n: number, i: FighterInput) { this.raw({ t: 'i', n, i: encodeInput(i) }); }
-  sendSum(n: number, h: number) { this.raw({ t: 'sum', n, h }); }
-  /** Input delay in ticks from the measured round trip (one-way latency plus a frame of jitter room). */
+  /** Input for tick n, sent from simulation frontier f with frame advantage a (time sync). */
+  sendInput(n: number, i: FighterInput, f = n, a = 0) { this.send({ t: 'i', n, i: encodeInput(i), f, a }); }
+  /** Test hook: artificial one-way latency/jitter on outgoing messages (ms range). Order is kept. */
+  lag: [number, number] | null = null;
+  private lagUntil = 0;
+  private send(o: Msg) {
+    if (!this.lag) return this.raw(o);
+    const now = performance.now();
+    const at = Math.max(this.lagUntil, now + this.lag[0] + Math.random() * (this.lag[1] - this.lag[0]));
+    this.lagUntil = at;
+    setTimeout(() => this.raw(o), at - now);
+  }
+  sendSum(n: number, h: number) { this.send({ t: 'sum', n, h }); }
+  /** Fixed input delay (ticks) under rollback: 1 on a low-ping connection, otherwise 2. */
   get delay(): number {
-    return Math.max(2, Math.min(8, Math.ceil(this.rtt / 2 / (1000 / 60)) + 1));
+    return this.pongs > 0 && this.rtt < 40 ? 1 : 2;
   }
   close() {
     this.closed = true;

@@ -29,7 +29,7 @@ export interface MatchConfig {
   /** Replay: stay paused after that seek. */
   replayPaused?: boolean;
   /** Online lockstep match: both builds in world order (host = 0), the room seed and which one is local. */
-  online?: { session: NetSession; me: 0 | 1; seed: number; players: [PlayerHello, PlayerHello]; ranked?: boolean };
+  online?: { session: NetSession; me: 0 | 1; seed: number; players: [PlayerHello, PlayerHello]; ranked?: boolean; spectate?: boolean };
 }
 
 export interface MatchStats {
