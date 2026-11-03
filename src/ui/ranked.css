@@ -1,0 +1,67 @@
+/* Ranked season UI. Placeholder badge art: issue #60 swaps in real per-tier badges using
+   the .rank-badge.tier-<tier>.div-<n> hooks. */
+
+.rank-badge {
+  --tc: #9aa3b0;
+  display: inline-flex; align-items: center; gap: 0.35em; vertical-align: middle;
+  padding: 0.1em 0.55em 0.1em 0.3em; border-radius: 0.3em;
+  border: 1px solid color-mix(in srgb, var(--tc) 60%, transparent);
+  background: color-mix(in srgb, var(--tc) 16%, rgba(10, 13, 20, 0.85));
+  color: var(--tc); font-size: 0.85em; line-height: 1.4; white-space: nowrap;
+}
+.rank-badge b { font-weight: 700; letter-spacing: 0.04em; }
+.rank-badge-icon { display: inline-block; width: 1em; height: 1.1em; font-style: normal; }
+.rank-badge-icon svg { width: 100%; height: 100%; fill: var(--tc); }
+.rank-badge.tier-bronze { --tc: #d08a52; }
+.rank-badge.tier-silver { --tc: #c9d3df; }
+.rank-badge.tier-gold { --tc: #ffd36a; }
+.rank-badge.tier-platinum { --tc: #6ff0e0; }
+.rank-badge.tier-diamond { --tc: #b9a4ff; }
+.rank-badge.placement { --tc: #8d99ab; }
+.rank-badge.placement svg { fill: none; stroke: var(--tc); stroke-width: 1.5; }
+
+.net-board-row .nb-name { display: flex; align-items: center; gap: 0.5em; min-width: 0; }
+.net-board-row .nb-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.net-board-row.you { outline: 1px solid rgba(55, 232, 255, 0.5); }
+.net-tabs { display: flex; gap: 0.5em; margin-bottom: 0.4em; }
+.net-tabs .ra-btn.on { outline: 2px solid var(--c, #37e8ff); }
+.surv-board .net-board-row { grid-template-columns: 3em 1fr 5em 12em; }
+.surv-board .nb-build { opacity: 0.6; font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-link { user-select: all; word-break: break-all; color: var(--c, #37e8ff); }
+
+/* post-match ranked panel */
+.rank-result {
+  display: grid; gap: 0.5em; padding: 0.9em 1.1em; margin: 0.3em 0;
+  border: 1px solid rgba(170, 195, 235, 0.22); background: rgba(10, 14, 22, 0.88);
+  animation: rr-in 0.45s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+.rr-banner {
+  font-family: 'Russo One', sans-serif; font-size: 1.6em; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink, #eef2f8);
+}
+.rr-promoted .rr-banner, .rr-placed .rr-banner {
+  color: #ffd36a; text-shadow: 0 0 0.6em rgba(255, 211, 106, 0.55);
+  animation: rr-pop 0.6s cubic-bezier(0.3, 1.6, 0.5, 1) 0.9s both;
+}
+.rr-demoted .rr-banner { color: #ff7a88; }
+.rr-head { display: flex; align-items: center; gap: 0.8em; font-size: 1.1em; }
+.rr-delta { font-weight: 700; font-size: 1.3em; }
+.rr-delta.up { color: #7dff9a; }
+.rr-delta.down { color: #ff6b7d; }
+.rr-rating { opacity: 0.75; }
+.rr-bar { position: relative; height: 0.7em; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.rr-fill {
+  position: absolute; inset: 0 auto 0 0; width: calc(var(--w, 0) * 100%);
+  background: linear-gradient(90deg, #37e8ff, #ffd36a); transition: width 0.5s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+.rr-fill.roll { transition: none; }
+.rr-bar.rr-pips { display: flex; gap: 0.3em; background: none; }
+.rr-bar.rr-pips b { flex: 1; background: rgba(255, 255, 255, 0.1); }
+.rr-bar.rr-pips b.on { background: #37e8ff; }
+.rr-bar-lbl, .rr-note { font-size: 0.85em; opacity: 0.7; }
+@keyframes rr-in { from { opacity: 0; transform: translateY(0.6em); } }
+@keyframes rr-pop { from { opacity: 0; transform: scale(1.5); } }
+@media (prefers-reduced-motion: reduce) {
+  .rank-result, .rr-banner { animation: none !important; }
+  .rr-fill { transition: none; }
+}

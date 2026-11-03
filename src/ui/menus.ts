@@ -14,12 +14,16 @@ import type { MenuHost, MenuLayer } from './host';
 import { ALL_PARTS, BODIES, LEGS, resolveLoadout, type AnyPart, type Slot, deriveStats, SET_BONUS } from '../data/parts';
 import { RIVALS, RIVALS_PLUS, PLAYER_PAINT, PLAYER_ROBOT_NAME, rivalById, type Paint, type Rival } from '../data/characters';
 import { gradeMatch } from '../game/grades';
-import { saveReplay, loadReplays, downloadReplay, parseReplay, type Replay } from '../game/replay';
+import { saveReplay, loadReplays, downloadReplay, parseReplay, validateReplay, RULESET_VERSION, type Replay } from '../game/replay';
 import { connectedPads } from '../core/padInput';
-import { NetSession, netName, tierOf, fetchMyRating, fetchLeaderboard, type PlayerHello, type StartMsg, type RatedMsg } from '../net/online';
+import { NetSession, netName, type PlayerHello, type StartMsg, type RatedMsg } from '../net/online';
+import { fetchMe, fetchSeasonTop, fetchSurvivalTop, postSurvival, shareReplay, fetchSharedReplay, replayShareUrl, type MeInfo } from '../net/ranked';
+import { PLACEMENT_GAMES, seasonLabel, seasonOf, prevSeason, seasonRewardIds } from '../net/season';
+import { rankBadge, rankResultPanel, type RankResult } from './ranked';
 import { ARENA_IDS, ARENA_INFO, type ArenaId } from '../arena/index';
 import { defaultSave, isUnlocked, type Settings } from '../core/save';
-import { pilotLevel } from '../game/progression';
+import { pilotLevel, grantCosmetic } from '../game/progression';
+import { COSMETICS } from '../data/shop';
 import type { MatchConfig, MatchResult } from '../game/types';
 import type { MusicTrack } from '../audio/audio';
 import { MetaUI } from './meta';
@@ -200,6 +204,8 @@ export class Menus implements MenuLayer {
   private musicNow: MusicTrack | null = null;
   private pauseResolve: ((v: 'resume' | 'restart' | 'quit') => void) | null = null;
   private pauseLayer: Layer | null = null;
+  /** ?replay=CODE: a shared replay to open after the title screen. */
+  private sharedReplay: string | null = null;
   private resizeFn: (() => void) | null = null;
   private mainIdx = 0;
   private gSlot: Slot = 'gun';
@@ -277,7 +283,8 @@ export class Menus implements MenuLayer {
     const tag = h('div', 'title-tag', h('i'), 'Build it · Bolt it · Battle it', h('i'));
     const press = h('div', 'title-press', h('span', 'k-kb', 'Press any key'), h('span', 'k-pad', 'Press any button'));
     const foot = h('div', 'title-foot', h('span', '', 'An original robot-combat game'), h('span', '', 'v1.0'));
-    el.append(h('div', 'vig vig-top'), h('div', 'vig vig-bot'), logo, tag, press, foot);
+    const shared = this.sharedReplay ? h('div', 'title-tag shared-replay-note', `Shared replay ${this.sharedReplay}: press to watch`) : null;
+    el.append(h('div', 'vig vig-top'), h('div', 'vig vig-bot'), logo, tag, ...(shared ? [shared] : []), press, foot);
     stagger([tag], 700);
     let gone = false;
     this.setScreen(el, {
@@ -286,7 +293,9 @@ export class Menus implements MenuLayer {
         gone = true;
         this.host.sfx('ui_select');
         press.classList.add('go');
-        setTimeout(() => this.showMain(), 260);
+        const shared = this.sharedReplay;
+        this.sharedReplay = null;
+        setTimeout(() => (shared ? this.openSharedReplay(shared) : this.showMain()), 260);
       },
     });
   }
@@ -948,7 +957,12 @@ export class Menus implements MenuLayer {
     }
     const survival = cfg.mode === 'survival' ? cfg.survival : undefined;
     // best run counts completed rounds, saved after every round (a run abandoned mid-way still counts)
-    if (survival) s.survivalBest = Math.max(s.survivalBest, win ? survival.round : survival.round - 1);
+    if (survival) {
+      const done = win ? survival.round : survival.round - 1;
+      s.survivalBest = Math.max(s.survivalBest, done);
+      // global board: fire-and-forget, the server keeps the season best
+      if (done > 0) void postSurvival(done, cfg.playerLoadout);
+    }
     s.totals.knockdowns += res.player?.knockdowns ?? 0;
     this.host.persist();
     const rewards = this.meta.matchEnd(res);
@@ -1312,7 +1326,7 @@ export class Menus implements MenuLayer {
     const pads = connectedPads().length;
     const cards = [
       card('Rival+ Ladder', 'Every rival returns with a sharper AI and a 2.0 build. Wins unlock the new parts.', champ ? `${Math.min(s.plusLadder, RIVALS_PLUS.length)} / ${RIVALS_PLUS.length}` : 'Beat the champion to unlock', champ ? () => this.showPlusIntro(plusNext) : null),
-      card('Survival', 'Fight until you fall. You heal 25% between rounds, and the opponents get tougher.', `Best: ${s.survivalBest} rounds`, () => this.runMatch(this.survivalCfg(1, 99999))),
+      card('Survival', 'Fight until you fall. You heal 25% between rounds, and the opponents get tougher.', `Best: ${s.survivalBest} rounds`, () => this.showSurvival()),
       card('Practice Room', 'A training dummy that never breaks. Live damage, combo and DPS readouts.', 'No clock', () => this.showPractice()),
       card('Online', 'Quick match, ranked Elo ladder, or a private room code for a friend.', 'Ranked · Rooms', () => this.showOnline()),
       card('Local Versus', 'Two players on one screen. Player 2 needs a gamepad.', pads ? `${pads} pad${pads > 1 ? 's' : ''} connected` : 'Connect a gamepad', () => this.showLocalVersus()),
@@ -1419,9 +1433,14 @@ export class Menus implements MenuLayer {
     name.maxLength = 16;
     name.setAttribute('aria-label', 'Pilot name');
     name.addEventListener('change', () => { name.value = netName(name.value); });
-    const rating = h('div', 'md-desc', 'Ranked rating: …');
-    fetchMyRating().then((r) => {
-      rating.textContent = r ? `Ranked: ${r.rating} · ${tierOf(r.rating)} · ${r.games} games, ${r.wins} wins` : 'Ranked: offline';
+    const rating = h('div', 'md-desc net-me', 'Ranked rating: …');
+    fetchMe().then((r) => {
+      if (!r) { rating.textContent = 'Ranked: offline'; return; }
+      const season = r.season ? `${seasonLabel(r.season)} season · ` : '';
+      const left = PLACEMENT_GAMES - r.games;
+      const shown = r.placed === false ? `${left} placement match${left === 1 ? '' : 'es'} left` : `${r.rating}`;
+      rating.replaceChildren(rankBadge(r.rating, r.season ? r.games : undefined), ` ${season}${shown} · ${r.games} games, ${r.wins} wins`);
+      this.grantSeasonReward(r);
     });
     const stat = h('div', 'md-desc net-status', status);
     let cancel: AbortController | null = null;
@@ -1461,38 +1480,43 @@ export class Menus implements MenuLayer {
       btn('Leaderboard', () => { this.host.sfx('ui_select'); this.showLeaderboard(); }, 'big'),
       btn('Garage', () => { this.host.sfx('ui_select'); this.showGarage(() => this.showOnline()); }, 'big', SLOT_ICON.body),
     ];
-    const note = h('div', 'md-desc', 'Both players run the same deterministic simulation; only button presses travel over the network. Lower ping = less input delay. Ranked uses Elo: Bronze, Silver, Gold, Platinum, Diamond.');
+    const note = h('div', 'md-desc', 'Both players run the same deterministic simulation; only button presses travel over the network. Lower ping = less input delay. Ranked seasons run by calendar month: 5 placement matches, then Bronze to Diamond in three divisions each. A new season pulls ratings halfway back to 1000, and your best tier earns a reward.');
     const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', h('label', 'net-row', h('span', 'md-desc', 'Pilot name'), name), rating, ...opts, stat, note),
       h('div', 'ra-actions', btn('Back', () => { cancel?.abort(); this.host.sfx('ui_back'); this.showModes(); }, 'big')));
     el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
     this.setScreen(el, { back: () => { cancel?.abort(); this.showModes(); }, initial: quick });
   }
 
-  private async showLeaderboard() {
+  private async showLeaderboard(season = seasonOf()) {
     this.backdrop('title');
     const el = h('div', 'scr-free scr-modes');
-    const hd = this.header('Leaderboard', 'Top Ranked Pilots');
+    const cur = seasonOf(), prev = prevSeason(cur);
+    const hd = this.header('Leaderboard', `Top Ranked Pilots · ${seasonLabel(season)}`);
     const list = h('div', 'md-col net-board', h('div', 'md-desc', 'Loading…'));
+    const tab = (id: string, label: string) => btn(label, () => { this.host.sfx('ui_select'); if (id !== season) this.showLeaderboard(id); }, id === season ? 'on' : '');
+    const tabs = h('div', 'net-tabs', tab(cur, `This season (${seasonLabel(cur)})`), tab(prev, `Last season (${seasonLabel(prev)})`));
     const back = btn('Back', () => { this.host.sfx('ui_back'); this.showOnline(); }, 'big');
-    el.append(h('div', 'vig vig-left'), hd, h('div', 'ra-panel fb-panel', list, h('div', 'ra-actions', back)), hints([['back', 'Back']]));
+    el.append(h('div', 'vig vig-left'), hd, h('div', 'ra-panel fb-panel', tabs, list, h('div', 'ra-actions', back)), hints([['move', 'Move'], ['back', 'Back']]));
     this.setScreen(el, { back: () => this.showOnline(), initial: back });
-    const top = await fetchLeaderboard();
+    const top = await fetchSeasonTop(season);
+    if (this.screen?.el !== el) return;
     list.replaceChildren(...(top.length ? top.map((p, i) => h('div', 'net-board-row',
-      h('span', 'nb-rank', `#${i + 1}`), h('span', 'nb-name', p.name), h('span', 'nb-tier', tierOf(p.rating)),
-      h('span', 'nb-rating', String(p.rating)), h('span', 'nb-rec', `${p.wins}-${p.games - p.wins}`))) : [h('div', 'md-desc', 'No ranked matches yet. Be the first.')]));
+      h('span', 'nb-rank', `#${i + 1}`), h('span', 'nb-name', h('span', '', p.name)),
+      rankBadge(p.rating, p.placed === false ? Math.min(p.games, PLACEMENT_GAMES - 1) : undefined, { compact: true }),
+      h('span', 'nb-rating', p.placed === false ? '—' : String(p.rating)), h('span', 'nb-rec', `${p.wins}-${p.games - p.wins}`))) : [h('div', 'md-desc', 'No ranked matches this season yet. Be the first.')]));
   }
 
   /**
    * A room with an opponent. Casual rooms are a running set (first to 2), with build changes
    * allowed between rounds for counter-picks. Ranked queues play one rated round.
    */
-  private showOnlineLobby(ses: NetSession, o: { ranked?: boolean; auto?: boolean; score?: [number, number]; last?: string }) {
+  private showOnlineLobby(ses: NetSession, o: { ranked?: boolean; auto?: boolean; score?: [number, number]; last?: string; rank?: RankResult }) {
     const s = this.host.save;
     const score = o.score ?? [0, 0];
     this.backdrop('versus', { loadout: s.loadout, rivalId: RIVALS[0].id });
     const el = h('div', 'scr-free scr-modes');
     const hd = this.header(o.ranked ? 'Ranked' : ses.code ? `Room ${ses.code}` : 'Online', ses.peer ? `vs ${ses.peer.name}` : 'Waiting for an opponent');
-    const peer = h('div', 'md-title', ses.peer ? this.peerLine(ses.peer) : 'Waiting for an opponent…');
+    const peer = h('div', 'md-title', ...(ses.peer ? this.peerEls(ses.peer) : ['Waiting for an opponent…']));
     const sub = h('div', 'md-desc', ses.code && !o.auto ? `Share this room code: ${ses.code}` : '');
     const set = h('div', 'md-desc net-set', o.ranked ? '' : `Set (first to 2): You ${score[0]} – ${score[1]} Them`);
     const last = h('div', 'md-desc', o.last ?? '');
@@ -1509,21 +1533,24 @@ export class Menus implements MenuLayer {
       this.host.sfx('ui_select');
       this.showGarage(() => { ses.hello({ ...this.onlineHello(o.ranked), arena: ses.last?.arena }); this.showOnlineLobby(ses, o); });
     }, 'big', SLOT_ICON.body);
-    ses.onPeer = (p) => { peer.textContent = this.peerLine(p); hd.querySelector('.ra-title')?.replaceChildren(`vs ${p.name}`); if (o.auto) { ses.ready(); stat.textContent = 'Opponent found. Starting…'; } };
+    ses.onPeer = (p) => { peer.replaceChildren(...this.peerEls(p)); hd.querySelector('.ra-title')?.replaceChildren(`vs ${p.name}`); if (o.auto) { ses.ready(); stat.textContent = 'Opponent found. Starting…'; } };
     ses.onLeft = () => { left = true; stat.textContent = 'Opponent left the room.'; };
     ses.onError = (r) => { stat.textContent = r === 'version' ? 'Your opponent is on a different game version. Refresh the page.' : `Error: ${r}`; };
     ses.onStart = (st) => this.playOnline(ses, st, o.ranked ?? false, score);
     if (o.auto && ses.peer) { ses.ready(); stat.textContent = 'Starting…'; }
-    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', peer, sub, set, last, ready, ...(o.ranked ? [] : [build]), stat),
+    const rankEl = o.rank ? rankResultPanel(o.rank) : null;
+    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', peer, sub, set, rankEl, last, ready, ...(o.ranked ? [] : [build]), stat),
       h('div', 'ra-actions', btn('Leave', () => { this.host.sfx('ui_back'); leave(); }, 'big')));
     el.append(h('div', 'vig vig-left'), hd, panel, hints([['confirm', 'Select'], ['back', 'Leave']]));
     this.setScreen(el, { back: leave, initial: ready });
   }
 
-  private peerLine(p: PlayerHello) {
+  /** Peer name with their season badge (pilots still in placements show no rank). */
+  private peerEls(p: PlayerHello): (string | HTMLElement)[] {
     const L = resolveLoadout(p.loadout);
-    const r = p.rating ? ` · ${p.rating} ${tierOf(p.rating)}` : '';
-    return `${p.name}${r} — ${L.body.name}, ${L.gun.name}, ${L.skill.name}`;
+    const placed = (p as PlayerHello & { placed?: boolean }).placed;
+    const badge = p.rating ? rankBadge(p.rating, placed === false ? 0 : undefined, { compact: true }) : null;
+    return [`${p.name} `, ...(badge ? [badge] : []), ` — ${L.body.name}, ${L.gun.name}, ${L.skill.name}`];
   }
 
   private async playOnline(ses: NetSession, st: StartMsg, ranked: boolean, score: [number, number]) {
@@ -1558,9 +1585,12 @@ export class Menus implements MenuLayer {
       // the server settles once both reports land
       const t0 = performance.now();
       while (!rated && performance.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 100));
-      const r = rated as RatedMsg | null;
-      const d = r?.counted && r.deltas ? r.deltas[me] : null;
-      this.showOnlineLobby(ses, { ...lobby, last: `${line} ${d === null ? '(not rated)' : `Rating ${r!.ratings![me]} (${d >= 0 ? '+' : ''}${d}) · ${tierOf(r!.ratings![me])}`}` });
+      const r = rated as (RatedMsg & { games?: [number, number]; before?: [number, number] }) | null;
+      const d = r?.counted && r.deltas && r.ratings ? r.deltas[me] : null;
+      const rank: RankResult | undefined = d === null ? undefined : {
+        before: r!.before?.[me] ?? r!.ratings![me] - d, after: r!.ratings![me], gamesAfter: r!.games?.[me], forfeit: r!.forfeit,
+      };
+      this.showOnlineLobby(ses, { ...lobby, rank, last: d === null ? `${line} (not rated)` : line });
     }
   }
 
@@ -1576,7 +1606,7 @@ export class Menus implements MenuLayer {
       const title = `${(sm?.outcome ?? '').toUpperCase()} vs ${r.robotName}`;
       const row = h('div', 'md-row',
         h('div', '', h('div', 'md-title', title), h('div', 'md-desc', `${ARENA_INFO[rp.config.arenaId as ArenaId]?.name ?? rp.config.arenaId} · ${sm ? fmtTime(sm.time) : ''} · ${when}`)),
-        h('div', 'ra-actions', btn('Watch', () => { this.host.sfx('ui_select'); this.watchReplay(rp); }, 'primary'), btn('Download', () => { this.host.sfx('ui_select'); downloadReplay(rp); }, '')));
+        h('div', 'ra-actions', btn('Watch', () => { this.host.sfx('ui_select'); this.watchReplay(rp); }, 'primary'), btn('Share', () => this.shareReplayLink(rp, row), ''), btn('Download', () => { this.host.sfx('ui_select'); downloadReplay(rp); }, '')));
       return row;
     });
     const file = h('input') as HTMLInputElement;
@@ -1600,6 +1630,92 @@ export class Menus implements MenuLayer {
     const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col ra-scroll', ...(rows.length ? rows : [h('div', 'md-desc', 'No compatible replays yet. Playtest 2 recordings use older combat rules and cannot be played here. New finished fights are saved automatically.')])), h('div', 'ra-actions', importBtn, back), file);
     el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
     this.setScreen(el, { back: () => this.showModes(), initial: rows[0]?.querySelector<HTMLElement>('.ra-btn') ?? importBtn });
+  }
+
+  /* ---------------- shared replay links */
+
+  /** main.ts: the page was opened with ?replay=CODE. Fetching starts now; it plays after the title. */
+  queueSharedReplay(code: string) {
+    this.sharedReplay = code.toUpperCase();
+    this.sharedFetch = fetchSharedReplay(this.sharedReplay);
+  }
+  private sharedFetch: Promise<unknown> | null = null;
+
+  private async openSharedReplay(code: string) {
+    const raw = await (this.sharedFetch ?? fetchSharedReplay(code));
+    this.sharedFetch = null;
+    if (!raw) {
+      this.host.sfx('ui_error');
+      this.toast(`Shared replay ${code} was not found (links expire after 30 days)`);
+      this.showMain();
+      return;
+    }
+    if (!validateReplay(raw)) {
+      this.host.sfx('ui_error');
+      const old = (raw as { rulesVersion?: unknown }).rulesVersion;
+      this.toast(old !== RULESET_VERSION ? 'That replay was recorded on a different game version' : 'That shared replay is damaged');
+      this.showMain();
+      return;
+    }
+    saveReplay(raw);
+    this.watchReplay(raw);
+  }
+
+  private shareReplayLink(rp: Replay, row: HTMLElement) {
+    this.host.sfx('ui_select');
+    const info = row.firstElementChild as HTMLElement;
+    let out = info.querySelector<HTMLElement>('.share-link');
+    if (!out) info.append(out = h('div', 'md-desc share-link'));
+    const target = out;
+    target.textContent = 'Uploading…';
+    shareReplay(rp).then((code) => {
+      if (!code) { target.textContent = 'Could not reach the online server.'; this.host.sfx('ui_error'); return; }
+      const url = replayShareUrl(code);
+      target.textContent = url;
+      target.dataset.code = code;
+      navigator.clipboard?.writeText(url).then(() => this.toast('Replay link copied'), () => { /* the link is shown in the row instead */ });
+    });
+  }
+
+  /* ---------------- survival: local best + the global season board */
+
+  private showSurvival() {
+    const s = this.host.save;
+    this.backdrop('garage', { loadout: s.loadout });
+    this.music('menu');
+    const el = h('div', 'scr-free scr-modes');
+    const hd = this.header('Survival', 'Gauntlet');
+    const mine = h('div', 'md-desc', `Your best run: ${s.survivalBest} round${s.survivalBest === 1 ? '' : 's'}`);
+    const global = h('div', 'md-desc surv-me', '');
+    const list = h('div', 'md-col net-board surv-board', h('div', 'md-desc', 'Loading the global board…'));
+    const start = btn('Start Run', () => { this.host.sfx('ui_select'); this.runMatch(this.survivalCfg(1, 99999)); }, 'primary big');
+    const back = btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big');
+    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col',
+      h('div', 'md-desc', 'Fight until you fall. You heal 25% between rounds, and the opponents get tougher. Runs post to the monthly global board.'),
+      mine, global, h('div', 'md-title', `Global Top 10 · ${seasonLabel(seasonOf())}`), list), h('div', 'ra-actions', start, back));
+    el.append(h('div', 'vig vig-left'), hd, panel, hints([['confirm', 'Select'], ['back', 'Back']]));
+    this.setScreen(el, { back: () => this.showModes(), initial: start });
+    fetchSurvivalTop().then((t) => {
+      if (this.screen?.el !== el) return;
+      if (!t) { list.replaceChildren(h('div', 'md-desc', 'Global board offline.')); return; }
+      global.textContent = t.me ? `Global: #${t.me.place} with ${t.me.rounds} rounds this month` : 'No global run this month yet.';
+      const partName = (slot: Slot, id?: string) => (id && (ALL_PARTS[slot] as Record<string, AnyPart>)[id]?.name) || id || '?';
+      list.replaceChildren(...(t.top.length ? t.top.map((p, i) => h('div', `net-board-row ${p.you ? 'you' : ''}`,
+        h('span', 'nb-rank', `#${i + 1}`), h('span', 'nb-name', h('span', '', p.name)), h('span', 'nb-rating', `${p.rounds} rds`),
+        h('span', 'nb-build', `${partName('body', p.build.body)} · ${partName('gun', p.build.gun)}`))) : [h('div', 'md-desc', 'No runs yet this month. Set the bar.')]));
+    });
+  }
+
+  /* ---------------- ranked seasons */
+
+  /** Last season's reward: cosmetics for the highest tier reached (granted once). */
+  private grantSeasonReward(me: MeInfo) {
+    const tier = me.prevSeason?.peakTier;
+    if (!tier) return;
+    const got = seasonRewardIds(tier).filter((id) => grantCosmetic(this.host.save, id));
+    if (!got.length) return;
+    this.host.persist();
+    this.toast(`Season reward: ${got.map((id) => COSMETICS[id].name).join(' + ')}`);
   }
 
   private openPhoto() {

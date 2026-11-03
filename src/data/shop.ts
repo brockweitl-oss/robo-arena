@@ -8,6 +8,7 @@
  *  - 'shop':        appears in the rotating daily stock (6 items, re-rolled from the date)
  *  - 'mastery':     granted by part mastery levels (see progression.ts), never sold
  *  - 'achievement': granted by an achievement, never sold
+ *  - 'season':      granted for the highest ranked tier reached in a finished season, never sold
  */
 import { ALL_PARTS, type Slot } from './parts';
 import type { Paint } from './characters';
@@ -20,7 +21,7 @@ export interface Cosmetic {
   name: string;
   /** Credits; only meaningful for source 'shop'. */
   price: number;
-  source: 'shop' | 'mastery' | 'achievement';
+  source: 'shop' | 'mastery' | 'achievement' | 'season';
   /** paint: the five zone colors (emblem/trail untouched). */
   paint?: Omit<Paint, 'emblem' | 'trail'>;
   /** decal: emblem text shown on the chest plate (1–3 characters). */
@@ -81,6 +82,20 @@ const ACHIEVEMENT_ITEMS: Cosmetic[] = [
   { id: 'decal:parry', kind: 'decal', name: 'Parry Master', price: 0, source: 'achievement', decal: 'PM', blurb: 'Land 25 parries.' },
 ];
 
+/** Ranked season rewards (ids from net/season.ts seasonRewardIds): one decal and one paint per tier. */
+const SEASON_ITEMS: Cosmetic[] = [
+  { id: 'season:bronze:decal', kind: 'decal', name: 'Bronze Season', price: 0, source: 'season', decal: 'B', blurb: 'Finished a ranked season in Bronze.' },
+  { id: 'season:bronze:paint', kind: 'paint', name: 'Bronze Cast', price: 0, source: 'season', paint: P(0x6b4a33, 0xc0814c, 0xe8c39a, 0x2a1d15, 0xffa95a), blurb: 'Peak tier last season: Bronze.' },
+  { id: 'season:silver:decal', kind: 'decal', name: 'Silver Season', price: 0, source: 'season', decal: 'S', blurb: 'Finished a ranked season in Silver.' },
+  { id: 'season:silver:paint', kind: 'paint', name: 'Silver Mirror', price: 0, source: 'season', paint: P(0xb9c1cc, 0x5d6673, 0xf4f7fb, 0x22262d, 0xbfe6ff), blurb: 'Peak tier last season: Silver.' },
+  { id: 'season:gold:decal', kind: 'decal', name: 'Gold Season', price: 0, source: 'season', decal: 'G', blurb: 'Finished a ranked season in Gold.' },
+  { id: 'season:gold:paint', kind: 'paint', name: 'Gilded', price: 0, source: 'season', paint: P(0xd9a63a, 0x2b2420, 0xfff0c2, 0x16120e, 0xffd36a), blurb: 'Peak tier last season: Gold.' },
+  { id: 'season:platinum:decal', kind: 'decal', name: 'Platinum Season', price: 0, source: 'season', decal: 'P', blurb: 'Finished a ranked season in Platinum.' },
+  { id: 'season:platinum:paint', kind: 'paint', name: 'Platinum Ice', price: 0, source: 'season', paint: P(0xdfe9ef, 0x2fb7b0, 0x1b2a33, 0x111a20, 0x7ffff0), blurb: 'Peak tier last season: Platinum.' },
+  { id: 'season:diamond:decal', kind: 'decal', name: 'Diamond Season', price: 0, source: 'season', decal: 'D', blurb: 'Finished a ranked season in Diamond.' },
+  { id: 'season:diamond:paint', kind: 'paint', name: 'Diamond Prism', price: 0, source: 'season', paint: P(0x1a1f3d, 0x8fd8ff, 0xf5f9ff, 0x0b0e1f, 0xc6a8ff), blurb: 'Peak tier last season: Diamond.' },
+];
+
 /* ------------------------------------------------------------------ mastery cosmetics */
 
 /** Mastery reward kind per level (level 1 is the starting level; no reward). */
@@ -136,7 +151,7 @@ function buildMasteryItems(): Cosmetic[] {
 }
 
 export const COSMETICS: Record<string, Cosmetic> = Object.fromEntries(
-  [...SHOP_ITEMS, ...ACHIEVEMENT_ITEMS, ...buildMasteryItems()].map((c) => [c.id, c]),
+  [...SHOP_ITEMS, ...ACHIEVEMENT_ITEMS, ...SEASON_ITEMS, ...buildMasteryItems()].map((c) => [c.id, c]),
 );
 
 export function cosmetic(id: string): Cosmetic | undefined {
