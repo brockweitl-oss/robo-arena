@@ -29,6 +29,12 @@ import type { MusicTrack } from '../audio/audio';
 import { MetaUI } from './meta';
 import { PhotoStudio } from '../render/photoStudio';
 import { PartThumbnails } from '../render/partThumbnails';
+import { showCounterPick, PickChannel, type Picker } from './counterPick';
+import { newSet, recordRound, setWinner, aiCounterPick, SET_TARGET, type SetState } from '../game/sets';
+import { matchInsights, statComparison } from '../game/insights';
+import { grantStaged, wantsGuide, STAGED_UNLOCKS } from '../game/onboarding';
+import type { MetaCtx } from './meta';
+import type { Loadout } from '../data/parts';
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -87,6 +93,15 @@ function part(key: string): AnyPart | undefined {
 }
 function unlockSource(slot: Slot, id: string): Rival | undefined {
   return RIVALS.find((r) => r.unlocks.includes(`${slot}:${id}`));
+}
+
+/** How a locked part is earned (rival unlocks, then first-run staged unlocks). */
+function lockText(slot: Slot, id: string): string {
+  const src = unlockSource(slot, id);
+  if (src) return `Beat ${src.pilot} to unlock`;
+  const stage = STAGED_UNLOCKS.findIndex((st) => st.includes(`${slot}:${id}`));
+  if (stage >= 0) return `Win ${stage + 1} ladder fight${stage ? 's' : ''} to unlock`;
+  return 'Locked';
 }
 
 function emblem(p: Paint, unknown = false, cls = ''): HTMLElement {
@@ -209,7 +224,10 @@ export class Menus implements MenuLayer {
   private resizeFn: (() => void) | null = null;
   private mainIdx = 0;
   private gSlot: Slot = 'gun';
-  private fb = { rival: RIVALS[0].id, arena: RIVALS[0].arena as string, time: 90 };
+  private fb = { rival: RIVALS[0].id, arena: RIVALS[0].arena as string, time: 90, set: false };
+  /** Running first-to-2 set (free battle vs AI or local versus). `live` is the config of the round in play. */
+  private series: { mode: 'free' | 'versus'; set: SetState; base: MatchConfig; live: MatchConfig | null } | null = null;
+  private ctx!: MetaCtx;
   /** G6 meta screens (profile, shop, rewards, share codes, controls). */
   private meta: MetaUI;
   /** True while the Controls panel is capturing a binding (navigation paused). */
@@ -252,7 +270,7 @@ export class Menus implements MenuLayer {
       if (this.active) e.preventDefault();
     });
     window.addEventListener('resize', () => this.resizeFn?.());
-    this.meta = new MetaUI({
+    this.ctx = {
       host,
       setScreen: (el, o) => this.setScreen(el, o),
       pushLayer: (el, o) => this.pushLayer(el, o),
@@ -265,7 +283,8 @@ export class Menus implements MenuLayer {
       isScreen: (el) => this.screen?.el === el,
       setCapture: (on) => { this.keyCapture = on; },
       setResize: (fn) => { this.resizeFn = fn; },
-    });
+    };
+    this.meta = new MetaUI(this.ctx);
     this.sync();
   }
 
@@ -690,8 +709,9 @@ export class Menus implements MenuLayer {
     const done = Math.min(s.ladder, RIVALS.length);
     const champ = s.ladder >= RIVALS.length;
 
+    const fresh = wantsGuide(s);
     const items: [string, string, string | null, () => void][] = [
-      ['Story Ladder', champ ? 'You hold the crown. Defend it.' : 'Climb the circuit. Five rivals stand between you and the crown.', champ ? 'CHAMPION' : `Ladder ${done}/${RIVALS.length}`, () => this.showLadder()],
+      ['Story Ladder', champ ? 'You hold the crown. Defend it.' : fresh ? 'New pilot? Start here: a guided first fight teaches the controls.' : 'Climb the circuit. Five rivals stand between you and the crown.', champ ? 'CHAMPION' : fresh ? 'START HERE' : `Ladder ${done}/${RIVALS.length}`, () => this.showLadder()],
       ['Free Battle', 'Any rival, any arena, your rules.', null, () => this.showFree()],
       ['Modes', 'Rival+ ladder, survival, practice room, local versus and replays.', champ ? 'RIVAL+' : null, () => this.showModes()],
       ['Garage', 'Swap guns, bombs, pods, frames and legs.', `${s.unlocked.length} parts`, () => this.showGarage(() => this.showMain())],
@@ -703,7 +723,7 @@ export class Menus implements MenuLayer {
     const hl = h('div', 'mm-hl');
     list.append(hl);
     const els = items.map(([label, desc, tag, act], i) => {
-      const it = nav(h('div', 'mm-item', h('div', 'mm-num', `0${i + 1}`), h('div', 'mm-text', h('div', 'mm-label', label), h('div', 'mm-desc', desc)), tag ? h('div', 'mm-tag', tag) : null), {
+      const it = nav(h('div', 'mm-item', h('div', 'mm-num', `0${i + 1}`), h('div', 'mm-text', h('div', 'mm-label', label), h('div', 'mm-desc', desc)), tag ? h('div', `mm-tag ${tag === 'START HERE' ? 'new' : ''}`, tag) : null), {
         act: () => {
           this.mainIdx = i;
           this.host.sfx('ui_select');
@@ -803,11 +823,12 @@ export class Menus implements MenuLayer {
   private showIntro(i: number) {
     const r = RIVALS[i];
     const s = this.host.save;
-    const cfg: MatchConfig = { mode: 'ladder', playerLoadout: { ...s.loadout }, rivalId: r.id, arenaId: r.arena, ladderIndex: i };
+    const guided = i === 0 && wantsGuide(s);
+    const cfg: MatchConfig = { mode: 'ladder', playerLoadout: { ...s.loadout }, rivalId: r.id, arenaId: r.arena, ladderIndex: i, ...(guided ? { guided: true } : {}) };
     const arena = ARENA_INFO[r.arena as ArenaId];
     this.showVersus(r, {
-      line: r.intro,
-      kicker: i === RIVALS.length - 1 ? 'Championship Final' : `Ladder Round ${i + 1} / ${RIVALS.length}`,
+      line: guided ? `${r.intro} …First fight, rookie? I'll go easy until you've got the controls down.` : r.intro,
+      kicker: guided ? 'First Sortie · Guided' : i === RIVALS.length - 1 ? 'Championship Final' : `Ladder Round ${i + 1} / ${RIVALS.length}`,
       info: [arena?.name ?? r.arena, arena?.subtitle ?? ''],
       onFight: () => this.runMatch(cfg),
       onBack: () => this.showLadder(),
@@ -891,15 +912,17 @@ export class Menus implements MenuLayer {
 
   /* ---------------- match & results */
 
-  private async runMatch(cfg: MatchConfig) {
-    // replays must keep the recorded build; everything else uses the current garage loadout
-    cfg = { ...cfg, playerLoadout: cfg.mode === 'replay' ? { ...cfg.playerLoadout } : { ...this.host.save.loadout } };
+  private async runMatch(cfg: MatchConfig, keepLoadout = false) {
+    // replays and set rounds keep their build; everything else uses the current garage loadout
+    cfg = { ...cfg, playerLoadout: cfg.mode === 'replay' || keepLoadout ? { ...cfg.playerLoadout } : { ...this.host.save.loadout } };
+    if (keepLoadout && this.series) this.series.live = cfg;
     this.hideAll();
     this.musicNow = null;
     let res: MatchResult = await this.host.startMatch(cfg);
     while (res.restart && !res.quit) res = await this.host.startMatch(cfg);
     this.musicNow = null;
     if (res.quit) {
+      if (this.series?.live === cfg) this.series = null;
       if (cfg.mode === 'ladder') this.showLadder();
       else if (cfg.mode === 'free') this.showFree();
       else this.showModes();
@@ -922,6 +945,10 @@ export class Menus implements MenuLayer {
     const win = res.outcome === 'win';
     const newParts: string[] = [];
     let championNow = false;
+    if (cfg.guided) s.firstRun.guideDone = true;
+    const sr = this.series && this.series.live === res.config ? this.series : null;
+    if (sr) sr.set = recordRound(sr.set, res.outcome);
+    const setWin = sr ? setWinner(sr.set) : -1;
 
     if (win) {
       s.totals.wins++;
@@ -937,6 +964,8 @@ export class Menus implements MenuLayer {
           if (idx === RIVALS.length - 1) championNow = true;
         }
         s.ladder = Math.max(s.ladder, idx + 1);
+        // first-run staged unlocks: the rest of the starter kit, in pairs
+        newParts.push(...grantStaged(s));
       }
     } else if (res.outcome === 'lose') {
       s.totals.losses++;
@@ -971,12 +1000,16 @@ export class Menus implements MenuLayer {
     this.music(win ? 'victory' : 'results');
 
     const el = h('div', `scr-res ${res.outcome}`);
-    const word = win ? 'VICTORY' : res.outcome === 'lose' ? 'DEFEAT' : 'DRAW';
+    const vs2 = cfg.mode === 'versus';
+    const word = sr && setWin >= 0
+      ? vs2 ? `P${setWin + 1} TAKES SET` : setWin === 0 ? 'SET WON' : 'SET LOST'
+      : vs2 && res.outcome !== 'draw' ? `P${win ? 1 : 2} WINS` : win ? 'VICTORY' : res.outcome === 'lose' ? 'DEFEAT' : 'DRAW';
     const banner = h('div', 'res-banner', h('div', 'res-word', ...word.split('').map((c, i) => {
       const sp = h('span', '', c);
       sp.style.setProperty('--i', String(i));
       return sp;
-    })), h('div', 'res-finish', h('b', '', res.finish === 'ko' ? 'K.O.' : 'TIME UP'), h('span', '', fmtTime(res.time)), h('span', '', ladder ? (idx === RIVALS.length - 1 ? 'Championship Final' : `Ladder Round ${idx + 1}`) : 'Free Battle')));
+    })), h('div', 'res-finish', h('b', '', res.finish === 'ko' ? 'K.O.' : 'TIME UP'), h('span', '', fmtTime(res.time)), h('span', '', ladder ? (idx === RIVALS.length - 1 ? 'Championship Final' : `Ladder Round ${idx + 1}`) : sr ? `Set ${sr.set.score[0]}–${sr.set.score[1]} · First to ${SET_TARGET}` : vs2 ? 'Local Versus' : cfg.mode === 'free' ? 'Free Battle' : cfg.mode === 'survival' ? 'Survival' : cfg.mode === 'rivalplus' ? 'Rival+' : 'Exhibition'),
+      sr ? h('span', 'res-set', ...[0, 1].flatMap((side) => Array.from({ length: SET_TARGET }, (_, k) => h('i', `${side ? 'r' : 'l'} ${sr.set.score[side] > k ? 'on' : ''}`)))) : null));
     banner.dataset.word = word;
 
     const hpBar = (hp: number, max: number, side: 'l' | 'r') => {
@@ -989,13 +1022,12 @@ export class Menus implements MenuLayer {
       h('div', 'res-side l', emblem(s.paint), h('div', '', h('div', 'res-name', PLAYER_ROBOT_NAME), hpBar(res.playerHp, res.playerMaxHp, 'l'))),
       h('div', 'res-mid', 'HP'),
       h('div', 'res-side r', h('div', '', h('div', 'res-name', r.robotName), hpBar(res.rivalHp, res.rivalMaxHp, 'r')), emblem(r.paint)));
-    const rows: [string, keyof MatchResult['player']][] = [['Damage dealt', 'damageDealt'], ['Hits', 'hits'], ['Knockdowns', 'knockdowns'], ['Dodges', 'dodges'], ['Shots fired', 'shots']];
     const stats = h('div', 'res-stats');
     const counters: [HTMLElement, number][] = [];
-    rows.forEach(([label, key], i) => {
-      const a = Math.round(res.player?.[key] ?? 0), b = Math.round(res.rival?.[key] ?? 0);
+    statComparison(res).forEach(({ label, you: a, them: b, unit }, i) => {
       const m = Math.max(1, a, b);
       const la = h('b', a >= b ? 'lead' : '', '0'), lb = h('b', b >= a ? 'lead' : '', '0');
+      if (unit) { la.dataset.unit = unit; lb.dataset.unit = unit; }
       counters.push([la, a], [lb, b]);
       const fa = h('i'), fb = h('i');
       fa.style.setProperty('--w', String(a / m));
@@ -1008,17 +1040,25 @@ export class Menus implements MenuLayer {
     const quote = h('div', 'res-quote', emblem(r.paint, false, 'mini'), h('div', '', h('div', 'res-quote-name', r.pilot), h('div', 'res-quote-text', `“${line}”`)));
     const g = gradeMatch(res);
     const gradeEl = h('div', `res-grade g-${g.grade}`, h('div', 'res-grade-letter', g.grade), h('div', 'res-grade-parts', ...g.parts.map((p) => h('div', '', h('span', '', p.label), h('b', '', `${p.points}/${p.max}`)))));
-    // counter-hint after a loss: what to try next
-    let hintEl: HTMLElement | null = null;
-    if (!win && r.hint) {
+    // "How to win this": data-driven tips from this match, then the rival's counter-hint after a loss
+    const tips = matchInsights(res, cfg.playerLoadout);
+    const insEl = h('div', 'ra-panel res-ins', h('div', 'res-ins-h', win ? 'Sharpen this win' : vs2 ? 'How P1 wins this' : 'How to win this'));
+    tips.forEach((t, i) => {
+      const it = h('div', 'res-ins-item', h('b', '', t.title), h('span', '', t.text));
+      it.style.setProperty('--i', String(i));
+      insEl.append(it);
+    });
+    if (!win && !vs2 && r.hint) {
       const sug = r.suggest ? part(r.suggest) : undefined;
       const owned = r.suggest ? s.unlocked.includes(r.suggest) : false;
-      hintEl = h('div', 'res-hint', h('b', '', 'TIP'), h('span', '', r.hint), sug ? h('em', '', owned ? `Try: ${sug.name}` : `Try: ${sug.name} (locked)`) : null);
+      const it = h('div', 'res-ins-item rival', h('b', '', `vs ${r.robotName}`), h('span', '', r.hint), sug ? h('span', '', owned ? `Try: ${sug.name}` : `Try: ${sug.name} (locked)`) : null);
+      it.style.setProperty('--i', String(tips.length));
+      insEl.append(it);
     }
-    const panel = h('div', 'ra-panel res-panel', top, stats, gradeEl, hintEl, quote);
+    const panel = h('div', 'ra-panel res-panel', top, stats, gradeEl, quote);
 
     const acts: HTMLElement[] = [];
-    const retryCfg = () => ({ ...cfg, playerLoadout: { ...s.loadout } });
+    const retryCfg = (): MatchConfig => ({ ...cfg, playerLoadout: { ...s.loadout }, guided: undefined });
     if (championNow) {
       acts.push(btn('Continue', () => { this.host.sfx('ui_select'); this.showEnding(); }, 'primary big'));
     } else if (plus) {
@@ -1033,6 +1073,16 @@ export class Menus implements MenuLayer {
         acts.push(btn('New Run', () => { this.host.sfx('ui_select'); this.runMatch(this.survivalCfg(1, 99999)); }, 'primary big'));
       }
       acts.push(btn('Modes', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big'));
+    } else if (sr) {
+      if (setWin >= 0) {
+        acts.push(btn('New Set', () => { this.host.sfx('ui_select'); sr.set = newSet(this.host.save.loadout, sr.mode === 'versus' ? sr.base.versus!.p2Loadout : r.loadout); this.runSetRound(); }, 'primary big'));
+      } else if (res.outcome === 'draw') {
+        acts.push(btn('Next Round', () => { this.host.sfx('ui_select'); this.runSetRound(); }, 'primary big'));
+      } else {
+        acts.push(btn('Counter-Pick', () => { this.host.sfx('ui_select'); this.startCounterPick(res); }, 'primary big'));
+      }
+      acts.push(btn(vs2 ? 'Modes' : 'Change Setup', () => { this.series = null; this.host.sfx('ui_back'); if (vs2) this.showModes(); else this.showFree(); }, 'big'));
+      acts.push(btn('Main Menu', () => { this.series = null; this.host.sfx('ui_back'); this.showMain(); }, 'big'));
     } else if (cfg.mode === 'versus') {
       acts.push(btn('Rematch', () => { this.host.sfx('ui_select'); this.runMatch(retryCfg()); }, 'primary big'));
       acts.push(btn('Modes', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big'));
@@ -1053,9 +1103,10 @@ export class Menus implements MenuLayer {
     acts.push(btn('Photo Mode', () => this.openPhoto(), 'big'));
     const bar = h('div', 'ra-actions res-acts', ...acts);
     stagger([panel], 450);
+    stagger([insEl], 600);
     stagger([bar], 800);
-    el.append(h('div', 'vig vig-top'), h('div', 'vig vig-bot'), banner, panel, bar, hints([['move', 'Move'], ['confirm', 'Select']]));
-    this.setScreen(el, { back: championNow ? undefined : () => this.showMain(), initial: acts[0] });
+    el.append(h('div', 'vig vig-top'), h('div', 'vig vig-bot'), banner, h('div', 'res-body', panel, insEl), bar, hints([['move', 'Move'], ['confirm', 'Select']]));
+    this.setScreen(el, { back: championNow ? undefined : () => { this.series = null; this.showMain(); }, initial: acts[0] });
     this.meta.rewardsStrip(el, rewards);
 
     // count-up numbers
@@ -1064,7 +1115,7 @@ export class Menus implements MenuLayer {
       if (this.screen?.el !== el) return;
       const k = clamp((performance.now() - t0) / 900, 0, 1);
       const e = 1 - Math.pow(1 - k, 3);
-      for (const [n, v] of counters) n.textContent = String(Math.round(v * e));
+      for (const [n, v] of counters) n.textContent = String(Math.round(v * e)) + (n.dataset.unit ?? '');
       if (k < 1) requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -1078,6 +1129,55 @@ export class Menus implements MenuLayer {
         }
       })();
     }
+  }
+
+  /* ---------------- sets: first to 2 with counter-picks */
+
+  private startSet(mode: 'free' | 'versus', base: MatchConfig) {
+    const p2 = mode === 'versus' ? base.versus!.p2Loadout : rivalById(base.rivalId).loadout;
+    this.series = { mode, set: newSet(this.host.save.loadout, p2), base, live: null };
+    this.runSetRound();
+  }
+
+  private runSetRound() {
+    const sr = this.series;
+    if (!sr) return;
+    const [a, b] = sr.set.loadouts;
+    const cfg: MatchConfig = sr.mode === 'versus'
+      ? { ...sr.base, playerLoadout: { ...a }, versus: { ...sr.base.versus!, p2Loadout: { ...b } } }
+      : { ...sr.base, playerLoadout: { ...a }, rivalLoadout: { ...b } };
+    this.runMatch(cfg, true);
+  }
+
+  /** Loser picks first, then the winner answers. AI rivals counter the player's best damage source. */
+  private startCounterPick(res: MatchResult) {
+    const sr = this.series;
+    if (!sr) return;
+    const s = this.host.save;
+    const r = rivalById(res.config.rivalId);
+    const owned = (slot: Slot, id: string) => isUnlocked(s, slot, id);
+    const vs2 = sr.mode === 'versus';
+    const ai: Picker = {
+      kind: 'wait',
+      // a short, fixed "thinking" beat; the choice itself is rule-based and deterministic
+      wait: (_step, los) => new Promise((done) => setTimeout(() => done(aiCounterPick(los[1], res.player)), 1700)),
+    };
+    this.backdrop('versus', { loadout: sr.set.loadouts[0], rivalId: r.id });
+    showCounterPick(this.ctx, {
+      round: sr.set.round,
+      score: sr.set.score,
+      names: vs2 ? [`P1 · ${PLAYER_ROBOT_NAME}`, `P2 · ${sr.base.versus!.p2Name}`] : [PLAYER_ROBOT_NAME, r.robotName],
+      colors: [hex(s.paint.secondary), hex(vs2 ? sr.base.versus!.p2Paint.glow : r.paint.glow)],
+      loadouts: sr.set.loadouts,
+      loser: res.outcome === 'lose' ? 0 : 1,
+      pickers: [{ kind: 'local', owned }, vs2 ? { kind: 'local', owned } : ai],
+      onDone: (los) => { sr.set.loadouts = los; this.runSetRound(); },
+      leave: ['Leave the set?', 'The current set ends here. Your garage build is unchanged.'],
+      onLeave: () => {
+        this.series = null;
+        if (vs2) this.showModes(); else this.showFree();
+      },
+    });
   }
 
   private unlockCard(key: string): Promise<void> {
@@ -1247,16 +1347,33 @@ export class Menus implements MenuLayer {
       times.append(c);
     }
 
+    // format: single round, or a first-to-2 set with counter-picks between rounds
+    const fmt = h('div', 'fb-times fb-fmt');
+    const fmtEls: HTMLElement[] = [];
+    for (const [isSet, label, sub] of [[false, 'Single', '1 round'], [true, 'Set', `first to ${SET_TARGET}`]] as [boolean, string, string][]) {
+      const c = nav(h('div', `fb-time ${fb.set === isSet ? 'sel' : ''}`, h('b', '', label), h('span', '', sub)), {
+        act: () => {
+          this.host.sfx('ui_select');
+          fb.set = isSet;
+          fmtEls.forEach((x) => x.classList.toggle('sel', x === c));
+        },
+      });
+      fmtEls.push(c);
+      fmt.append(c);
+    }
+
     const cont = btn('Continue', () => {
       this.host.sfx('ui_select');
       const r = rivalById(fb.rival);
       const a = ARENA_INFO[fb.arena as ArenaId];
       const cfg: MatchConfig = { mode: 'free', playerLoadout: { ...s.loadout }, rivalId: r.id, arenaId: fb.arena, timeLimit: fb.time };
+      const isSet = fb.set;
+      this.series = null;
       this.showVersus(r, {
         line: r.taunt,
-        kicker: `Free Battle · ${fb.time}s`,
+        kicker: `Free Battle · ${isSet ? `Set, first to ${SET_TARGET} · ` : ''}${fb.time}s`,
         info: [a?.name ?? fb.arena, a?.subtitle ?? ''],
-        onFight: () => this.runMatch(cfg),
+        onFight: () => (isSet ? this.startSet('free', cfg) : this.runMatch(cfg)),
         onBack: () => this.showFree(),
         onGarage: () => this.showGarage(() => this.showFree()),
       });
@@ -1267,9 +1384,10 @@ export class Menus implements MenuLayer {
     const s1 = section('01', 'Opponent', tiles, detail);
     const s2 = section('02', 'Arena', arenas, blurb);
     const s3 = section('03', 'Round Time', times);
+    const s4 = section('04', 'Format', fmt);
     const bar = h('div', 'ra-actions', cont, garage, back);
-    const panel = h('div', 'ra-panel fb-panel', s1, s2, s3, bar);
-    stagger([s1, s2, s3, bar], 100, 70);
+    const panel = h('div', 'ra-panel fb-panel', s1, s2, h('div', 'fb-pair', s3, s4), bar);
+    stagger([s1, s2, s3, s4, bar], 100, 70);
     el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
     this.setScreen(el, { back: () => this.showMain(), initial: tileEls[Math.max(0, RIVALS.findIndex((r) => r.id === fb.rival))] });
   }
@@ -1403,9 +1521,9 @@ export class Menus implements MenuLayer {
       }
       this.host.sfx('ui_select');
       const r = pool[pick];
-      this.runMatch({ mode: 'versus', playerLoadout: { ...s.loadout }, rivalId: r.id, arenaId: arena, timeLimit: 120, versus: { p2Loadout: { ...r.loadout }, p2Paint: r.paint, p2Name: r.robotName } });
+      this.startSet('versus', { mode: 'versus', playerLoadout: { ...s.loadout }, rivalId: r.id, arenaId: arena, timeLimit: 120, versus: { p2Loadout: { ...r.loadout }, p2Paint: r.paint, p2Name: r.robotName } });
     }, 'primary big');
-    const info = h('div', 'md-desc', pads >= 2 ? 'Two pads: Player 1 uses pad 1, Player 2 uses pad 2.' : 'Player 1: keyboard and mouse. Player 2: gamepad. Shared camera.');
+    const info = h('div', 'md-desc', `${pads >= 2 ? 'Two pads: Player 1 uses pad 1, Player 2 uses pad 2.' : 'Player 1: keyboard and mouse. Player 2: gamepad. Shared camera.'} First to ${SET_TARGET} rounds; the loser of each round counter-picks one part first.`);
     const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', label, sub, h('div', 'ra-actions', prev, next), arenaBtn, info), h('div', 'ra-actions', start, btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big')));
     el.append(h('div', 'vig vig-left'), hd, panel, hints([['move', 'Move'], ['confirm', 'Select'], ['back', 'Back']]));
     this.setScreen(el, { back: () => this.showModes(), initial: start });
@@ -1562,15 +1680,18 @@ export class Menus implements MenuLayer {
    * A room with an opponent. Casual rooms are a running set (first to 2), with build changes
    * allowed between rounds for counter-picks. Ranked queues play one rated round.
    */
-  private showOnlineLobby(ses: NetSession, o: { ranked?: boolean; auto?: boolean; score?: [number, number]; last?: string; rank?: RankResult }) {
+  private showOnlineLobby(ses: NetSession, o: { ranked?: boolean; auto?: boolean; score?: [number, number]; last?: string; rank?: RankResult; build?: Loadout; cp?: number }) {
     const s = this.host.save;
     const score = o.score ?? [0, 0];
+    // listen for counter-picks from the first lobby on, so a fast opponent's pick is never missed
+    if (!o.ranked) PickChannel.for(ses);
+    const midSet = !o.ranked && (score[0] > 0 || score[1] > 0);
     this.backdrop('versus', { loadout: s.loadout, rivalId: RIVALS[0].id });
     const el = h('div', 'scr-free scr-modes');
     const hd = this.header(o.ranked ? 'Ranked' : ses.code ? `Room ${ses.code}` : 'Online', ses.peer ? `vs ${ses.peer.name}` : 'Waiting for an opponent');
     const peer = h('div', 'md-title', ...(ses.peer ? this.peerEls(ses.peer) : ['Waiting for an opponent…']));
     const sub = h('div', 'md-desc', ses.code && !o.auto ? `Share this room code: ${ses.code}` : '');
-    const set = h('div', 'md-desc net-set', o.ranked ? '' : `Set (first to 2): You ${score[0]} – ${score[1]} Them`);
+    const set = h('div', 'md-desc net-set', o.ranked ? '' : `Set (first to 2): You ${score[0]} – ${score[1]} Them${midSet ? ' · counter-picks between rounds' : ''}`);
     const last = h('div', 'md-desc', o.last ?? '');
     const stat = h('div', 'md-desc net-status', '');
     let left = false;
@@ -1588,10 +1709,10 @@ export class Menus implements MenuLayer {
     ses.onPeer = (p) => { peer.replaceChildren(...this.peerEls(p)); hd.querySelector('.ra-title')?.replaceChildren(`vs ${p.name}`); if (o.auto) { ses.ready(); stat.textContent = 'Opponent found. Starting…'; } };
     ses.onLeft = () => { left = true; stat.textContent = 'Opponent left the room.'; };
     ses.onError = (r) => { stat.textContent = r === 'version' ? 'Your opponent is on a different game version. Refresh the page.' : `Error: ${r}`; };
-    ses.onStart = (st) => this.playOnline(ses, st, o.ranked ?? false, score);
+    ses.onStart = (st) => this.playOnline(ses, st, o.ranked ?? false, score, o.build, o.cp ?? 0);
     if (o.auto && ses.peer) { ses.ready(); stat.textContent = 'Starting…'; }
     const rankEl = o.rank ? rankResultPanel(o.rank) : null;
-    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', peer, sub, set, rankEl, last, ready, ...(o.ranked ? [] : [build]), stat),
+    const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', peer, sub, set, rankEl, last, ready, ...(o.ranked || midSet ? [] : [build]), stat),
       h('div', 'ra-actions', btn('Leave', () => { this.host.sfx('ui_back'); leave(); }, 'big')));
     el.append(h('div', 'vig vig-left'), hd, panel, hints([['confirm', 'Select'], ['back', 'Leave']]));
     this.setScreen(el, { back: leave, initial: ready });
@@ -1605,7 +1726,7 @@ export class Menus implements MenuLayer {
     return [`${p.name} `, ...(badge ? [badge] : []), ` — ${L.body.name}, ${L.gun.name}, ${L.skill.name}`];
   }
 
-  private async playOnline(ses: NetSession, st: StartMsg, ranked: boolean, score: [number, number]) {
+  private async playOnline(ses: NetSession, st: StartMsg, ranked: boolean, score: [number, number], build?: Loadout, cp = 0) {
     ses.onStart = ses.onPeer = undefined;
     const me = ses.slot;
     const arena = (ARENA_IDS as readonly string[]).includes(st.arena) ? st.arena : ARENA_IDS[0];
@@ -1631,7 +1752,13 @@ export class Menus implements MenuLayer {
       this.showOnline(res.quit ? 'You left the match.' : 'Opponent left the match.');
       return;
     }
-    const lobby = { ranked, score: setDone ? [0, 0] as [number, number] : next, last: line };
+    const lobby = { ranked, score: setDone ? [0, 0] as [number, number] : next, last: line, build: setDone ? undefined : build, cp };
+    if (setDone && build) ses.hello({ ...this.onlineHello(false), arena: ses.last?.arena });
+    // casual sets: counter-pick between rounds (draws and desynced rounds go straight on)
+    if (!ranked && !setDone && res.outcome !== 'draw' && res.netClean !== false) {
+      this.onlineCounterPick(ses, st, me, next, res.outcome === 'lose' ? 0 : 1, lobby);
+      return;
+    }
     this.showOnlineLobby(ses, lobby);
     if (ranked) {
       // the server settles once both reports land
@@ -1644,6 +1771,51 @@ export class Menus implements MenuLayer {
       };
       this.showOnlineLobby(ses, { ...lobby, rank, last: d === null ? `${line} (not rated)` : line });
     }
+  }
+
+  /**
+   * Online counter-pick. Each pick travels as a relayed 'cp' message and is decided only by
+   * its picker, so both clients end with the same two builds. The final build then goes to
+   * the room as a new hello: the server's start message (identical on both machines) carries
+   * the loadouts, so the next round's sim always agrees even if a message was lost.
+   */
+  private onlineCounterPick(ses: NetSession, st: StartMsg, me: 0 | 1, score: [number, number], loser: 0 | 1, lobby: { ranked: boolean; score: [number, number]; last: string; build?: Loadout; cp: number }) {
+    const ch = PickChannel.for(ses);
+    const round = lobby.cp + 1;
+    const s = this.host.save;
+    const foe = st.players[1 - me];
+    this.backdrop('versus', { loadout: st.players[me].loadout, rivalId: RIVALS[0].id });
+    let left = false;
+    const prevLeft = ses.onLeft;
+    ses.onLeft = () => { left = true; prevLeft?.(); };
+    showCounterPick(this.ctx, {
+      round: score[0] + score[1] + 1,
+      score,
+      names: [`${st.players[me].name} (You)`, foe.name],
+      colors: [hex(st.players[me].paint.glow), hex(foe.paint.glow)],
+      loadouts: [{ ...st.players[me].loadout }, { ...foe.loadout }],
+      loser,
+      pickers: [{ kind: 'local', owned: (slot, id) => isUnlocked(s, slot, id) }, { kind: 'wait', wait: (step) => ch.wait(round, step), skipAfter: 35 }],
+      onPick: (step, _side, pick) => ch.send(round, step, pick),
+      onDone: async (los) => {
+        if (left || ses.closed) { ses.close(); this.showOnline('Opponent left the set.'); return; }
+        // tell the room our final build, then give the server a moment to echo it before Ready
+        const acked = new Promise<void>((done) => {
+          const prev = ses.onPeer;
+          const t = setTimeout(() => { ses.onPeer = prev; done(); }, 3000);
+          ses.onPeer = (p) => { clearTimeout(t); ses.onPeer = prev; prev?.(p); done(); };
+        });
+        ses.hello({ ...this.onlineHello(false), loadout: { ...los[0] }, arena: ses.last?.arena });
+        await acked;
+        this.showOnlineLobby(ses, { ...lobby, build: los[0], cp: round, last: `${lobby.last} Builds locked.` });
+      },
+      leave: ['Leave the room?', 'Leaving ends the set for both players.'],
+      onLeave: () => {
+        ses.onStart = ses.onPeer = ses.onLeft = undefined;
+        ses.close();
+        this.showOnline('You left the set.');
+      },
+    });
   }
 
   private showReplays() {
@@ -1851,7 +2023,6 @@ export class Menus implements MenuLayer {
       const owned = isUnlocked(s, p.slot, p.id);
       const equipped = s.loadout[p.slot] === p.id;
       const eq = ALL_PARTS[p.slot][s.loadout[p.slot]];
-      const src = unlockSource(p.slot, p.id);
       const extra: HTMLElement[] = [];
       if (p.slot === 'body') {
         const b = BODIES[p.id];
@@ -1862,7 +2033,7 @@ export class Menus implements MenuLayer {
       }
       detail.replaceChildren(
         h('div', 'gd-top', h('div', 'gd-ico', svg(SLOT_ICON[p.slot])), h('div', '', h('div', 'gd-slot', `${SLOT_LABEL[p.slot]} Part`), h('div', 'gd-name', owned ? p.name : p.name))),
-        equipped ? h('div', 'gd-tag eq', svg(CHECK_ICON), 'Equipped') : owned ? h('div', 'gd-tag', 'Owned · press to equip') : h('div', 'gd-tag lk', svg(LOCK_ICON), src ? `Beat ${src.pilot} to unlock` : 'Locked'),
+        equipped ? h('div', 'gd-tag eq', svg(CHECK_ICON), 'Equipped') : owned ? h('div', 'gd-tag', 'Owned · press to equip') : h('div', 'gd-tag lk', svg(LOCK_ICON), lockText(p.slot, p.id)),
         h('div', 'gd-desc', p.desc),
         ...(p.slot === 'gun' && ['rail', 'beam'].includes(p.id) ? [h('div', 'gd-desc', p.id === 'rail' ? 'COMBO FINISHER · Hit an armed primer to detonate it.' : 'COMBO FINISHER · Charge to at least 75% and hit an armed primer.')] : p.slot === 'bomb' ? [h('div', 'gd-desc', 'SETUP · Hold the bomb mouse button to aim, release to throw. Clean blast hits prime a precision follow-up.')] : []),
         h('div', 'gd-ratings', ...Object.entries(p.ratings).map(([k, v]) => ratingBar(k, v, equipped ? undefined : eq?.ratings[k]))),
@@ -1881,11 +2052,10 @@ export class Menus implements MenuLayer {
       partEls = parts.map((p, i) => {
         const owned = isUnlocked(s, slot, p.id);
         const equipped = s.loadout[slot] === p.id;
-        const src = unlockSource(slot, p.id);
         const pips = h('div', 'gp-pips', ...Object.entries(p.ratings).map(([k, v]) => h('span', '', k.slice(0, 3), h('b', '', '■'.repeat(v)))));
         const el = nav(h('div', `gar-part ${owned ? '' : 'locked'} ${equipped ? 'equipped' : ''}`,
           h('div', 'gp-visual', thumbnails.image(slot, p.id)),
-          h('div', 'gp-body', h('div', 'gp-name', owned ? p.name : p.name), owned ? pips : h('div', 'gp-lock', src ? `Beat ${src.pilot} to unlock` : 'Locked')),
+          h('div', 'gp-body', h('div', 'gp-name', owned ? p.name : p.name), owned ? pips : h('div', 'gp-lock', lockText(slot, p.id))),
           equipped ? h('div', 'gp-eq', svg(CHECK_ICON), 'E') : null), {
           locked: !owned,
           focus: () => { renderDetail(p); this.host.focusPreview(slot); },
@@ -2145,6 +2315,7 @@ export class Menus implements MenuLayer {
         s.ladder = d.ladder;
         s.beaten = d.beaten;
         s.totals = d.totals;
+        s.firstRun = d.firstRun;
         Object.assign(s, { credits: d.credits, paint: d.paint, mastery: d.mastery, cosmetics: d.cosmetics, challenges: d.challenges, achievements: d.achievements, stats: d.stats });
         this.host.persist();
         this.toast('Progress reset');
