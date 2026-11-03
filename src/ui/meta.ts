@@ -227,7 +227,7 @@ export class MetaUI {
     const stat = (k: string, v: string) => h('div', 'pf-stat', h('span', '', k), h('b', '', v));
     const card = h('div', 'ra-panel pf-card',
       h('div', 'pf-top', emblem(s.paint), h('div', '', h('div', 'pf-name', PLAYER_ROBOT_NAME), h('div', 'pf-sub', s.ladder >= RIVALS.length ? 'Circuit Champion' : `Circuit ${Math.min(s.ladder, RIVALS.length)}/${RIVALS.length}`))),
-      h('div', 'pf-level', h('div', 'pf-lv', h('span', '', 'Pilot level'), h('b', '', String(lvl)), h('em', '', `of ${1 + allParts * (MAX_MASTERY - 1)}`)), creditTag(s.credits, 'big')),
+      h('div', 'pf-level', h('div', 'pf-lv', h('span', '', 'Pilot level'), h('b', '', String(lvl)), h('em', '', '+1 per part mastery level')), creditTag(s.credits, 'big')),
       h('div', 'pf-rate', ring, h('div', 'pf-rate-t', h('b', '', `${rate}%`), h('span', '', 'Win rate'), h('em', '', `${wins}W · ${losses}L${s.stats.draws ? ` · ${s.stats.draws}D` : ''}`))),
       h('div', 'pf-sec', 'Favorite build', fav ? h('span', '', `${fav.count} match${fav.count === 1 ? '' : 'es'}`) : null),
       favLo
