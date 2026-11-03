@@ -70,7 +70,6 @@ export function softReset(rating: number): number {
   return START + Math.trunc((Math.round(rating) - START) * 0.5);
 }
 
-/** K for a player with `seasonGames` played this season and `lifetimeGames` overall (before this game). */
 /** Seasons between two ids ("2026-11" -> "2027-01" = 2). */
 export function seasonsBetween(a: string, b: string): number {
   const [ay, am] = a.split('-').map(Number), [by, bm] = b.split('-').map(Number);
@@ -84,6 +83,7 @@ export function carryRating(lastSeason: string, rating: number, season: string):
   return r;
 }
 
+/** K for a player with `seasonGames` played this season and `lifetimeGames` overall (before this game). */
 export function kFactor(seasonGames: number, lifetimeGames: number): number {
   if (seasonGames < PLACEMENT_GAMES) return K_PLACEMENT;
   return lifetimeGames < NEW_PLAYER_GAMES ? K_NEW : K;
