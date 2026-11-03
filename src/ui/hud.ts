@@ -13,7 +13,7 @@ const CSS = /* css */ `
 .hud-pan.r { text-align:right; }
 .hud-name { font-family:'Russo One',sans-serif; font-size:clamp(14px,1.25vw,20px); letter-spacing:.08em; text-transform:uppercase; display:flex; gap:10px; align-items:baseline; text-shadow:0 2px 6px #000a; }
 .hud-pan.r .hud-name { justify-content:flex-end; }
-.hud-name small { font-family:'Chakra Petch'; font-weight:700; font-size:.68em; opacity:.7; letter-spacing:.14em; }
+.hud-name small { font-family:'Chakra Petch'; font-weight:700; font-size:.68em; opacity:.85; letter-spacing:.14em; }
 .hud-hpnum { font-family:'Russo One'; font-size:clamp(26px,2.6vw,42px); line-height:1; margin-top:2px; text-shadow:0 3px 10px #000c; font-variant-numeric:tabular-nums; }
 .hud-hpnum span { font-size:.42em; opacity:.6; margin-left:4px; }
 .hud-bar { position:relative; height:16px; margin-top:6px; background:#0b0d12cc; clip-path:polygon(0 0,100% 0,calc(100% - 12px) 100%,0 100%); box-shadow:inset 0 0 0 1px #ffffff22; }
@@ -37,7 +37,8 @@ const CSS = /* css */ `
 .hud-combat-state[data-state="opening"] { color:#ffbd72; }
 .hud-combat-state[data-state="guard"] { color:#86d9ff; }
 .hud-ecd { display:flex; gap:5px; justify-content:flex-end; margin-top:4px; }
-.hud-ecd b { position:relative; overflow:hidden; font:700 10px 'Chakra Petch', sans-serif; letter-spacing:.08em; padding:2px 6px; border-radius:3px; color:#ffffff66; background:#0008; border:1px solid #ffffff22; }
+.hud-ecd b { position:relative; overflow:hidden; font:700 10px 'Chakra Petch', sans-serif; letter-spacing:.08em; padding:2px 6px; border-radius:3px; color:#ffffff8c; background:#0b0d12cc; border:1px solid #ffffff22; }
+.hud-ecd::before { content:'RIVAL'; align-self:center; font:700 9px 'Chakra Petch', sans-serif; letter-spacing:.2em; opacity:.7; text-shadow:0 1px 2px #000; }
 .hud-ecd b i { position:absolute; left:0; bottom:0; height:2px; width:calc(var(--p) * 1%); background:#ffffff55; }
 .hud-ecd b.ready { color:#fff; border-color:var(--c); box-shadow:0 0 8px var(--c); }
 .hud-ecd b.ready i { width:100%; background:var(--c); }
@@ -52,8 +53,8 @@ const CSS = /* css */ `
 .hud-dial b { position:absolute; inset:0; z-index:1; display:grid; place-items:center; font-family:'Russo One'; font-size:15px; letter-spacing:.04em; }
 .hud-w.ready .hud-dial { filter:drop-shadow(0 0 7px var(--c)); }
 .hud-w.flash .hud-dial { animation:hudReady .35s ease-out; }
-.hud-w label { display:block; margin-top:5px; font-size:11px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; opacity:.8; }
-.hud-w kbd { display:inline-block; margin-top:3px; font:700 10px 'Chakra Petch'; padding:1px 6px; border-radius:3px; background:#ffffff1c; opacity:.75; }
+.hud-w label { display:block; margin-top:5px; font-size:11px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; opacity:.9; text-shadow:0 1px 2px #000, 0 0 6px #000c; }
+.hud-w kbd { display:inline-block; margin-top:3px; font:700 10px 'Chakra Petch'; padding:1px 6px; border-radius:3px; background:#0b0d12bb; box-shadow:inset 0 0 0 1px #ffffff2a; opacity:.9; }
 .hud-fuel { position:absolute; bottom:112px; left:50%; width:140px; height:4px; margin-left:-70px; background:#0009; border-radius:2px; overflow:hidden; opacity:0; transition:opacity .2s; }
 .hud-fuel.on { opacity:1; }
 .hud-fuel i { position:absolute; inset:0; background:#37e8ff; transform-origin:left; box-shadow:0 0 8px #37e8ff; }
@@ -71,7 +72,7 @@ const CSS = /* css */ `
 .hud-pop { position:absolute; font-family:'Russo One'; font-size:28px; white-space:nowrap; transform:translate(-50%,-50%); text-shadow:0 3px 0 #000a, 0 0 12px var(--c,#fff); animation:hudPop .9s ease-out forwards; }
 .hud-pop.big { font-size:40px; }
 .hud-pop.tag { font-size:20px; letter-spacing:.18em; color:#37e8ff; }
-.hud-hint { position:absolute; bottom:120px; left:50%; transform:translateX(-50%); font-size:14px; font-weight:700; letter-spacing:.06em; padding:8px 18px; background:#0b0d12bb; border-left:3px solid #ff6a1f; opacity:0; transition:opacity .5s; white-space:nowrap; }
+.hud-hint { position:absolute; bottom:120px; left:50%; transform:translateX(-50%); font-size:14px; font-weight:700; letter-spacing:.06em; padding:8px 18px; background:#0b0d12dd; border-left:3px solid #ff6a1f; opacity:0; transition:opacity .5s; width:max-content; max-width:min(92vw, 1100px); text-align:center; line-height:1.4; }
 .hud-hint.on { opacity:.9; }
 .hud-pips { display:flex; gap:4px; justify-content:center; margin-top:4px; }
 .hud-pips i { width:12px; height:5px; background:#ffffff22; transform:skewX(-20deg); }
@@ -82,7 +83,7 @@ const CSS = /* css */ `
 .hud-lock.confirm path { stroke:#ffffff !important; }
 @keyframes hudConfirm { 0%{transform:scale(1.35)} 100%{transform:scale(1)} }
 .hud-threat { position:absolute; width:0; height:0; border-left:11px solid transparent; border-right:11px solid transparent; border-bottom:20px solid var(--c); filter:drop-shadow(0 0 6px var(--c)); opacity:0; transition:opacity .1s; }
-.hud-downlbl2 { font:700 10px 'Chakra Petch'; letter-spacing:.2em; opacity:.65; margin-top:2px; }
+.hud-downlbl2 { font:700 10px 'Chakra Petch'; letter-spacing:.2em; opacity:.8; margin-top:2px; text-shadow:0 1px 2px #000, 0 0 6px #000c; }
 .hud-pan.r .hud-downlbl2 { text-align:right; }
 .hud-practice { position:absolute; top:120px; right:28px; padding:12px 16px; background:#0b0d12cc; border-right:3px solid #37e8ff; font:700 14px 'Chakra Petch'; letter-spacing:.08em; display:none; min-width:190px; }
 .hud-practice.on { display:block; }
@@ -101,6 +102,14 @@ const CSS = /* css */ `
 .hud-obj-m i b { position:absolute; inset:0; background:var(--c); box-shadow:0 0 8px var(--c); transform:scaleX(var(--p)); }
 .hud-obj-m i.l b { transform-origin:right; }
 .hud-obj-m i.r b { transform-origin:left; }
+@media (prefers-reduced-motion: reduce) {
+  .hud-lock svg, .hud-bar .fill.low, .hud-down.hot i, .hud-timer.warn, .hud-obj.soon .hud-obj-t { animation:none !important; }
+}
+@media (min-height: 1300px) {
+  .hud-weap { transform:translateX(-50%) scale(1.3); transform-origin:50% 100%; bottom:34px; }
+  .hud-mobility { bottom:186px; font-size:15px; } .hud-hint { bottom:160px; font-size:17px; } .hud-fuel { bottom:146px; }
+  .hud-downlbl2, .hud-ecd b { font-size:13px; } .hud-combat-state, .hud-primer, .hud-obj { font-size:15px; } .hud-obj { top:120px; width:300px; }
+}
 @keyframes hudPulse { from{filter:brightness(1)} to{filter:brightness(1.6)} }
 @keyframes hudSpin { to { transform:rotate(360deg) } }
 @keyframes hudReady { 0%{transform:scale(1.25)} 100%{transform:scale(1)} }
@@ -153,7 +162,7 @@ export class HUD {
           <div class="hud-name"></div>
           <div class="hud-hpnum">1000<span>HP</span></div>
           <div class="hud-bar"><i class="chip"></i><i class="fill"></i>${[1, 2, 3].map((k) => `<span class="tick" style="left:${k * 25}%"></span>`).join('')}</div>
-          <div class="hud-down"><i></i></div><div class="hud-downlbl2">DOWN</div><div class="hud-combat-state"></div><div class="hud-primer"></div>${i ? '<div class="hud-ecd" title="Enemy cooldowns"><b data-k="skillCd">SKILL<i></i></b><b data-k="bombCd">BOMB<i></i></b><b data-k="podCd">POD<i></i></b><b data-k="chargeCd">GUARD<i></i></b></div>' : ''}
+          <div class="hud-down"><i></i></div><div class="hud-downlbl2">KNOCKDOWN</div><div class="hud-combat-state"></div><div class="hud-primer"></div>${i ? '<div class="hud-ecd" title="Rival moves ready"><b data-k="skillCd">SKILL<i></i></b><b data-k="bombCd">BOMB<i></i></b><b data-k="podCd">POD<i></i></b><b data-k="chargeCd">CHARGE<i></i></b></div>' : ''}
         </div>`).join('<div class="hud-timer">90</div>')}
       </div>
       <div class="hud-lock"><svg viewBox="-35 -35 70 70"><path d="M-30 -12 V-30 H-12 M12 -30 H30 V-12 M30 12 V30 H12 M-12 30 H-30 V12"/></svg></div>
@@ -337,8 +346,10 @@ export class HUD {
     fighters.forEach((f,i) => {
       const primerLabel = this.sides[i].root.querySelector<HTMLElement>('.hud-primer')!;
       const primer = f.primer;
-      const canTrigger = fighters[1-i].lo.gun.model === 'rail' || fighters[1-i].lo.gun.model === 'beam';
-      primerLabel.textContent = primer ? `${primer.armed ? i && canTrigger ? 'DETONATE READY' : 'PRIMED' : 'PRIMER ARMING'} · ${primer.remaining.toFixed(1)}s${i ? canTrigger ? ' · PRECISION HIT' : ' · NEED RAIL / BEAM' : ' · DODGE / GUARD'}` : '';
+      // finishers: rail, beam (charged) or a detonator skill such as Breaker Lance
+      const foe = fighters[1-i].lo;
+      const canTrigger = foe.gun.model === 'rail' || foe.gun.model === 'beam' || !!(foe.skill as { detonator?: boolean }).detonator;
+      primerLabel.textContent = primer ? `${primer.armed ? i && canTrigger ? 'DETONATE READY' : 'PRIMED' : 'PRIMER ARMING'} · ${primer.remaining.toFixed(1)}s${i ? canTrigger ? ' · PRECISION HIT' : ' · NO FINISHER EQUIPPED' : ' · DODGE / GUARD'}` : '';
       const label=this.sides[i].root.querySelector<HTMLElement>('.hud-combat-state')!;
       const recovery=Math.max(f.recoveryTime,f.landT);
       const recovering=recovery>0 || f.mode==='charge' && f.chargePhase===2;
