@@ -1,8 +1,9 @@
-import { DEFAULT_LOADOUT, STARTER_PARTS, ALL_PARTS, type Loadout, type Slot } from '../data/parts';
+import { DEFAULT_LOADOUT, ALL_PARTS, type Loadout, type Slot } from '../data/parts';
 import { PLAYER_PAINT, type Paint } from '../data/characters';
 import type { Quality } from '../render/renderer';
 import { DEFAULT_BINDINGS, cloneBindings, normalizeBindings, type Bindings } from './input';
 import type { ChallengeDef } from '../game/progression';
+import { NEW_PILOT_PARTS, migrateFirstRun, type FirstRun } from '../game/onboarding';
 
 export interface Settings {
   master: number;
@@ -98,6 +99,8 @@ export interface SaveData {
   /** Achievement id → unlock time (ms since epoch). */
   achievements: Record<string, number>;
   stats: LifetimeStats;
+  /** First-run onboarding: curated starter kit with staged unlocks, and the guided first match. */
+  firstRun: FirstRun;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -126,7 +129,7 @@ export function defaultStats(): LifetimeStats {
 export function defaultSave(): SaveData {
   return {
     version: 2,
-    unlocked: [...STARTER_PARTS],
+    unlocked: [...NEW_PILOT_PARTS],
     loadout: { ...DEFAULT_LOADOUT },
     ladder: 0,
     beaten: [],
@@ -143,6 +146,7 @@ export function defaultSave(): SaveData {
     challenges: { seedDate: '', weekKey: '', daily: [], weekly: [], progress: {}, done: [] },
     achievements: {},
     stats: defaultStats(),
+    firstRun: { staged: true, guideDone: false },
   };
 }
 
@@ -195,13 +199,16 @@ export function migrateSave(raw: unknown): SaveData {
   const eqStr = (v: unknown) => (typeof v === 'string' ? v : null);
   const chIn = obj(d.challenges);
   const paint = normalizePaint(d.paint);
+  const beaten = strArr(d.beaten);
+  // staged unlocks: saves that have played keep everything (see game/onboarding.ts)
+  const fr = migrateFirstRun(raw, strArr(d.unlocked), beaten);
 
   const merged: SaveData = {
     version: 2,
-    unlocked: Array.from(new Set([...strArr(d.unlocked), ...STARTER_PARTS])),
+    unlocked: fr.unlocked,
     loadout: { ...base.loadout, ...(obj(d.loadout) as Partial<Loadout>) },
     ladder: num(d.ladder, 0, 0) | 0,
-    beaten: strArr(d.beaten),
+    beaten,
     settings,
     totals: { ...base.totals, ...numMap(d.totals) } as SaveData['totals'],
     plusLadder: num(d.plusLadder, 0, 0) | 0,
@@ -225,6 +232,7 @@ export function migrateSave(raw: unknown): SaveData {
     },
     achievements: numMap(d.achievements),
     stats,
+    firstRun: fr.firstRun,
   };
   // drop loadout entries the player doesn't own / that no longer exist
   for (const slot of Object.keys(base.loadout) as Slot[]) {

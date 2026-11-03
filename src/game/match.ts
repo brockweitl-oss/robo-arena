@@ -27,8 +27,13 @@ import { stateHash, type NetSession } from '../net/online';
 import { plannedBomb } from './bombAim';
 import { BombAimView } from '../vfx/bombAimView';
 import { AimIndicator } from '../vfx/aimIndicator';
+import { Guide } from './guide';
+import { GuideView } from '../ui/guideView';
 
 type Phase = 'intro' | 'ready' | 'fight' | 'ko' | 'timeup' | 'outro' | 'done';
+/** KO: seconds of impact beat on the downed robot, then the KO camera shot length. */
+const KO_BEAT = 0.5;
+const KO_CAM = 1.6;
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
@@ -185,6 +190,13 @@ export class Match {
   private p2In: FighterInput = emptyInput();
   private practiceMode: 'idle' | 'move' | 'shoot' | 'full' | 'evade' | 'tells' | null = null;
   private practiceLog: { t: number; dmg: number }[] = [];
+  /** Guided first match (brand-new pilots): step machine + prompt card. */
+  private guide: Guide | null = null;
+  private guideView: GuideView | null = null;
+  /** KO camera moment: any key / click / pad button skips to the outro (offline only). */
+  private koSkip = false;
+  private koPads: boolean[] = [];
+  private koListen = () => { this.koSkip = true; };
   /** Play-test telemetry accumulators. */
   private tel = {
     used: { jump: 0, airjump: 0, dash: 0, airdash: 0, fire: 0, bomb: 0, pod: 0, charge: 0 } as Record<string, number>,
@@ -215,7 +227,7 @@ export class Match {
     const foe = on ? on.players[1 - on.me] : null;
     const vs = cfg.versus ?? (foe ? { p2Loadout: foe.loadout, p2Paint: foe.paint, p2Name: foe.name } : undefined);
     const pLo = resolveLoadout(on ? on.players[on.me].loadout : cfg.playerLoadout);
-    const rLo = resolveLoadout(vs ? vs.p2Loadout : rival.loadout);
+    const rLo = resolveLoadout(vs ? vs.p2Loadout : cfg.rivalLoadout ?? rival.loadout);
     // world ids: the online host is robot 0 on both machines; sides[0] is always the local player
     const pf = new Fighter(this.me, pLo);
     const rf = new Fighter(1 - this.me, rLo);
@@ -254,6 +266,12 @@ export class Match {
     }
     this.timeLeft = practice ? Infinity : cfg.timeLimit ?? 120;
     if (new URLSearchParams(location.search).has('autoplay')) this.autoPilot = new AIPilot('champion', 1, 99);
+    if (cfg.guided && !this.autoPilot && !on && !vs && !practice) {
+      this.guide = new Guide();
+      if (!cfg.replay) this.guideView = new GuideView(host.hud.el);
+      // room to learn: the clock starts longer than a normal round
+      if (!cfg.timeLimit) this.timeLeft = 180;
+    }
     this.fx = new Effects(s, q);
     this.bombAimViews = Array.from({ length: 3 }, () => new BombAimView(s));
     this.aimView = new AimIndicator(s);
@@ -455,6 +473,10 @@ export class Match {
           else if (this.practiceMode === 'evade') aiIn = { ...aiIn, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, skillPressed: false };
           else if (this.practiceMode === 'tells') aiIn = { ...aiIn, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, chargePressed: false };
         }
+        if (this.guide && !this.guide.rivalArmed && !this.p2 && !netRemote && !(this.players && this.players[1])) {
+          // guided match: the rival moves but holds its attacks until the guard lesson
+          aiIn = { ...aiIn, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, chargePressed: false, skillPressed: false };
+        }
         if (this.recorders) {
           // the sim must see exactly what the replay stores
           quantizeInput(this.pInput);
@@ -471,6 +493,7 @@ export class Match {
           for (const f of [pf, rf]) if (f.hp < f.maxHp * 0.5) f.hp = f.maxHp;
         }
         this.handleEvents(this.world.events);
+        if (this.guide && this.phase === 'fight') this.guide.tick(SIM_DT, Math.hypot(pf.pos.x - this.player.prevPos.x, pf.pos.z - this.player.prevPos.z));
         if (this.phase === 'fight') {
           if (this.players && this.players[0].done) this.onTimeUp();
           this.fightTime += SIM_DT;
@@ -497,6 +520,7 @@ export class Match {
       if (this.fightTime > 45) this.tip('dashjump', 'Jump at the end of a dash to keep its speed (dash-jump). Heavier builds start and stop slower.');
       this.showTips();
     }
+    if (this.guideView && this.guide) this.guideView.update(this.guide, this.phase === 'fight' && !this.paused, this.host.input.lastDevice === 'pad', host.settings.bindings, this.renderTime);
 
     this.replayBar?.update(this.fightTime, !this.replayHold, this.seekTo >= 0);
 
@@ -742,8 +766,15 @@ export class Match {
     } else if (this.phase === 'ko') {
       const loser = this.sideOf(this.winner === 0 ? 1 : 0);
       const lf = loser.fighter;
-      // camera on the KO'd robot during the real-time result beat
-      if (t < 1.8) {
+      const koCam = this.koCamOn();
+      if (koCam && t >= KO_BEAT) {
+        // KO camera moment (real time, no slow-motion): a cut to a low angle that frames the
+        // winner standing over the downed loser, slowly orbiting, then the outro
+        this.koCamera(t);
+        if (!this.koSkip) this.koSkip = this.koPadPressed();
+        if (this.koSkip && !this.net && t > KO_BEAT + 0.15) { this.startOutro(); return; }
+      } else if (t < 1.8) {
+        // camera on the KO'd robot during the real-time result beat
         const c = loser.model.root.position;
         if (this.shotYaw === null) {
           const cp = host.gr.camera.position;
@@ -759,7 +790,7 @@ export class Match {
         loser.model.power = Math.max(0.1, loser.model.power - dt * 0.8) * (Math.random() < 0.1 ? 0.3 : 1);
         if (Math.random() < 0.15) this.fx.impact(loser.model.rig.chest.getWorldPosition(_v).clone(), new THREE.Vector3(0, 1, 0), 0xffa040, 0.4);
       }
-      if (t > 2.2) this.startOutro();
+      if (t > (koCam ? KO_BEAT + KO_CAM : 2.2)) this.startOutro();
     } else if (this.phase === 'timeup') {
       if (t > 2.0) this.startOutro();
     } else if (this.phase === 'outro') {
@@ -773,6 +804,71 @@ export class Match {
   }
 
   private shotYaw: number | null = null;
+  private koYaw: number | null = null;
+  private koDist = 5;
+  private koH = 0.5;
+
+  /** The KO camera runs for clean single-winner KOs with the normal chase camera. */
+  private koCamOn() {
+    return this.winner >= 0 && this.finish === 'ko' && !this.replayCamera && this.seekTo < 0 && !this.practiceMode;
+  }
+
+  private koCamera(t: number) {
+    const w = this.sideOf(this.winner);
+    const l = this.sideOf(1 - this.winner);
+    const W = w.model.root.position, L = l.model.root.position;
+    const u = Math.min(1, (t - KO_BEAT) / KO_CAM);
+    // close KOs: low behind the downed loser, looking across it at the winner standing over it.
+    // long-range KOs: low behind the winner, which towers in the foreground over the distant loser.
+    const near = Math.hypot(W.x - L.x, W.z - L.z) <= 9;
+    const A = near ? L : W, B = near ? W : L;
+    if (this.koYaw === null) {
+      const away = Math.atan2(A.x - B.x, A.z - B.z);
+      this.koYaw = this.clearShot(A, away + 0.75, near ? 5 : 4.8, near ? 0.75 : 0.4);
+      this.koDist = this.shotDist;
+      this.koH = this.shotH;
+    }
+    // ease-in-out orbit across the 1.6 s shot
+    const e = u * u * (3 - 2 * u);
+    const yaw = this.koYaw - 0.25 + e * 0.5;
+    const pos = A.clone().add(new THREE.Vector3(Math.sin(yaw) * this.koDist, this.koH + e * 0.25, Math.cos(yaw) * this.koDist));
+    // aim between the two directions so both robots stay in frame at any range
+    const toW = W.clone().add(new THREE.Vector3(0, 1.4, 0)).sub(pos).normalize();
+    const toL = L.clone().add(new THREE.Vector3(0, 0.5, 0)).sub(pos).normalize();
+    const look = pos.clone().addScaledVector(toW.multiplyScalar(1.25).add(toL).normalize(), 8);
+    this.cam.cine = { pos, look, k: u < 0.04 ? 60 : 7 };
+    // the winner strikes its victory pose once it is standing (offline only: online keeps sim timing untouched)
+    const wf = w.fighter;
+    if (!this.net && wf.mode !== 'victory' && wf.grounded && (wf.mode === 'ground' || wf.mode === 'charge' || wf.mode === 'stagger')) wf.setMode('victory');
+  }
+
+  private koStartListen() {
+    if (this.net || this.cfg.online || this.players) return;
+    this.koSkip = false;
+    this.koPads = this.padButtons();
+    window.addEventListener('keydown', this.koListen, true);
+    window.addEventListener('pointerdown', this.koListen, true);
+  }
+
+  private koStopListen() {
+    window.removeEventListener('keydown', this.koListen, true);
+    window.removeEventListener('pointerdown', this.koListen, true);
+  }
+
+  private padButtons(): boolean[] {
+    const out: boolean[] = [];
+    try { for (const p of navigator.getGamepads?.() ?? []) if (p) for (const b of p.buttons) out.push(b.pressed); } catch { /* no gamepad API */ }
+    return out;
+  }
+
+  /** A gamepad button went down since the KO (held buttons from the fight don't count). */
+  private koPadPressed() {
+    if (this.net || this.cfg.online || this.players) return false;
+    const now = this.padButtons();
+    const hit = now.some((v, i) => v && !this.koPads[i]);
+    this.koPads = now;
+    return hit;
+  }
 
   /** Shared side-on camera that frames both robots (local versus). */
   private versusCamera(a: THREE.Vector3, b: THREE.Vector3) {
@@ -885,7 +981,7 @@ export class Match {
     if (p === 'ready') {
       this.host.hud.announce('READY', { color: '#37e8ff' });
       audio.play('announce_ready');
-      this.host.hud.showHint(this.players ? 'Replay · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc pause' : this.host.input.lastDevice === 'pad' ? 'RT auto-gun · Hold Y + R-stick: aim skill, release: fire · LT bomb · RB pod · B dash · X charge' : 'Click to capture mouse · LMB auto-gun · Hold R + mouse: aim skill, release: fire · Hold RMB: aim bomb · E pod · Shift dash · Q charge', 5);
+      if (!this.guide) this.host.hud.showHint(this.players ? 'Replay · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc pause' : this.host.input.lastDevice === 'pad' ? 'RT auto-gun · Hold Y + R-stick: aim skill, release: fire · LT bomb · RB pod · B dash · X charge' : 'Click to capture mouse · LMB auto-gun · Hold R + mouse: aim skill, release: fire · Hold RMB: aim bomb · E pod · Shift dash · Q charge', 5);
       this.host.input.enabled = true;
       if (!this.players) this.host.input.requestLock();
     }
@@ -960,7 +1056,7 @@ export class Match {
   get netClean() { return !this.netDesync && !this.netLeft; }
 
   private tip(id: string, text: string) {
-    if (this.cfg.online || this.players || this.autoPilot || this.cfg.versus) return;
+    if (this.cfg.online || this.players || this.autoPilot || this.cfg.versus || (this.guide && !this.guide.finished)) return;
     if (this.tipQ.some(([k]) => k === id)) return;
     try { if ((JSON.parse(localStorage.getItem('ra-tips') ?? '[]') as string[]).includes(id)) return; } catch { return; }
     this.tipQ.push([id, text]);
@@ -991,6 +1087,8 @@ export class Match {
     audio.play('ko');
     audio.play('announce_ko');
     audio.duck(0.6, 2.5);
+    this.koYaw = null;
+    if (this.koCamOn()) this.koStartListen();
     this.cam.addTrauma(0.35);
     this.punch(0.006);
   }
@@ -1010,6 +1108,7 @@ export class Match {
   }
 
   private startOutro() {
+    this.koStopListen();
     this.setPhase('outro');
     audio.setTimeScale(1);
     this.host.input.releaseLock();
@@ -1067,8 +1166,8 @@ export class Match {
       playerMaxHp: p.maxHp,
       rivalHp: r.hp,
       rivalMaxHp: r.maxHp,
-      player: { ...p.stats, deflects: T.deflects, parries: p.stats.parries, perfectDodges: T.perfect, podsUsed: T.used.pod, bombsUsed: T.used.bomb },
-      rival: { ...r.stats },
+      player: { ...p.stats, deflects: T.deflects, parries: p.stats.parries, perfectDodges: T.perfect, podsUsed: T.used.pod, bombsUsed: T.used.bomb, chargesUsed: T.used.charge, damageBy: { ...T.dmgDealt } },
+      rival: { ...r.stats, damageBy: { ...T.dmgTaken } },
       quit: o.quit,
       restart: o.restart,
       netClean: this.cfg.online ? this.netClean : undefined,
@@ -1175,6 +1274,7 @@ export class Match {
           const isP = e.who === this.me;
           const ev = e.ev;
           if (isP && this.phase === 'fight') {
+            this.guide?.onEvent(ev.type);
             const k = ev.type === 'dash' ? (ev.air ? 'airdash' : 'dash') : ev.type === 'chargeStart' ? 'charge' : ev.type;
             if (k in this.tel.used) this.tel.used[k]++;
             if (ev.type === 'knockdown') this.tel.kdTaken++;
@@ -1513,6 +1613,8 @@ export class Match {
     this.fx.dispose();
     for (const view of this.bombAimViews) view.dispose();
     this.aimView.dispose();
+    this.guideView?.dispose();
+    this.koStopListen();
     this.arena.dispose();
     this.host.input.enabled = false;
     this.host.input.onPause = null;

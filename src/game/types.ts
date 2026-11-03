@@ -30,6 +30,10 @@ export interface MatchConfig {
   replayPaused?: boolean;
   /** Online lockstep match: both builds in world order (host = 0), the room seed and which one is local. */
   online?: { session: NetSession; me: 0 | 1; seed: number; players: [PlayerHello, PlayerHello]; ranked?: boolean };
+  /** Single-player sets: the rival's counter-picked build (defaults to the rival's own loadout). */
+  rivalLoadout?: Loadout;
+  /** Brand-new pilot's guided first match (contextual control prompts; rival holds fire until taught). */
+  guided?: boolean;
 }
 
 export interface MatchStats {
@@ -61,6 +65,10 @@ export interface MatchStats {
   podsUsed?: number;
   /** Bombs thrown this match. */
   bombsUsed?: number;
+  /** Damage this side dealt, by source (gun, bomb, pod, charge, skill, hazard…). */
+  damageBy?: Record<string, number>;
+  /** Charge attacks started (player only). */
+  chargesUsed?: number;
 }
 
 export interface MatchResult {
