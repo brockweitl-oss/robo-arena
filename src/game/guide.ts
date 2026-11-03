@@ -15,6 +15,8 @@ export interface GuideStep {
   title: string;
   /** Prompt text; {key} is replaced with the bound key / button. */
   text: string;
+  /** Gamepad wording when it differs (mouse-only aiming, etc). */
+  padText?: string;
   /** Binding shown as the key glyph. */
   action: Action | 'move';
   /** Sim seconds before the step advances on its own. */
@@ -25,9 +27,9 @@ export const GUIDE_STEPS: readonly GuideStep[] = [
   { id: 'move', title: 'Move', text: 'Walk around the arena. The camera keeps the rival in front of you.', action: 'move', timeout: 16 },
   { id: 'dash', title: 'Dash', text: 'Press {key} to dash. Dashing is your main dodge.', action: 'dash', timeout: 16 },
   { id: 'fire', title: 'Fire', text: 'Press {key} to fire your gun. It aims itself at the rival.', action: 'gun', timeout: 16 },
-  { id: 'bomb', title: 'Bomb', text: 'Hold {key} to aim a bomb, release to throw it over cover.', action: 'bomb', timeout: 20 },
-  { id: 'charge', title: 'Charge & Guard', text: 'Press {key} for a charge attack. While it winds up you guard: shots from the front bounce off.', action: 'charge', timeout: 18 },
-  { id: 'parry', title: 'Parry', text: 'The rival attacks now. Press {key} just before a hit lands: the first instant of a charge parries and leaves them wide open.', action: 'charge', timeout: 28 },
+  { id: 'bomb', title: 'Bomb', text: 'Press {key} to lob a bomb over cover. Hold it to steer the landing marker with the mouse, release to throw.', padText: 'Press {key} to lob a bomb. It arcs over cover and lands on the rival.', action: 'bomb', timeout: 20 },
+  { id: 'charge', title: 'Charge & Guard', text: 'Press {key} for a charge attack. While it winds up you are guarding: shots from the front bounce off.', action: 'charge', timeout: 18 },
+  { id: 'parry', title: 'Parry', text: 'The rival attacks now. Press {key} just before a hit lands to parry: it leaves them wide open.', action: 'charge', timeout: 28 },
   { id: 'finish', title: 'Win the Fight', text: 'You know the basics. Knock the rival out!', action: 'gun', timeout: 6 },
 ];
 

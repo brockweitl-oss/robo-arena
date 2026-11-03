@@ -113,15 +113,25 @@ export function matchInsights(res: MatchResult, loadout?: Loadout, max = 3): Ins
 
   // 5. never used the pod / bomb
   if (time > 25 && (p.podsUsed ?? -1) === 0) {
-    out.push({ id: 'no-pod', title: `${lo.pod.name} never launched`, text: `Launch your pod (E / RB) early and often: it forces the rival to move and opens them up for your gun.`, weight: 26 });
+    out.push({ id: 'no-pod', title: `${lo.pod.name} never launched`, text: `Launch your pod early and often: it forces the rival to move and opens them up for your gun.`, weight: 26 });
   }
   if (time > 25 && (p.bombsUsed ?? -1) === 0) {
-    out.push({ id: 'no-bomb', title: `${lo.bomb.name} never thrown`, text: 'Hold the bomb button to aim, release to throw. Bombs flush rivals out of cover and prime them for a combo.', weight: 24 });
+    out.push({ id: 'no-bomb', title: `${lo.bomb.name} never thrown`, text: 'Tap bomb to lob it at the rival, or hold the mouse button to place it. Bombs flush rivals out of cover and prime them for a combo.', weight: 24 });
   }
 
   // 6. primed but never detonated
   if ((p.primes ?? 0) >= 2 && (p.combos ?? 0) === 0) {
-    out.push({ id: 'combo', title: `${p.primes} primes, 0 combos`, text: `A clean bomb or pod blast primes the rival for 2 seconds. Follow up with ${lo.skill.name} or a direct gun hit while the marker is lit.`, weight: 30 });
+    const finishers = [
+      lo.gun.id === 'rail' ? `a ${lo.gun.name} shot` : lo.gun.id === 'beam' ? `${lo.gun.name} charged past 75%` : '',
+      (lo.skill as { detonator?: boolean }).detonator ? lo.skill.name : '',
+    ].filter(Boolean);
+    out.push({
+      id: 'combo', title: `Primed ${p.primes} times, no combo`,
+      text: finishers.length
+        ? `A clean bomb or pod blast primes the rival for 2 seconds. Cash it in with ${finishers.join(' or ')} once the marker closes.`
+        : 'A clean bomb or pod blast primes the rival, but this build has no finisher. Equip Rail Lance, Charge Beam or Breaker Lance to cash primes in for bonus damage.',
+      weight: 30,
+    });
   }
 
   // 7. skill shots whiffing
