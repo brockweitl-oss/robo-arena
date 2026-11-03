@@ -31,16 +31,19 @@ ra.ws.close(); const left = await rb.next(); assert(left.t === 'left', 'left not
 // ranked writes to the leaderboard: only against a local `wrangler dev`
 if (!/127\.0\.0\.1|localhost/.test(base)) { console.log('PASS (ranked skipped: not local)'); process.exit(0); }
 // ranked: both report the same winner -> ratings move; keys stay private
+// unique names: local state persists between runs
+const tag = Math.random().toString(36).slice(2, 7);
+const nameA = 'RelayA' + tag, nameB = 'RelayB' + tag;
 const ka = 'key-a-' + Math.random().toString(36).slice(2, 14), kb = 'key-b-' + Math.random().toString(36).slice(2, 14);
 const qa = await open('/quick?ranked=1&key=' + ka); await qa.next();
 const qb = await open('/quick?ranked=1&key=' + kb);
 const code = (await qa.next()).code; await qb.next();
 const x = await open('/room/' + code), y = await open('/room/' + code);
 await x.next(); await y.next();
-x.send({ t: 'hello', ruleset: 9, name: 'RelayA', key: ka, ranked: true, arena: 'garden' });
-y.send({ t: 'hello', ruleset: 9, name: 'Relay<B>', key: kb, ranked: true });
+x.send({ t: 'hello', ruleset: 9, name: nameA, key: ka, ranked: true, arena: 'garden' });
+y.send({ t: 'hello', ruleset: 9, name: 'Relay<B>' + tag, key: kb, ranked: true });
 const px = await x.next(), py = await y.next();
-assert(!('key' in px.hello) && !('key' in py.hello) && px.hello.rating === 1000 && px.hello.name === 'RelayB' && px.hello.placed === false, 'keys hidden, names cleaned');
+assert(!('key' in px.hello) && !('key' in py.hello) && px.hello.rating === 1000 && px.hello.name === nameB && px.hello.placed === false, 'keys hidden, names cleaned');
 x.send({ t: 'ready' }); y.send({ t: 'ready' });
 const s1 = await x.next(); await y.next();
 assert(s1.ranked === true, 'ranked start');
@@ -53,7 +56,7 @@ x.send({ t: 'result', winner: 0 }); y.send({ t: 'result', winner: 1 });
 const r3 = await x.next(); await y.next();
 assert(r3.counted === false, 'disagreement not rated');
 const top = await (await fetch(base.replace(/^ws/, 'http') + '/top')).json();
-assert(top.some((p) => p.name === 'RelayA'), 'leaderboard');
+assert(top.some((p) => p.name === nameA), 'leaderboard');
 console.log('ranked', JSON.stringify(r1));
 
 // seasons: placements use the bigger K, rank hidden until 5 games, season fields on every route
@@ -68,7 +71,7 @@ assert('prevSeason' in me && typeof me.endsAt === 'number', 'me season info');
 const season = (await get('/season')).body;
 assert(season.season === r1.season && season.prev < season.season, 'season route');
 const top2 = (await get('/top?season=' + r1.season)).body;
-const rowA = top2.find((p) => p.name === 'RelayA');
+const rowA = top2.find((p) => p.name === nameA);
 assert(Array.isArray(top2) && rowA && rowA.placed === false && rowA.rank === null && rowA.rating === 1032, 'season top ' + JSON.stringify(rowA));
 assert((await get('/top?season=1999-01')).body.length === 0, 'empty old season');
 assert((await get('/top?season=2026-1x')).status === 400, 'bad season rejected');
