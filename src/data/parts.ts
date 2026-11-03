@@ -212,7 +212,7 @@ export const GUNS: Record<string, GunDef> = {
     pro: 'Reliable mid-range pressure', con: 'Low impact; loses tracking at range',
     ratings: { Power: 2, Speed: 4, Tracking: 3, Reload: 4 },
     burst: 3, burstInterval: 0.13, pellets: 1, spreadDeg: 0, cooldown: 0.75, windup: 0, recovery: 0.12,
-    damage: 22, down: 8, speed: 38, homing: 0.85, homingTime: 0.3, life: 0.9, radius: 0.2,
+    damage: 23, down: 8, speed: 38, homing: 0.85, homingTime: 0.3, life: 0.9, radius: 0.2,
     color: 0x2fd6ff, coreColor: 0xe8fdff, groundSlow: 0.45, sfx: 'gun_blaster', knockback: 2.5,
   },
   scatter: {
@@ -229,8 +229,8 @@ export const GUNS: Record<string, GunDef> = {
     desc: 'Brace, then fire a precise predictive slug. Punishes recovery and straight-line movement; cannot curve after firing.',
     pro: 'High-impact punish at long range', con: 'Committed wind-up and recovery; no homing',
     ratings: { Power: 5, Speed: 5, Tracking: 1, Reload: 1 },
-    burst: 1, burstInterval: 0, pellets: 1, spreadDeg: 0, cooldown: 1.85, windup: 0.5, recovery: 0.38,
-    damage: 195, down: 60, speed: 110, homing: 0, homingTime: 0, life: 0.5, radius: 0.3,
+    burst: 1, burstInterval: 0, pellets: 1, spreadDeg: 0, cooldown: 2.05, windup: 0.5, recovery: 0.38,
+    damage: 185, down: 60, speed: 110, homing: 0, homingTime: 0, life: 0.5, radius: 0.3,
     color: 0xc46bff, coreColor: 0xffffff, groundSlow: 0.1, sfx: 'gun_rail', knockback: 9,
   },
   beam: {
@@ -249,7 +249,7 @@ export const GUNS: Record<string, GunDef> = {
     pro: 'Hits around cover and punishes strafing', con: 'Slow; a straight dash escapes the curve',
     ratings: { Power: 2, Speed: 2, Tracking: 5, Reload: 3 },
     burst: 1, burstInterval: 0, pellets: 2, spreadDeg: 0, launchDeg: 35, cooldown: 1.25, windup: 0.16, recovery: 0.18,
-    damage: 44, down: 14, speed: 25, homing: 5.5, homingTime: 1.0, homingDelay: 0.1, life: 1.8, radius: 0.24,
+    damage: 47, down: 14, speed: 25, homing: 5.5, homingTime: 1.0, homingDelay: 0.1, life: 1.8, radius: 0.24,
     color: 0xff7ae6, coreColor: 0xfff0fb, groundSlow: 0.5, sfx: 'gun_blaster', knockback: 2.5,
   },
 };
@@ -276,9 +276,9 @@ export const BOMBS: Record<string, BombDef> = {
     desc: 'A canister that bursts into a burning pool. Denies ground for a few seconds.',
     pro: 'Zones the enemy off the ground and the Core pad', con: 'Small blast; airborne targets ignore the fire',
     ratings: { Power: 2, Radius: 3, Speed: 2, Reload: 2 },
-    count: 1, flightTime: 0.95, scatter: 0, damage: 75, down: 30, blastRadius: 2.2, cooldown: 3.1,
+    count: 1, flightTime: 0.95, scatter: 0, damage: 82, down: 30, blastRadius: 2.2, cooldown: 3.1,
     bounces: 0, color: 0xff8a1a, range: 26,
-    fire: { radius: 3.0, time: 3.5, tick: 0.5, damage: 27, down: 8 },
+    fire: { radius: 3.0, time: 3.5, tick: 0.5, damage: 30, down: 8 },
   },
   bouncer: {
     id: 'bouncer', slot: 'bomb', name: 'Skip Grenade', model: 'bouncer', family: 'paladin', mass: 10,
@@ -304,8 +304,8 @@ export const PODS: Record<string, PodDef> = {
     desc: 'Two slow lane traps with a visible fuse. Establish space, then force the rival through them.',
     pro: 'Traps lanes and corners', con: 'Very slow; visible fuse',
     ratings: { Power: 3, Speed: 1, Tracking: 2, Reload: 3 },
-    count: 2, speed: 1.4, turnRate: 0.8, life: 10, armTime: 0.8, triggerRadius: 2.2, fuse: 0.6,
-    damage: 85, down: 45, blastRadius: 2.8, cooldown: 5.2, hp: 30, hoverHeight: 1.6, color: 0xffe14a,
+    count: 2, speed: 1.4, turnRate: 0.8, life: 10, armTime: 0.6, triggerRadius: 2.4, fuse: 0.45,
+    damage: 100, down: 50, blastRadius: 2.8, cooldown: 4.6, hp: 30, hoverHeight: 1.6, color: 0xffe14a,
   },
   turret: {
     id: 'turret', slot: 'pod', name: 'Sentry Tripod', model: 'turret', family: 'titan', mass: 12,
@@ -321,9 +321,9 @@ export const PODS: Record<string, PodDef> = {
     desc: 'A drone orbits you and shoots down incoming shots and pods.',
     pro: 'Blunts zoning and pod spam', con: 'No damage of its own; fires slowly',
     ratings: { Power: 0, Speed: 3, Tracking: 4, Reload: 1 },
-    count: 1, speed: 0, turnRate: 0, life: 8, armTime: 0.3, triggerRadius: 0, fuse: 0,
-    damage: 0, down: 0, blastRadius: 0, cooldown: 7.5, hp: 50, hoverHeight: 1.9, color: 0x7aa8ff,
-    intercept: { radius: 4.0, interval: 1.0, orbit: 1.5 },
+    count: 1, speed: 0, turnRate: 0, life: 6.5, armTime: 0.3, triggerRadius: 0, fuse: 0,
+    damage: 0, down: 0, blastRadius: 0, cooldown: 9, hp: 50, hoverHeight: 1.9, color: 0x7aa8ff,
+    intercept: { radius: 4.0, interval: 1.3, orbit: 1.5 },
   },
 };
 
@@ -397,7 +397,7 @@ export const LEGS: Record<string, LegsDef> = {
     desc: 'Heavy stabilizers. Barely budge when hit, but every dash is short.',
     pro: 'Resists knockback; much higher endurance', con: 'Short dashes; weak jump; slow',
     ratings: { Speed: 1, Jump: 2, Air: 1 },
-    speedMul: 1.0, jumpMul: 0.96, airJumps: 1, airDashes: 1, dashMul: 0.94, dashCharges: 1, hoverMul: 0.9, fallMul: 1.05, knockMul: 0.5, endurance: 45, landingMul: 1.0,
+    speedMul: 1.03, jumpMul: 0.96, airJumps: 1, airDashes: 1, dashMul: 0.97, dashCharges: 1, hoverMul: 0.9, fallMul: 1.05, knockMul: 0.5, endurance: 55, landingMul: 1.0,
   },
   feather: {
     id: 'feather', slot: 'legs', name: 'Feather Legs', model: 'feather', family: 'strider', mass: 16,
@@ -423,7 +423,7 @@ export const SKILLS: Record<string, SkillDef> = {
     desc: 'A wide, slow wall of ions that passes through pods.',
     pro: 'Wide and forgiving', con: 'Slow: easy to jump',
     ratings: { Power: 3, Speed: 2, Width: 5, Reload: 3 },
-    cooldown: 5, cast: 0.12, recovery: 0.25, damage: 75, down: 28, speed: 26, range: 22, radius: 1.15, knockback: 5, pierce: true,
+    cooldown: 5.5, cast: 0.12, recovery: 0.25, damage: 70, down: 28, speed: 26, range: 22, radius: 1.15, knockback: 5, pierce: true,
     sweet: { from: 0, to: 0.3, mul: 1.3 },
     color: 0x7ab8ff, coreColor: 0xe8f4ff,
   },
@@ -432,7 +432,7 @@ export const SKILLS: Record<string, SkillDef> = {
     desc: 'Harpoons the target and reels it in, staggered, for a punish.',
     pro: 'Pulls into melee range', con: 'Low damage, long cooldown',
     ratings: { Power: 2, Speed: 4, Width: 2, Reload: 1 },
-    cooldown: 6.5, cast: 0.2, recovery: 0.32, damage: 55, down: 20, speed: 48, range: 20, radius: 0.45, knockback: 0, pull: 15,
+    cooldown: 6, cast: 0.2, recovery: 0.32, damage: 60, down: 20, speed: 48, range: 20, radius: 0.45, knockback: 0, pull: 15,
     color: 0xff7a3a, coreColor: 0xffe2c8,
   },
   frost: {
@@ -440,7 +440,7 @@ export const SKILLS: Record<string, SkillDef> = {
     desc: 'A quick cryo spike that slows the target.',
     pro: 'Short cooldown, slows', con: 'Moderate damage',
     ratings: { Power: 3, Speed: 4, Width: 2, Reload: 4 },
-    cooldown: 4, cast: 0.08, recovery: 0.22, damage: 62, down: 22, speed: 50, range: 24, radius: 0.5, knockback: 4, slow: 1.5,
+    cooldown: 4.5, cast: 0.08, recovery: 0.22, damage: 58, down: 22, speed: 50, range: 24, radius: 0.5, knockback: 4, slow: 1.5,
     color: 0x9ff0ff, coreColor: 0xffffff,
   },
   blink: {
@@ -448,7 +448,7 @@ export const SKILLS: Record<string, SkillDef> = {
     desc: 'Phase-step up to 8 m toward the aim point. Quick-cast steps away along your movement, or straight back.',
     pro: 'Dodges anything; repositions', con: 'No damage: you trade your skill for safety',
     ratings: { Power: 0, Speed: 5, Width: 0, Reload: 4 },
-    cooldown: 5, cast: 0.1, recovery: 0.12, damage: 0, down: 0, speed: 0, range: 8, radius: 0.45, knockback: 0, blink: true,
+    cooldown: 4.5, cast: 0.1, recovery: 0.12, damage: 0, down: 0, speed: 0, range: 8, radius: 0.45, knockback: 0, blink: true,
     color: 0xc79bff, coreColor: 0xffffff,
   },
 };

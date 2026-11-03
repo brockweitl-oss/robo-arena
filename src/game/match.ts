@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { GameRenderer } from '../render/renderer';
-import { keyName, padName, type Input } from '../core/input';
+import { keyName, padName, DEFAULT_BINDINGS, type Input } from '../core/input';
 import type { Settings } from '../core/save';
 import type { HUD } from '../ui/hud';
 import { ARENA_FACTORIES } from '../arena';
@@ -1949,7 +1949,7 @@ export class Match {
 
   /** Match-start controls line, built from the player's own bindings. */
   private controlsHint(): string {
-    const b = this.host.input.bindings;
+    const b = this.host.input.bindings ?? DEFAULT_BINDINGS;
     if (this.host.input.lastDevice === 'pad') {
       const p = (a: keyof typeof b.pad) => padName(b.pad[a]?.[0]);
       return `${p('gun')} fire · Hold ${p('skill')} + R-stick: aim skill · ${p('bomb')} bomb · ${p('pod')} pod · ${p('dash')} dash · ${p('charge')} charge`;
