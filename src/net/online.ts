@@ -25,8 +25,12 @@ export function netTimeLimit(): number {
   return q >= 20 && q <= 120 ? q : 120;
 }
 
-/** Rules both clients must share. Bump with any sim change (the replay ruleset covers sim rules). */
-export const NET_RULESET = `r${RULESET_VERSION}`;
+/**
+ * Rules both clients must share. Bump with any sim change (the replay ruleset covers sim rules).
+ * The suffix is the net protocol: rollback clients hash full world state and must not be paired
+ * with older lockstep clients (they would report a false desync).
+ */
+export const NET_RULESET = `r${RULESET_VERSION}-rb1`;
 
 export interface PlayerHello {
   name: string;
