@@ -29,7 +29,7 @@ export interface ShotSpec {
   pierce: boolean;
   comboDetonator?: boolean;
   /** Visual style key for effects. */
-  look: 'blaster' | 'rail' | 'scatter' | 'beam' | 'homer' | 'turret' | 'lance' | 'wave' | 'hook' | 'frost';
+  look: 'blaster' | 'rail' | 'scatter' | 'beam' | 'homer' | 'needle' | 'nova' | 'turret' | 'lance' | 'wave' | 'hook' | 'frost';
   /** Aimed skill shot (stats/telemetry; never homes). */
   skill?: boolean;
   /** Harpoon: pull the victim toward the shooter at this speed (m/s). */
@@ -416,7 +416,7 @@ export class World {
     const aim = target.chestPoint();
     // Precision weapons predict constant motion at release. A direction change or timed dash
     // after the visible wind-up still beats the shot. No random aim/spread in PvP or AI.
-    const precision = def.model === 'rail' || def.model === 'beam';
+    const precision = def.model === 'rail' || def.model === 'beam' || def.model === 'needle';
     const lead = precision ? interceptTime(aim.clone().sub(from), target.vel, spec.speed) : Math.min(0.2, from.distanceTo(aim) / spec.speed) * 0.25;
     aim.addScaledVector(target.vel, Math.min(0.45, lead));
     const dir = aim.sub(from).normalize();
@@ -618,14 +618,14 @@ export class World {
           const result = this.applyHit(target, p.owner, { damage: s.damage * (sweet ? s.sweet!.mul : 1), down: s.down, dir, knock: s.knockback, heavy: s.down >= 40 || !!s.pull, source: s.skill ? 'skill' : 'gun', look: s.look, comboBonus: !p.deflected && s.comboDetonator ? comboBonus(s.damage * DAMAGE_SCALE) : undefined }, hit, s.color, false, s.skill ? { look: s.look, reflected: p.deflected } : undefined);
           const landed = !!result && !result.blocked && !result.parried;
           if (sweet && landed) { this.fighters[p.owner].stats.sweetSpots++; this.events.push({ type: 'sweetSpot', attacker: p.owner, pos: hit.clone() }); }
-          if (landed && !p.deflected && s.pull && target.alive && !result.knockdown) {
+          if (landed && !p.deflected && s.pull && target.alive && !result.knockdown && target.mode !== 'down') {
             // harpoon: reel the target in (staggered by the heavy hit)
             const owner = this.fighters[p.owner];
             const pull = new THREE.Vector3(owner.pos.x - target.pos.x, 0, owner.pos.z - target.pos.z);
             const d = pull.length();
             if (d > 2.2) target.vel.copy(pull.multiplyScalar(Math.min(s.pull, (d - 1.8) * 3.2) / d)).setY(Math.max(target.vel.y, 2));
           }
-          if (landed && s.slow) target.slowT = Math.max(target.slowT, s.slow);
+          if (landed && s.slow && target.mode !== 'down') target.slowT = Math.max(target.slowT, s.slow);
           if (!p.deflected && s.look !== 'turret' && result && result.damage > 0) {
             const st = this.fighters[p.owner].stats;
             if (s.skill) {

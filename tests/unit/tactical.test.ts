@@ -94,7 +94,8 @@ describe('Playtest 3 action commitment', () => {
     expect(a.attackCommitted).toBe(true);
     step(w, 1, { dashPressed: true, jumpPressed: true, moveX: 1 });
     expect(a.mode).toBe('ground'); expect(a.dashCharges).toBe(1);
-    step(w, 32); expect(a.stats.shots).toBe(1); expect(a.recoveryTime).toBeGreaterThan(0);
+    step(w, Math.ceil(a.lo.gun.windup * a.st.gunWindupMul * 60));
+    expect(a.stats.shots).toBe(1); expect(a.recoveryTime).toBeGreaterThan(0);
   });
   it('hits and knockdowns do not freeze simulation', () => {
     const { w, a } = fixture(); a.takeHit({ damage: 10, down: 110, dir: v(0, 0, -1), knock: 3, heavy: true, source: 'gun' });

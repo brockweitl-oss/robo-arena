@@ -10,7 +10,7 @@ import { ARENA_INFO } from '../arena/index';
  * player (quantized stick + button bits) and run-length encoded.
  */
 /** Reject recordings made against older simulation rules instead of silently desyncing. */
-export const RULESET_VERSION = 8;
+export const RULESET_VERSION = 9;
 
 export interface Replay {
   rulesVersion: number;

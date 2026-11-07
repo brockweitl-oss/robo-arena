@@ -188,177 +188,6 @@ const garage: TrackDef = {
   },
 };
 
-const FOUNDRY_LEAD = mels([
-  '', '', '', '', '', '', '', '',
-  'E5 - - G5 - - A5 - - B5 - - A5 - G5 -',
-  'F#5 - - - A5 - - - D6 - - - C6 - B5 -',
-  'B5 - - - - - - - G5 - A5 - B5 - - -',
-  'E6 - - - D6 - B5 - - - A5 - G5 - E5 -',
-  'E5 - - G5 - - A5 - - B5 - - A5 - G5 -',
-  'F#5 - - - A5 - - - D6 - - - C6 - B5 -',
-  'D#6 - - - B5 - - - F#5 - - - B5 - - -',
-  'D#6 - - - - - - - - - - - . . . .',
-]);
-const foundry: TrackDef = {
-  gain: 0.84, bpm: 140, bars: 16,
-  prog: ['E5', 'E5', 'G5', 'A5', 'E5', 'E5', 'G5', 'A5', 'C5', 'D5', 'E5', 'E5', 'C5', 'D5', 'B5', 'B5'],
-  render(c, s) {
-    const T = c.at(s.t);
-    const fillBar = s.bar === 7 || s.bar === 15;
-    const k = s.B ? pat('x.x...x.x.x...x.') : pat('x.....x.x.x.....');
-    if (k[s.step]) I.kick(T, 1, true);
-    if (!(fillBar && fill(c, s, 8))) {
-      if (s.step === 4 || s.step === 12) I.snare(T, 1, 0.25);
-      const m = pat('..o...o...o..o.o');
-      if (m[s.step]) I.metal(T, 0.6 * m[s.step] + 0.2, s.step % 4 === 2 ? 520 : 760);
-    }
-    if (s.step % 2 === 0) I.hat(T, 0.4);
-    if ((s.bar === 0 || s.bar === 8) && s.step === 0) I.crash(T, 0.7);
-    const root = tones(s.chord, 2)[0];
-    if (pat('x.x.xx.xx.x.xx.x')[s.step]) I.bass(T, root + (s.step === 14 ? 12 : 0), s.d16 * 0.9, 0.9, 'dist');
-    if (!s.B) {
-      if (s.step === 0 || s.step === 10) {
-        const pc = tones(s.chord, 3);
-        for (const n of pc) I.lead(T, n, s.d16 * (s.step === 0 ? 3 : 2), 0.55, 'dsaw');
-      }
-      if (s.loop % 2 === 1 && s.step % 4 === 3) I.lead(T, tones(s.chord, 4)[0] + 12, s.d16, 0.4, 'pluck');
-    } else {
-      if (s.step === 0) I.pad(T, tones(s.chord, 3), s.d16 * 16, 0.8, 'dark', 1200);
-    }
-    playMel(c, FOUNDRY_LEAD[s.bar], s, 'dsaw', 1);
-  },
-};
-
-const GARDEN_LEAD = mels([
-  'D5 - E5 - G5 - - - A5 - G5 - E5 - D5 -',
-  'E5 - - - - - D5 E5 G5 - - - E5 - - -',
-  'G5 - A5 - B5 - - - A5 - G5 - E5 - G5 -',
-  'A5 - - - - - - - D6 - B5 - A5 - - -',
-  'D5 - E5 - G5 - - - A5 - G5 - E5 - D5 -',
-  'E5 - - - - - D5 E5 G5 - - - E5 - - -',
-  'G5 - A5 - B5 - - - A5 - G5 - E5 - G5 -',
-  'A5 - B5 - D6 - - - E6 - D6 - B5 - A5 -',
-  'E6 - - - D6 - - - B5 - - - G5 - - -',
-  'A5 - - - - - - - F#5 - - - A5 - - -',
-  'B5 - - - D6 - - - F#6 - - - D6 - - -',
-  'E6 - - - - - - - - - - - G5 - A5 -',
-  'E6 - - - D6 - - - B5 - - - G5 - - -',
-  'A5 - - - - - - - F#5 - - - A5 - - -',
-  'D6 - B5 - G5 - B5 - D6 - E6 - G6 - - -',
-  'G6 - - - - - - - . . . . . . . .',
-]);
-const PENTA = [67, 69, 71, 74, 76, 79, 81, 83];
-const garden: TrackDef = {
-  gain: 0.7, bpm: 128, bars: 16, swing: 0.08,
-  prog: ['G', 'Em', 'C', 'D', 'G', 'Em', 'C', 'D', 'C', 'D', 'Bm', 'Em', 'C', 'D', 'G', 'G'],
-  render(c, s) {
-    const T = c.at(s.t);
-    const even = s.bar % 2 === 0;
-    const k = even ? pat('x.x.......xx....') : pat('x.x.......x..x..');
-    const sn = even ? pat('....x..o.o..x..o') : pat('....x..o.o..x.xo');
-    if (k[s.step]) I.kick(T, 0.95);
-    if (s.bar === 15 && s.step >= 8) fill(c, s, 8);
-    else if (sn[s.step]) I.snare(T, 0.85 * sn[s.step], 0.2);
-    I.hat(T, s.step % 2 === 0 ? 0.35 : 0.18, s.B && s.step % 4 === 2);
-    if ((s.bar === 0 || s.bar === 8) && s.step === 0) I.crash(T, 0.5);
-    const r = tones(s.chord, 2);
-    const bl: Record<number, number> = { 0: r[0], 3: r[0], 6: r[2], 10: r[0] + 12, 12: r[1] };
-    if (bl[s.step] !== undefined) I.bass(T, bl[s.step], s.d16 * 2, 0.85, s.B ? 'pluck' : 'sub');
-    if (s.step === 0) I.pad(T, voicing(s.chord, 64), s.d16 * 16, 0.7, 'glass', 2200);
-    if (s.B) {
-      const R = rng(s.bar * 13 + s.step);
-      if (s.step % 2 === 0) I.lead(T, PENTA[Math.floor(R() * PENTA.length)], s.d16, 0.3, 'pluck');
-    }
-    playMel(c, GARDEN_LEAD[s.bar], s, 'flute', 1);
-  },
-};
-
-const ORBITAL_LEAD = mels([
-  '', '', '', '',
-  'E5 - - - - - - - A5 - - - B5 - C6 -',
-  'C6 - - - - - - - A5 - - - - - - -',
-  'G5 - - - - - - - E5 - - - G5 - C6 -',
-  'B5 - - - - - - - - - - - D6 - - -',
-  'A5 - - - C6 - - - F6 - - - E6 - - -',
-  'D6 - - - - - - - B5 - - - G5 - - -',
-  'E6 - - - - - - - G6 - - - E6 - D6 -',
-  'C6 - - - - - - - - - - - - - - -',
-  'D6 - - - F6 - - - A6 - - - F6 - - -',
-  'E6 - - - C6 - - - A5 - - - C6 - - -',
-  'B5 - - - D6 - - - G6 - - - F6 - E6 -',
-  'D6 - - - - - - - B5 - - - - - - -',
-]);
-const orbital: TrackDef = {
-  gain: 0.77, bpm: 132, bars: 16,
-  prog: ['Am', 'F', 'C', 'G', 'Am', 'F', 'C', 'G', 'F', 'G', 'Em', 'Am', 'Dm', 'F', 'G', 'G'],
-  render(c, s) {
-    const T = c.at(s.t);
-    if (s.step % 4 === 0) I.kick(T, 0.95);
-    if (s.bar === 15 && s.step >= 8) fill(c, s, 8, false);
-    else if (s.step === 4 || s.step === 12) { I.snare(T, 0.9, 0.5); if (s.B) I.clap(T, 0.4); }
-    const h = pat('o.x.o.x.o.x.o.xo');
-    if (h[s.step]) I.hat(T, 0.4 * h[s.step], s.step % 4 === 2 && s.B);
-    if ((s.bar === 0 || s.bar === 8) && s.step === 0) I.crash(T, 0.6, 2);
-    if (s.step % 2 === 0) I.bass(T, tones(s.chord, 2)[0] + (s.step % 4 === 2 ? 12 : 0), s.d16 * 1.7, 0.85, 'saw');
-    const tt = tones(s.chord, 4).concat(tones(s.chord, 5));
-    const up = [0, 1, 2, 3, 4, 5, 4, 3];
-    I.lead(T, tt[up[s.step % 8] % tt.length], s.d16 * 0.9, 0.33, 'pluck');
-    if (s.step === 0) I.pad(T, voicing(s.chord, 62), s.d16 * 16, 0.75, 'string', 1600);
-    playMel(c, ORBITAL_LEAD[s.bar], s, 'saw', 0.95);
-  },
-};
-
-const CHAMP_LEAD = mels([
-  'C5 - - G4 C5 - D5 - Eb5 - - D5 C5 - G4 -',
-  'Ab4 - - - C5 - Eb5 - Ab5 - - - G5 - Eb5 -',
-  'F5 - - - D5 - Bb4 - F5 - G5 - Ab5 - - -',
-  'G5 - - - - - - - B4 - D5 - F5 - G5 -',
-  'C5 - - G4 C5 - D5 - Eb5 - - D5 C5 - G4 -',
-  'Ab4 - - - C5 - Eb5 - Ab5 - - - G5 - Eb5 -',
-  'Ab5 - - - G5 - F5 - Eb5 - - - C5 - Eb5 -',
-  'D5 - - - - - - - G4 - B4 - D5 - F5 -',
-]);
-const CHAMP_COUNTER = mels([
-  '', '', '', '', '', '', '', '',
-  'Eb5 - - - - - Ab5 - - - C6 - - - Bb5 -',
-  'Bb5 - - - - - F5 - - - D6 - - - C6 -',
-  'Eb6 - - - - - - - D6 - - - C6 - - -',
-  'G5 - - - - - - - - - - - . . . .',
-  'Eb5 - - - - - Ab5 - - - C6 - - - Bb5 -',
-  'Bb5 - - - - - F5 - - - D6 - - - C6 -',
-  'D6 - - - - - - - F6 - - - Eb6 - D6 -',
-  'B5 - - - - - - - . . . . . . . .',
-]);
-const champion: TrackDef = {
-  gain: 0.71, bpm: 150, bars: 16,
-  prog: ['Cm', 'Ab', 'Bb', 'G', 'Cm', 'Ab', 'Fm', 'G', 'Ab', 'Bb', 'Cm', 'Cm', 'Ab', 'Bb', 'G', 'G'],
-  render(c, s) {
-    const T = c.at(s.t);
-    const fillBar = s.bar === 7 || s.bar === 15;
-    const k = s.B ? pat('x.x.x.x.x.x.x.x.') : pat('x..x..x.x..x..x.');
-    if (k[s.step]) I.kick(T, 0.95, true);
-    if (!(fillBar && fill(c, s, 8))) {
-      if (s.step === 4 || s.step === 12) I.snare(T, 1, 0.3);
-      if (s.B && s.step === 14) I.snare(T, 0.4, 0.1);
-    }
-    if (s.step % 2 === 0) I.hat(T, 0.38, s.step % 8 === 6);
-    if ((s.bar === 0 || s.bar === 8 || s.bar === 12) && s.step === 0) I.crash(T, 0.7);
-    const r = tones(s.chord, 2)[0];
-    const seq = [0, 0, 12, 0, 0, 12, 0, 7, 0, 0, 12, 0, 7, 0, 12, 10];
-    I.bass(T, r + (seq[s.step] === 10 && s.chord.iv[1] === 4 ? 12 : seq[s.step]), s.d16 * 0.8, s.step % 3 === 0 ? 0.95 : 0.7, 'dist');
-    if (s.step === 0) I.pad(T, voicing(s.chord, 60), s.d16 * 16, 0.7, 'dark', 1400);
-    if (s.B) {
-      const tt = tones(s.chord, 4).concat(tones(s.chord, 5));
-      I.lead(T, tt[[0, 2, 1, 3, 2, 4, 3, 5][s.step % 8] % tt.length], s.d16 * 0.9, 0.28, 'pluck');
-      playMel(c, CHAMP_COUNTER[s.bar], s, 'brass', 1.1);
-      // the minor theme returns underneath as a low pluck on odd loops
-      if (s.loop % 2 === 1) playMel(c, CHAMP_LEAD[s.bar - 8], s, 'pluck', 0.4, -12);
-    } else {
-      playMel(c, CHAMP_LEAD[s.bar], s, 'dsaw', 1);
-    }
-  },
-};
-
 const VICTORY_LEAD = mels([
   'C5 - E5 - G5 - C6 - - - G5 - C6 - - -',
   'A5 - - - F5 - A5 - C6 - - - A5 - - -',
@@ -416,7 +245,39 @@ const results: TrackDef = {
   },
 };
 
-export const TRACKS: Record<MusicTrack, TrackDef> = { menu, garage, foundry, garden, orbital, champion, victory, results };
+/** Driving arena techno: four-on-the-floor, offbeat bass and sparse industrial stabs.
+ * Bass rests on kick transients, leaving headroom and space for weapon tells. */
+function club(bpm: number, root: string, variant: number): TrackDef {
+  return {
+    bpm, bars: 16, gain: 0.72,
+    prog: Array.from({ length: 16 }, (_, bar) => bar % 8 === 6 ? `${root}m7` : `${root}5`),
+    render(c, s) {
+      const T = c.at(s.t), r = tones(s.chord, 1)[0];
+      const breakBar = s.bar === 7 || s.bar === 15;
+      if (s.step % 4 === 0 && !(breakBar && s.step >= 12)) I.kick(T, 1.05, true);
+      if (s.step === 4 || s.step === 12) { I.snare(T, 0.66, 0.12); I.clap(T, 0.25); }
+      if (s.step % 4 === 2) I.hat(T, 0.4, true);
+      else if (s.step % 2 === 1) I.hat(T, s.B ? 0.22 : 0.12);
+      if (s.step % 4 !== 0) {
+        const octave = s.step % 4 === 2 ? 12 : 0;
+        I.bass(T, r + octave, s.d16 * 0.75, 0.75, 'dist');
+      }
+      const rhythm = variant === 1 ? [2, 5, 10, 13] : [3, 6, 11, 14];
+      if (rhythm.includes(s.step)) {
+        const pitch = [0, 1, 7, 12][(s.step + variant + (s.B ? 1 : 0)) % 4];
+        I.lead(T, r + 36 + pitch, s.d16 * 0.65, s.B ? 0.43 : 0.3, 'dsaw');
+      }
+      if (s.B && s.step % 4 === 3) I.metal(T, 0.24, 440 + variant * 170);
+      if (breakBar && s.step >= 12) I.snare(T, 0.3 + (s.step - 12) * 0.1, 0.1);
+      if (s.bar % 8 === 0 && s.step === 0) I.crash(T, 0.4);
+      if (s.step === 0 && s.bar % 4 === 0) I.pad(T, [r + 24, r + 31], s.d16 * 12, 0.3, 'dark', 900);
+    },
+  };
+}
+export const TRACKS: Record<MusicTrack, TrackDef> = {
+  menu, garage, foundry: club(144, 'E', 0), garden: club(140, 'D', 1),
+  orbital: club(146, 'A', 2), champion: club(150, 'C', 3), victory, results,
+};
 
 // ------------------------------------------------------------------ sequencer
 export class Sequencer {

@@ -75,7 +75,7 @@ export class AIPilot {
     const toN = dist > 0.01 ? to.clone().divideScalar(dist) : new THREE.Vector3(0, 0, 1);
     const side = new THREE.Vector3(toN.z, 0, -toN.x);
     const g = me.lo.gun.model;
-    const weaponRange = g === 'scatter' ? 3.5 : g === 'rail' ? 17 : g === 'beam' ? 13 : g === 'homer' ? 14 : 11;
+    const weaponRange = g === 'scatter' ? 3.5 : g === 'rail' ? 17 : g === 'beam' ? 13 : g === 'homer' ? 14 : g === 'needle' ? 16 : g === 'nova' ? 9 : 11;
     const range = weaponRange * 0.75 + this.p.range * 0.25;
     const vulnerable = seen.recovery > 0 || seen.mode === 'stagger' || (seen.mode === 'charge' && !seen.guard);
     // Deliberate sweeps rather than random left/right input on every tick.

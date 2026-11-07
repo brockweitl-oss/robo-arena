@@ -158,6 +158,8 @@ describe('Overcharge Core capture', () => {
 describe('Overcharge Core determinism and replays', () => {
   const fight = (seconds: number, inputs?: (i: number, w: World, a: Fighter, b: Fighter) => FighterInput) => {
     const { w, a, b } = setup({ arenaId: 'hangar', b: { gun: 'rail', legs: 'sprint' } });
+    // Exercise repeated objective windows, independent of weapon balance / time to KO.
+    a.hp = a.maxHp * 4; b.hp = b.maxHp * 4;
     const ia = new AIPilot('champion', 0.8, 3);
     const ib = new AIPilot('duelist', 0.8, 5);
     const events: string[] = [];

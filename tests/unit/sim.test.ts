@@ -134,6 +134,96 @@ describe('fighter', () => {
     expect(r.ko).toBe(true);
     expect(a.hp).toBe(0);
   });
+
+  it('allows exactly one grounded knockdown punish without resetting recovery or adding launch', () => {
+    const { w, a } = makeWorld();
+    const hit = { damage: 40, down: 999, dir: V(1, 0, 0), knock: 10, heavy: true, source: 'gun' as const };
+    a.takeHit(hit);
+    for (let i = 0; i < 120 && a.isInvulnerable; i++) run(w, 1);
+    expect(a.mode).toBe('down'); expect(a.grounded).toBe(true);
+    const before = a.snapshot(), hp = a.hp, velocity = a.vel.clone();
+    expect(a.takeHit({ ...hit, tick: true, source: 'fire' }).applied).toBe(false);
+    expect(a.takeHit({ ...hit, launch: 20 }).damage).toBe(40);
+    expect(a.hp).toBe(hp - 40); expect(a.mode).toBe('down'); expect(a.vel).toEqual(velocity);
+    expect(a.takeHit(hit).applied).toBe(false);
+    a.restore(before);
+    expect(a.takeHit(hit).damage).toBe(40); // rollback restores the unused opening
+    run(w, 50);
+    expect(a.mode).toBe('getup');
+    expect(a.takeHit(hit).applied).toBe(false);
+  });
+
+  it('one grounded punish can KO without generating a second knockdown', () => {
+    const { w, a } = makeWorld();
+    const hit = { damage: 20, down: 999, dir: V(1, 0, 0), knock: 2, heavy: true, source: 'gun' as const };
+    a.takeHit(hit);
+    for (let i = 0; i < 120 && a.isInvulnerable; i++) run(w, 1);
+    a.hp = 10;
+    const r = a.takeHit(hit);
+    expect(r.ko).toBe(true); expect(r.knockdown).toBe(false); expect(a.hp).toBe(0);
+  });
+
+  it('deployment timing and collision-safe steering replay identically after rollback', () => {
+    const { w, a, b } = makeWorld();
+    w.combatEnabled = false;
+    for (const f of [a, b]) { f.locked = true; f.launchTick = 0; }
+    const before = w.snapshot();
+    const deploy = () => {
+      for (let i = 0; i < 66; i++) run(w, 1,
+        { moveX: 1, jumpPressed: i === 51, gunHeld: true },
+        { moveX: -1, jumpPressed: i === 10 || i === 51, gunHeld: true });
+      expect(a.stats.shots + b.stats.shots).toBe(0);
+      expect(a.launchPerfect).toBe(true); expect(b.launchPerfect).toBe(false);
+      expect(a.pos.x).toBeCloseTo(-b.pos.x);
+      expect(a.pos.x).toBeLessThan(3);
+      a.locked = b.locked = false; w.combatEnabled = true;
+      run(w, 1);
+      expect(a.recoveryTime).toBe(0); expect(b.recoveryTime).toBeGreaterThan(0.3);
+      return w.digest();
+    };
+    const digest = deploy(); w.restore(before); expect(deploy()).toBe(digest);
+  });
+
+  it('a buffered attack cannot hide a robot after deployment completes', () => {
+    const { w, a } = makeWorld();
+    a.launchTick = 66; a.deployed = false; a.launchPerfect = false;
+    run(w, 30, { bombPressed: true });
+    expect(a.deployed).toBe(true);
+    expect(w.bombs.length).toBeGreaterThan(0);
+    expect(a.recoveryTime).toBeGreaterThan(0);
+  });
+});
+
+describe('new weapon roles', () => {
+  const armed = (gun: string) => {
+    const a = new Fighter(0, resolveLoadout({ ...DEFAULT_LOADOUT, gun }));
+    const b = new Fighter(1, resolveLoadout(DEFAULT_LOADOUT));
+    a.pos.set(0, 0, 8); b.pos.set(0, 0, -8);
+    const w = new World(testArena(), a, b); w.combatEnabled = true;
+    return { w, a, b };
+  };
+  it('Needle emits four narrow non-homing darts from one committed trigger', () => {
+    const { w, a, b } = armed('needle');
+    run(w, 1, { gunPressed: true });
+    expect(a.attackCommitted).toBe(true);
+    run(w, 20); expect(a.stats.shots).toBe(0);
+    run(w, 80);
+    expect(a.stats.shots).toBe(4); expect(b.hp).toBeLessThan(b.maxHp);
+    expect(a.lo.gun.homing).toBe(0); expect(a.lo.gun.radius).toBeLessThan(GUNS.pulse.radius);
+  });
+  it('Nova rewards holding with a larger, slower, interceptable shot', () => {
+    const shot = (ticks: number) => {
+      const { w, a } = armed('nova');
+      run(w, ticks, { gunPressed: true, gunHeld: true });
+      expect(a.stats.shots).toBe(0);
+      run(w, 1);
+      expect(a.stats.shots).toBe(1);
+      return w.projectiles[0].spec;
+    };
+    const low = shot(25), full = shot(67);
+    expect(full.damage).toBeGreaterThan(low.damage); expect(full.radius).toBeGreaterThan(low.radius);
+    expect(full.speed).toBeLessThan(GUNS.pulse.speed); expect(full.pierce).toBe(false);
+  });
 });
 
 describe('world combat', () => {

@@ -1,0 +1,32 @@
+{
+  "menuStable": true,
+  "customPersistence": true,
+  "fps": 61,
+  "audio": {
+    "foundry": {
+      "finite": true,
+      "peak": 0.44309061765670776
+    },
+    "garden": {
+      "finite": true,
+      "peak": 0.4723317325115204
+    },
+    "orbital": {
+      "finite": true,
+      "peak": 0.4047148823738098
+    },
+    "champion": {
+      "finite": true,
+      "peak": 0.41952475905418396
+    },
+    "gun_beam": {
+      "finite": true,
+      "peak": 0.7530950307846069
+    },
+    "gun_homer": {
+      "finite": true,
+      "peak": 0.4024563133716583
+    }
+  },
+  "problems": []
+}

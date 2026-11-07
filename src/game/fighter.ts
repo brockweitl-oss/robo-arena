@@ -112,7 +112,8 @@ export type FighterEvent =
   | { type: 'primerClear'; owner: number; reason: PrimerClearReason }
   | { type: 'skillCast' } | { type: 'skill' } | { type: 'feint' }
   /** Hard reversal at speed: feet planted (presentation: skid dust). */
-  | { type: 'skid'; speed: number };
+  | { type: 'skid'; speed: number }
+  | { type: 'deployCue' };
 
 export interface HitInfo {
   damage: number;
@@ -257,6 +258,13 @@ export class Fighter implements AnimSource {
   private groundCollider: Collider | null = null;
   private hazardCd = 0;
   private downGroundT = 0;
+  private downPunished = false;
+  /** Recorded opening deployment; -1 outside the opening, 0..66 during READY. */
+  launchTick = -1;
+  launchPressed = false;
+  launchPerfect = false;
+  deployed = true;
+  private deployRecovery = 0;
   /** Hold-to-charge gun (beam): seconds held, -1 when not holding. */
   private holdT = -1;
   /** Hard-landing recovery remaining. */
@@ -361,7 +369,8 @@ export class Fighter implements AnimSource {
     return !this.locked && !this.attackCommitted && (this.mode === 'ground' || this.mode === 'air');
   }
   get isInvulnerable() {
-    return this.invuln > 0 || this.mode === 'down' || this.mode === 'getup';
+    return this.invuln > 0 || this.mode === 'getup' ||
+      (this.mode === 'down' && (!this.grounded || this.downGroundT < 0.12 || this.downPunished));
   }
   get maxHover() {
     return this.st.hoverTime;
@@ -423,6 +432,32 @@ export class Fighter implements AnimSource {
   step(dt: number, inp: FighterInput, target: Fighter, colliders: Collider[], halfX: number, halfZ: number) {
     this.events.length = 0;
     this.spawns.length = 0;
+    if (this.launchTick >= 0 && this.launchTick < 66) {
+      if (this.launchTick === 48) this.events.push({ type: 'deployCue' });
+      if (inp.jumpPressed && !this.launchPressed) {
+        this.launchPressed = true;
+        this.launchPerfect = this.launchTick >= 48 && this.launchTick <= 55;
+      }
+      // The same quantized inputs, collision capsule and timing apply to both seats.
+      const len = Math.max(1, Math.hypot(inp.moveX, inp.moveZ));
+      const steer = this.launchTick < 56 ? 2.8 : 0;
+      this.vel.set(inp.moveX / len * steer, -1, inp.moveZ / len * steer);
+      const r = moveAndCollide(this.pos, this.vel, dt, RADIUS, HEIGHT, colliders, true, halfX, halfZ);
+      this.grounded = r.grounded;
+      this.groundCollider = r.ground;
+      this.launchTick++;
+      if (this.launchPerfect && this.launchTick >= 56) this.deployed = true;
+      return;
+    }
+    if (this.launchTick === 66 && !this.locked) {
+      this.recoveryTime = this.launchPerfect ? 0 : 0.4;
+      this.deployRecovery = this.recoveryTime;
+      this.launchTick = -1;
+      this.vel.set(0, 0, 0);
+    }
+    this.deployRecovery = Math.max(0, this.deployRecovery - dt);
+    if (this.launchTick < 0 && this.deployRecovery <= 0) this.deployed = true;
+
     // A throw can remain buffered through the last recovery ticks. Keep that
     // press's target until another bomb press replaces it (including auto-aim).
     if (inp.bombPressed) this.bombTarget = inp.bombTarget ? [...inp.bombTarget] : undefined;
@@ -779,7 +814,7 @@ export class Fighter implements AnimSource {
           break;
         }
         if (this.modeTime >= 0.55) {
-          this.invuln = 1.0;
+          this.invuln = 0.25;
           this.down = 0;
           this.setMode('ground');
         }
@@ -918,6 +953,20 @@ export class Fighter implements AnimSource {
   takeHit(h: HitInfo): HitResult {
     const out: HitResult = { applied: false, knockdown: false, ko: false, damage: 0 };
     if (this.isInvulnerable || !this.alive) return out;
+    // One deliberate grounded follow-up; never restart the fall or get-up clock.
+    // Persistent fire/hazards cannot spend this opening on the attacker's behalf.
+    if (this.mode === 'down') {
+      if (h.tick || h.source === 'fire' || h.source === 'hazard' || h.damage <= 0) return out;
+      this.downPunished = true;
+      const absorbed = Math.min(this.buffs.shield, h.damage);
+      this.buffs.shield -= absorbed;
+      out.applied = true;
+      out.damage = Math.min(this.hp, Math.round(h.damage - absorbed));
+      this.hp -= out.damage;
+      out.ko = this.hp <= 0;
+      this.sinceHit = 0;
+      return out;
+    }
     out.applied = true;
     const frontal = this.facesIncoming(h.dir);
     const guardable = frontal && h.source !== 'charge' && h.source !== 'hazard' && h.source !== 'fire';
@@ -1008,6 +1057,7 @@ export class Fighter implements AnimSource {
     this.hitstop = 0;
     this.setMode('down');
     this.downGroundT = 0;
+    this.downPunished = false;
     this.grounded = false;
     const w = this.st.knockMul;
     this.vel.set(h.dir.x * 7.5 * w * mul, (h.launch ? Math.max(h.launch, 9) : 9.5) * mul, h.dir.z * 7.5 * w * mul);

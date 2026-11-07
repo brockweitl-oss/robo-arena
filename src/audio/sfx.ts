@@ -118,6 +118,22 @@ const R: Record<SfxName, Recipe> = {
   },
 
   // ---------------- guns
+  gun_beam: (c) => {
+    // Charged capacitor release: low body, tearing electrical tail, no rail crack.
+    tone(c, { f: 170, f1: 42, d: 0.24, g: 0.55 });
+    fm(c, { f: 980, f1: 180, ratio: 1.51, idx: 6, idx1: 0.2, d: 0.38, g: 0.26 });
+    noise(c, { ftype: 'bandpass', f: 3200, f1: 650, d: 0.24, g: 0.22, rev: 0.15 });
+    return 0.45;
+  },
+  gun_homer: (c) => {
+    // Two launch tubes vent in sequence, followed by rocket exhaust.
+    for (const at of [0, 0.045]) {
+      tone(c, { f: 180, f1: 65, at, d: 0.09, g: 0.35 });
+      noise(c, { ftype: 'bandpass', f: 1200, f1: 400, at, d: 0.17, g: 0.28 });
+    }
+    noise(c, { ftype: 'highpass', f: 1800, at: 0.05, d: 0.25, g: 0.12 });
+    return 0.35;
+  },
   gun_blaster: (c) => {
     tone(withFilter(c, 'lowpass', 4500), { type: 'square', f: 1500, f1: 220, glide: 0.09, d: 0.09, g: 0.16 });
     tone(c, { f: 950, f1: 130, glide: 0.1, d: 0.11, g: 0.4 });
@@ -415,7 +431,9 @@ export const SFX: Record<SfxName, SfxDef> = {
   dash: D(R.dash, 1.50, 4, 0.06, 0.06),
   land: D(R.land, 0.62, 4, 0.05, 0.06),
   land_heavy: D(R.land_heavy, 0.73, 3, 0.12, 0.05),
-  gun_blaster: D(R.gun_blaster, 0.57, 6, 0.08, 0.06),
+  gun_beam: D(R.gun_beam, 0.65, 3, 0.14, 0.02),
+  gun_homer: D(R.gun_homer, 0.7, 4, 0.08, 0.03),
+  gun_blaster: D(R.gun_blaster, 0.65, 6, 0.08, 0.04),
   gun_rail: D(R.gun_rail, 0.55, 3, 0.2, 0.03),
   gun_rail_charge: D(R.gun_rail_charge, 1.09, 2, 0.05, 0.02),
   gun_scatter: D(R.gun_scatter, 1.07, 4, 0.1, 0.05),

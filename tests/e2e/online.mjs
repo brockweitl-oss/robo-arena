@@ -29,6 +29,9 @@ async function open(tag, extra = '') {
   page.on('pageerror', (e) => problems.push(`[${tag} pageerror] ${e.message}`));
   await page.goto(`${BASE}/index.html?net=${encodeURIComponent(NET)}&autoplay${extra}`);
   await page.waitForFunction(() => window.__game?.menus, null, { timeout: 20000 });
+  if (process.env.CUSTOM_WEAPONS) await page.evaluate(gun => {
+    window.__game.save.customLoadout.gun = gun;
+  }, tag.startsWith('A') ? 'needle' : 'nova');
   await page.keyboard.press('Enter');
   await page.waitForTimeout(600);
   await page.evaluate(() => window.__game.menus.showOnline());
@@ -62,6 +65,12 @@ async function startMatch(a, b) {
       const st = await Promise.all([a, b].map((q) => q.evaluate(() => ({ phase: window.__game.match?.phase, text: document.body.innerText.slice(0, 400) }))));
       await fail('fight did not start: ' + JSON.stringify(st));
     });
+  }
+  if (process.env.CUSTOM_WEAPONS) {
+    for (const p of [a, b]) {
+      const guns = await p.evaluate(() => window.__game.match.world.fighters.map(f => f.lo.gun.id));
+      if (guns.join('/') !== 'needle/nova') await fail(`private loadouts lost: ${guns}`);
+    }
   }
   step('fight started on both');
   return code;

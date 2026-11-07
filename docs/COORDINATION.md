@@ -54,6 +54,16 @@ Codex's `codex/unified-visual-replay` starts from the combined `main`, including
 
 ## Status board
 
+### November 6 playtest feedback — issue #71
+
+Codex branch `codex/playtest-feedback` implements calmer menus, recorded tactical deployment,
+one grounded knockdown punish, custom/private catalog access, two new weapons and stronger audio/VFX.
+Independent Codex reviews corrected launch replay/visibility and custom-preview issues; no Claude
+review is claimed. Full local online testing includes jitter/rollback, spectators, tab hiding and
+ranked settlement against a local relay. See `PLAYTEST-FEEDBACK-2026-11-06.md` for evidence and the
+outstanding external ElevenLabs/Tripo asset work. [PR #72](https://github.com/brockweitl-oss/robo-arena/pull/72)
+is open with all local checks passed; public main remains unchanged pending merge.
+
 Current owner correction (#56): the reference suits remained too skinny and skeletal. `codex/enclosed-power-armor` replaces visible rod-like limb cores with enclosed, wearer-sized armor volumes, fuller torso/hips, protected joints and substantial boots. Frames and legs only; original designs, with rig dimensions and combat contracts preserved. This supersedes the earlier preference for exposed actuators and very slim limbs.
 
 | Task | Owner | Status | Note |
