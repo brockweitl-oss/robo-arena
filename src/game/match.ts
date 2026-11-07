@@ -550,6 +550,10 @@ export class Match {
           // guided match: the rival moves but holds its attacks until the guard lesson
           aiIn = { ...aiIn, gunPressed: false, gunHeld: false, bombPressed: false, podPressed: false, chargePressed: false, skillPressed: false };
         }
+        if (this.phase === 'ready') {
+          if (!this.p2 && !this.players?.[1]) aiIn = { ...emptyInput(), jumpPressed: rf.launchTick === 52, moveX: rf.id === 0 ? 0.6 : -0.6 };
+          if (this.autoPilot && !this.players) Object.assign(this.pInput, { ...emptyInput(), jumpPressed: pf.launchTick === 52, moveX: pf.id === 0 ? 0.6 : -0.6 });
+        }
         if (this.recorders) {
           // the sim must see exactly what the replay stores
           quantizeInput(this.pInput);
@@ -654,7 +658,7 @@ export class Match {
         meters: [ob.meters[this.me] / OBJECTIVE.capture, ob.meters[1 - this.me] / OBJECTIVE.capture], contested: ob.contested, colors: [...Match.OBJ_COLORS],
       });
     } else host.hud.objective(null);
-    host.hud.update(dtReal, [pf, rf], this.timeLeft, { x: (proj.x * 0.5 + 0.5) * W, y: (-proj.y * 0.5 + 0.5) * H, on: this.phase === 'fight' && rf.alive, behind }, !this.freeCam, threats);
+    host.hud.update(dtReal, [pf, rf], this.timeLeft, { x: (proj.x * 0.5 + 0.5) * W, y: (-proj.y * 0.5 + 0.5) * H, on: this.phase === 'fight' && rf.alive, behind }, !this.freeCam, threats, this.net && !this.watching ? this.netDelay : 0);
     if (this.phase === 'fight') this.telFrame(dtReal, pf, rf);
     if (this.practiceMode) {
       const now = this.world.time;
@@ -683,6 +687,15 @@ export class Match {
     const f = s.fighter;
     const m = s.model;
     m.setSkillCharge(f.castT >= 0 ? .25 + .75 * (1 - Math.min(1, f.castT / f.lo.skill.cast)) : 0);
+    if (this.phase !== 'intro' && s.capsule.openT < 0) {
+      s.capsule.group.position.copy(f.pos).y += 1.25;
+      if (f.deployed || !f.alive) {
+        s.capsule.openT = 0;
+        audio.play('capsule_open', { pos: s.capsule.group.position });
+        this.fx.burst(s.capsule.group.position, s.paint.glow, 1.1);
+        s.anim.event({ type: 'land', strength: 1 });
+      }
+    }
     if (s.capsule.openT >= 0 && s.capsule.group.visible) {
       s.capsule.openT += dt;
       s.capsule.setOpen(s.capsule.openT / 0.6);
@@ -775,14 +788,6 @@ export class Match {
       const flight = 1.45;
       for (const s of this.sides) {
         const isP = s.fighter.id === this.me;
-        if (isP && t < flight && !this.net) {
-          // player can angle the landing a little
-          const ax = host.input.moveAxes();
-          const fx = Math.sin(this.cam.moveYaw);
-          const fz = Math.cos(this.cam.moveYaw);
-          this.steer.x = THREE.MathUtils.clamp(this.steer.x + (fx * ax.y - fz * ax.x) * dt * 4, -3, 3);
-          this.steer.z = THREE.MathUtils.clamp(this.steer.z + (fz * ax.y + fx * ax.x) * dt * 4, -3, 3);
-        }
         const end = s.capEnd.clone().add(isP ? this.steer : new THREE.Vector3());
         end.y = groundHeightBelow(end.x, end.z, 1, this.arena.colliders);
         const g = s.capsule.group;
@@ -819,12 +824,7 @@ export class Match {
             }
           }
           const openAt = hops[0] + hops[1] + 0.25;
-          if (bt >= openAt && s.capsule.openT < 0) {
-            s.capsule.openT = 0;
-            audio.play('capsule_open', { pos: g.position });
-            this.fx.burst(g.position.clone(), s.paint.glow, 1.1);
-            s.model.root.visible = true;
-            s.anim.event({ type: 'land', strength: 1 });
+          if (bt >= openAt && s.fighter.mode !== 'ground') {
             s.fighter.setMode('ground');
           }
         }
@@ -1057,9 +1057,15 @@ export class Match {
     this.host.hud.el.classList.toggle('calm', p !== 'fight' && p !== 'ready');
     this.phaseT = 0;
     if (p === 'ready') {
-      this.host.hud.announce('READY', { color: '#37e8ff' });
+      for (const s of this.sides) {
+        s.fighter.launchTick = 0;
+        s.fighter.launchPressed = false;
+        s.fighter.launchPerfect = false;
+        s.fighter.deployed = false;
+      }
+      this.host.hud.announce('READY', { color: '#37e8ff', small: true });
       audio.play('announce_ready');
-      if (!this.guide) this.host.hud.showHint(this.watching ? 'Spectating live · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc menu' : this.players ? 'Replay · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc pause' : this.controlsHint(), 5);
+      if (!this.guide) this.host.hud.showHint(this.watching ? 'Spectating live · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc menu' : this.players ? 'Replay · 1/2 player views · 3 broadcast · 4 free camera · Drag to look · Esc pause' : 'Steer your landing · Press Jump once in the green for a faster start', 4);
       this.host.input.enabled = !this.watching;
       if (!this.players && !this.watching) this.host.input.requestLock();
     }
@@ -1629,6 +1635,11 @@ export class Match {
               s.anim.event({ type: 'land', strength });
               break;
             }
+            case 'deployCue':
+              if (isP) {
+                audio.play('ui_select', { volume: 0.6 });
+              }
+              break;
             case 'fire': {
               const gun = f.lo.gun;
               audio.play(gun.sfx, { pos: f.pos, volume: isP ? 0.9 : 0.75 });
@@ -1637,8 +1648,7 @@ export class Match {
               const mp = s.model.rig.muzzle.getWorldPosition(new THREE.Vector3());
               const dir = f.chestPoint().sub(this.sideOf(1 - e.who).fighter.chestPoint()).negate().normalize();
               fx.weapons.muzzle(gun.model, mp, dir, gun.color);
-              if (gun.model === 'rail') {
-              }
+              if (isP) this.cam.addTrauma(gun.model === 'nova' ? 0.24 : gun.model === 'rail' ? 0.2 : gun.model === 'beam' ? 0.16 : gun.model === 'scatter' ? 0.12 : 0.045);
               break;
             }
             case 'railCharge':

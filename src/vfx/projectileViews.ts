@@ -143,6 +143,8 @@ interface Style {
   headLen: number; halo: number; sparks: number;
 }
 const STYLES: Record<Projectile['spec']['look'], Style> = {
+  needle: { width: 0.08, tail: 0.05, len: 4, falloff: 1.3, linger: 0.12, head: 'spear', headLen: 0.65, halo: 0.25, sparks: 0 },
+  nova: { width: 1.0, tail: 0.1, len: 1.8, falloff: 1, linger: 0.25, head: 'pellet', headLen: 1.25, halo: 1.5, sparks: 2 },
   blaster: { width: 0.22, tail: 0.15, len: 2.6, falloff: 1.6, linger: 0.12, head: 'bolt', headLen: 0.75, halo: 0.6, sparks: 0 },
   scatter: { width: 0.14, tail: 0.1, len: 1.2, falloff: 1.8, linger: 0.08, head: 'pellet', headLen: 0.35, halo: 0.4, sparks: 0 },
   rail: { width: 0.34, tail: 0.6, len: 9, falloff: 0.7, linger: 0.4, head: 'spear', headLen: 1.8, halo: 0.9, sparks: 2 },

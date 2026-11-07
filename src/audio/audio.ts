@@ -15,7 +15,7 @@ export type SfxName =
   // movement
   | 'footstep' | 'jump' | 'double_jump' | 'dash' | 'land' | 'land_heavy'
   // weapons
-  | 'gun_blaster' | 'gun_rail' | 'gun_rail_charge' | 'gun_scatter'
+  | 'gun_blaster' | 'gun_rail' | 'gun_rail_charge' | 'gun_scatter' | 'gun_beam' | 'gun_homer'
   | 'bomb_throw' | 'bomb_bounce' | 'explosion_small' | 'explosion_big'
   | 'pod_launch' | 'pod_seeker_ping'
   | 'charge_windup' | 'charge_swing'

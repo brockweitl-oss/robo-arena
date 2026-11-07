@@ -7,6 +7,10 @@ import type { Fighter } from '../game/fighter';
 const CSS = /* css */ `
 .hud { position:absolute; inset:0; pointer-events:none; font-family:'Chakra Petch',sans-serif; color:#fff; overflow:hidden; user-select:none; }
 .hud.hidden { display:none; }
+.hud-deploy { position:absolute; left:50%; bottom:230px; transform:translateX(-50%); width:min(480px,85vw); padding:14px 18px; background:#09121df2; border:1px solid #68c6ca; text-align:center; font-weight:700; }
+.hud-deploy[hidden] { display:none; }
+.hud-deploy-meter { position:relative; height:12px; margin-top:10px; background:linear-gradient(90deg,#334352 0% 72.72%,#64eaa5 72.72% 84.85%,#334352 84.85%); }
+.hud-deploy-meter i { position:absolute; height:20px; width:3px; top:-4px; background:white; }
 .hud.calm .hud-weap, .hud.calm .hud-fuel, .hud.calm .hud-hint, .hud.calm .hud-lock, .hud.calm .hud-off { opacity:0 !important; transition:opacity .4s; }
 .hud-top { position:absolute; top:22px; left:28px; right:28px; display:flex; justify-content:space-between; align-items:flex-start; gap:24px; }
 .hud-pan { width:min(38vw,520px); }
@@ -175,6 +179,7 @@ export class HUD {
       <div class="hud-buffs"></div><div class="hud-mobility"></div><div class="hud-bomb-aim"></div>
       ${[0, 1, 2, 3].map(() => '<div class="hud-threat"></div>').join('')}
       <div class="hud-hint"></div>
+      <div class="hud-deploy" hidden><span></span><div class="hud-deploy-meter"><i></i></div></div>
       <div class="hud-practice"></div>
       <div class="hud-ann"></div>`;
     parent.appendChild(this.el);
@@ -322,7 +327,17 @@ export class HUD {
     setTimeout(() => (this.vign.style.opacity = '0'), 120);
   }
 
-  update(dt: number, fighters: [Fighter, Fighter], timeLeft: number, lockScreen: { x: number; y: number; on: boolean; behind: boolean }, hardLock: boolean, threats: { x: number; y: number; behind: boolean; color: string }[] = []) {
+  update(dt: number, fighters: [Fighter, Fighter], timeLeft: number, lockScreen: { x: number; y: number; on: boolean; behind: boolean }, hardLock: boolean, threats: { x: number; y: number; behind: boolean; color: string }[] = [], launchLead = 0) {
+    const deploy = this.el.querySelector<HTMLElement>('.hud-deploy')!;
+    const opening = fighters[0];
+    deploy.hidden = opening.launchTick < 0;
+    if (!deploy.hidden) {
+      const inputTick = opening.launchTick + launchLead;
+      deploy.querySelector('span')!.textContent = opening.launchPressed
+        ? opening.launchPerfect ? 'CLEAN DEPLOY · FAST START' : 'NORMAL DEPLOY'
+        : inputTick > 55 ? 'DEPLOYING' : 'STEER YOUR LANDING · PRESS JUMP IN THE GREEN';
+      (deploy.querySelector('i') as HTMLElement).style.left = `${Math.min(100, inputTick / 66 * 100)}%`;
+    }
     fighters.forEach((f, i) => {
       const s = this.sides[i];
       const frac = f.hp / f.maxHp;

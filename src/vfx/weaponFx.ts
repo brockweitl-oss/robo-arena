@@ -48,6 +48,16 @@ export class WeaponFx {
   muzzle(look: string, pos: THREE.Vector3, dir: THREE.Vector3, color: number) {
     const { sparks, smoke } = this.fx;
     switch (look) {
+      case 'needle':
+        this.fx.flare(pos, color, 0.6, 3, dir, 0.35);
+        sparks.emit({ pos, count: 5, dir, cone: 0.98, speed: [20, 35], size: [0.03, 0.05], life: [0.05, 0.1], color, intensity: 4, stretch: 0.06 });
+        break;
+      case 'nova':
+        this.fx.ring(pos, dir, color, 0.1, 1.3, 0.25, 0.9);
+        this.fx.fireballs.spawn(pos, 0.55, color, 0.3);
+        smoke.emit({ pos, count: 6, dir: dir.clone().negate(), speed: [2, 4], size: [0.2, 0.35], grow: 2, life: [0.3, 0.5], color: 0x66514a, alpha: 0.4 });
+        this.fx.lightFlash(pos, color, 32, 0.2);
+        break;
       case 'blaster': {
         // tight plasma pop: hot star, a muzzle ring facing the shot, a few forward darts
         sparks.emit({ pos, count: 1, size: [0.5, 0.6], life: [0.05, 0.07], color: 0xffffff, color2: color, intensity: 3.5 });
@@ -111,6 +121,16 @@ export class WeaponFx {
   impact(look: string, pos: THREE.Vector3, normal: THREE.Vector3, color: number) {
     const { sparks, smoke } = this.fx;
     switch (look) {
+      case 'needle':
+        sparks.emit({ pos, count: 7, dir: normal, cone: 0.7, speed: [10, 18], size: [0.02, 0.04], life: [0.1, 0.22], color, intensity: 4, stretch: 0.07 });
+        this.fx.flare(pos, color, 0.5, 3, normal, 0.3);
+        break;
+      case 'nova':
+        this.fx.fireballs.spawn(pos, 0.95, color, 0.4);
+        this.fx.ring(pos, normal, color, 0.3, 2, 0.35, 0.8);
+        sparks.emit({ pos, count: 18, speed: [3, 9], size: [0.07, 0.13], life: [0.2, 0.5], color, intensity: 3, gravity: 10 });
+        this.fx.lightFlash(pos, color, 34, 0.25);
+        break;
       case 'blaster':
       case 'turret':
         sparks.emit({ pos, count: 1, size: [0.6, 0.7], life: [0.06, 0.08], color: 0xffffff, color2: color, intensity: 3 });
@@ -174,6 +194,10 @@ export class WeaponFx {
   hit(look: string | undefined, source: string, pos: THREE.Vector3, dir: THREE.Vector3, color: number, heavy: boolean) {
     const { sparks, smoke } = this.fx;
     switch (look) {
+      case 'needle':
+      case 'nova':
+        this.impact(look, pos, dir.clone().negate(), color);
+        break;
       case 'blaster':
       case 'turret':
         this.fx.ring(pos, dir.clone().negate(), color, 0.1, 0.9, 0.14, 0.8);

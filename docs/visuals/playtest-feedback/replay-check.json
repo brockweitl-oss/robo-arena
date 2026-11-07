@@ -1,0 +1,355 @@
+{
+  "original": {
+    "hp": [
+      682,
+      737
+    ],
+    "checks": [
+      {
+        "tick": 48,
+        "digest": 1626590244,
+        "fighters": [
+          {
+            "pos": [
+              1.340472440944882,
+              0,
+              11.5
+            ],
+            "perfect": false,
+            "deployed": false
+          },
+          {
+            "pos": [
+              -1.344000000000001,
+              0,
+              -11.5
+            ],
+            "perfect": false,
+            "deployed": false
+          }
+        ]
+      },
+      {
+        "tick": 56,
+        "digest": 2398527917,
+        "fighters": [
+          {
+            "pos": [
+              1.5638845144356952,
+              0,
+              11.5
+            ],
+            "perfect": true,
+            "deployed": true
+          },
+          {
+            "pos": [
+              -1.5680000000000012,
+              0,
+              -11.5
+            ],
+            "perfect": true,
+            "deployed": true
+          }
+        ]
+      },
+      {
+        "tick": 66,
+        "digest": 1549312175,
+        "fighters": [
+          {
+            "pos": [
+              1.5638845144356952,
+              0,
+              11.5
+            ],
+            "perfect": true,
+            "deployed": true
+          },
+          {
+            "pos": [
+              -1.5680000000000012,
+              0,
+              -11.5
+            ],
+            "perfect": true,
+            "deployed": true
+          }
+        ]
+      },
+      {
+        "tick": 67,
+        "digest": 1263765638,
+        "fighters": [
+          {
+            "pos": [
+              1.5679524188506,
+              0,
+              11.486214323927268
+            ],
+            "perfect": true,
+            "deployed": true
+          },
+          {
+            "pos": [
+              -1.5746645339100611,
+              0,
+              -11.484457628858156
+            ],
+            "perfect": true,
+            "deployed": true
+          }
+        ]
+      },
+      {
+        "tick": 90,
+        "digest": 2466097779,
+        "fighters": [
+          {
+            "pos": [
+              1.6200533724766872,
+              1.3688888888888888,
+              10.702310622486106
+            ],
+            "perfect": true,
+            "deployed": true
+          },
+          {
+            "pos": [
+              -1.9198250722201042,
+              1.2333333333333334,
+              -10.654538808344045
+            ],
+            "perfect": true,
+            "deployed": true
+          }
+        ]
+      },
+      {
+        "tick": 300,
+        "digest": 370795850,
+        "fighters": [
+          {
+            "pos": [
+              -2.037796661705097,
+              0,
+              8.068224440024183
+            ],
+            "perfect": true,
+            "deployed": true
+          },
+          {
+            "pos": [
+              -1.5445323061781195,
+              1.0055555555555555,
+              -5.146412245097828
+            ],
+            "perfect": true,
+            "deployed": true
+          }
+        ]
+      },
+      {
+        "tick": 600,
+        "digest": 3634511114,
+        "fighters": [
+          {
+            "pos": [
+              -5.242332277887259,
+              2,
+              4.9567283236013235
+            ],
+            "perfect": true,
+            "deployed": true
+          },
+          {
+            "pos": [
+              -7.843811435654653,
+              3.744693187526036,
+              -8.77289657888662
+            ],
+            "perfect": true,
+            "deployed": true
+          }
+        ]
+      }
+    ]
+  },
+  "replay": {
+    "hp": [
+      682,
+      737
+    ],
+    "checks": [
+      {
+        "tick": 48,
+        "digest": 1626590244,
+        "fighters": [
+          {
+            "pos": [
+              1.340472440944882,
+              0,
+              11.5
+            ],
+            "perfect": false,
+            "deployed": false
+          },
+          {
+            "pos": [
+              -1.344000000000001,
+              0,
+              -11.5
+            ],
+            "perfect": false,
+            "deployed": false
+          }
+        ]
+      },
+      {
+        "tick": 56,
+        "digest": 2398527917,
+        "fighters": [
+          {
+            "pos": [
+              1.5638845144356952,
+              0,
+              11.5
+            ],
+            "perfect": true,
+            "deployed": true
+          },
+          {
+            "pos": [
+              -1.5680000000000012,
+              0,
+              -11.5
+            ],
+            "perfect": true,
+            "deployed": true
+          }
+        ]
+      },
+      {
+        "tick": 66,
+        "digest": 1549312175,
+        "fighters": [
+          {
+            "pos": [
+              1.5638845144356952,
+              0,
+              11.5
+            ],
+            "perfect": true,
+            "deployed": true
+          },
+          {
+            "pos": [
+              -1.5680000000000012,
+              0,
+              -11.5
+            ],
+            "perfect": true,
+            "deployed": true
+          }
+        ]
+      },
+      {
+        "tick": 67,
+        "digest": 1263765638,
+        "fighters": [
+          {
+            "pos": [
+              1.5679524188506,
+              0,
+              11.486214323927268
+            ],
+            "perfect": true,
+            "deployed": true
+          },
+          {
+            "pos": [
+              -1.5746645339100611,
+              0,
+              -11.484457628858156
+            ],
+            "perfect": true,
+            "deployed": true
+          }
+        ]
+      },
+      {
+        "tick": 90,
+        "digest": 2466097779,
+        "fighters": [
+          {
+            "pos": [
+              1.6200533724766872,
+              1.3688888888888888,
+              10.702310622486106
+            ],
+            "perfect": true,
+            "deployed": true
+          },
+          {
+            "pos": [
+              -1.9198250722201042,
+              1.2333333333333334,
+              -10.654538808344045
+            ],
+            "perfect": true,
+            "deployed": true
+          }
+        ]
+      },
+      {
+        "tick": 300,
+        "digest": 370795850,
+        "fighters": [
+          {
+            "pos": [
+              -2.037796661705097,
+              0,
+              8.068224440024183
+            ],
+            "perfect": true,
+            "deployed": true
+          },
+          {
+            "pos": [
+              -1.5445323061781195,
+              1.0055555555555555,
+              -5.146412245097828
+            ],
+            "perfect": true,
+            "deployed": true
+          }
+        ]
+      },
+      {
+        "tick": 600,
+        "digest": 3634511114,
+        "fighters": [
+          {
+            "pos": [
+              -5.242332277887259,
+              2,
+              4.9567283236013235
+            ],
+            "perfect": true,
+            "deployed": true
+          },
+          {
+            "pos": [
+              -7.843811435654653,
+              3.744693187526036,
+              -8.77289657888662
+            ],
+            "perfect": true,
+            "deployed": true
+          }
+        ]
+      }
+    ]
+  },
+  "problems": []
+}

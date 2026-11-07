@@ -157,7 +157,7 @@ export class Animator {
       }
       case 'fire': {
         const gun = this.model.loadout.gun.model;
-        const precision = gun === 'rail' || gun === 'beam';
+        const precision = gun === 'rail' || gun === 'beam' || gun === 'nova';
         const scatter = gun === 'scatter';
         const homer = gun === 'homer';
         this.recoil.k = precision ? 260 : scatter ? 620 : 700;
@@ -659,7 +659,7 @@ export class Animator {
     const swing = Math.sin(this.phase * Math.PI * 2) * 0.75 * walkW;
     const rc = this.recoil.step(0, dt);
     const gun = this.model.loadout.gun.model;
-    const brace = (gun === 'rail' || gun === 'beam') ? Math.max(src.railCharge, Math.min(1, this.shotBrace / 0.2)) : 0;
+    const brace = (gun === 'rail' || gun === 'beam' || gun === 'nova') ? Math.max(src.railCharge, Math.min(1, this.shotBrace / 0.2)) : 0;
     for (const side of ['L', 'R'] as Side[]) {
       const sx = side === 'L' ? 1 : -1;
       // locomotion pose (euler on the shoulder): pitch, roll

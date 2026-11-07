@@ -225,6 +225,7 @@ export class Menus implements MenuLayer {
   private sharedReplay: string | null = null;
   private resizeFn: (() => void) | null = null;
   private mainIdx = 0;
+  private privateRooms = new WeakSet<NetSession>();
   private practiceArena: string = ARENA_IDS[0];
   private gSlot: Slot = 'gun';
   private fb = { rival: RIVALS[0].id, arena: RIVALS[0].arena as string, time: 90, set: false };
@@ -736,7 +737,7 @@ export class Menus implements MenuLayer {
     const hl = h('div', 'mm-hl');
     list.append(hl);
     const els = items.map(([label, desc, tag, act], i) => {
-      const it = nav(h('div', 'mm-item', h('div', 'mm-num', `0${i + 1}`), h('div', 'mm-text', h('div', 'mm-label', label), h('div', 'mm-desc', desc)), tag ? h('div', `mm-tag ${tag === 'START HERE' ? 'new' : ''}`, tag) : null), {
+      const it = nav(h('div', 'mm-item', h('div', 'mm-text', h('div', 'mm-label', label), h('div', 'mm-desc', desc)), tag ? h('div', `mm-tag ${tag === 'START HERE' ? 'new' : ''}`, tag) : null), {
         act: () => {
           this.mainIdx = i;
           this.host.sfx('ui_select');
@@ -753,7 +754,6 @@ export class Menus implements MenuLayer {
       return it;
     });
     const left = h('div', 'mm-left', this.logo('small'), list);
-    stagger(els, 120, 70);
 
     // record card
     const pips = h('div', 'mm-pips');
@@ -849,12 +849,13 @@ export class Menus implements MenuLayer {
     });
   }
 
-  private showVersus(r: Rival, o: { line: string; kicker: string; info: [string, string]; onFight: () => void; onBack: () => void; onGarage?: () => void }) {
+  private showVersus(r: Rival, o: { line: string; kicker: string; info: [string, string]; onFight: () => void; onBack: () => void; onGarage?: () => void; loadout?: Loadout }) {
     const s = this.host.save;
-    this.backdrop('versus', { loadout: s.loadout, rivalId: r.id });
+    const loadout = o.loadout ?? s.loadout;
+    this.backdrop('versus', { loadout, rivalId: r.id });
     this.music('menu');
     const el = h('div', 'scr-vs');
-    const L = resolveLoadout(s.loadout);
+    const L = resolveLoadout(loadout);
     const left = h('div', 'vs-plate left',
       emblem(PLAYER_PAINT, false, 'vs-emb'),
       h('div', 'vs-names', h('div', 'vs-pilot', 'Player 1'), h('div', 'vs-robot', PLAYER_ROBOT_NAME), h('div', 'vs-title', `${L.body.name} · ${L.gun.name}`)));
@@ -927,7 +928,7 @@ export class Menus implements MenuLayer {
 
   private async runMatch(cfg: MatchConfig, keepLoadout = false) {
     // replays and set rounds keep their build; everything else uses the current garage loadout
-    cfg = { ...cfg, playerLoadout: cfg.mode === 'replay' || keepLoadout ? { ...cfg.playerLoadout } : { ...this.host.save.loadout } };
+    cfg = { ...cfg, playerLoadout: cfg.mode === 'replay' || keepLoadout ? { ...cfg.playerLoadout } : { ...(cfg.mode === 'free' || cfg.mode === 'versus' ? this.host.save.customLoadout : this.host.save.loadout) } };
     if (keepLoadout && this.series) this.series.live = cfg;
     this.hideAll();
     this.musicNow = null;
@@ -1009,7 +1010,7 @@ export class Menus implements MenuLayer {
     this.host.persist();
     const rewards = this.meta.matchEnd(res);
 
-    this.backdrop('versus', { loadout: s.loadout, rivalId: r.id });
+    this.backdrop('versus', { loadout: res.config.playerLoadout, rivalId: r.id });
     this.music(win ? 'victory' : 'results');
 
     const el = h('div', `scr-res ${res.outcome}`);
@@ -1071,7 +1072,7 @@ export class Menus implements MenuLayer {
     const panel = h('div', 'ra-panel res-panel', top, stats, gradeEl, quote);
 
     const acts: HTMLElement[] = [];
-    const retryCfg = (): MatchConfig => ({ ...cfg, playerLoadout: { ...s.loadout }, guided: undefined });
+    const retryCfg = (): MatchConfig => ({ ...cfg, playerLoadout: { ...(cfg.mode === 'free' || cfg.mode === 'versus' ? s.customLoadout : s.loadout) }, guided: undefined });
     if (championNow) {
       acts.push(btn('Continue', () => { this.host.sfx('ui_select'); this.showEnding(); }, 'primary big'));
     } else if (plus) {
@@ -1088,7 +1089,7 @@ export class Menus implements MenuLayer {
       acts.push(btn('Modes', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big'));
     } else if (sr) {
       if (setWin >= 0) {
-        acts.push(btn('New Set', () => { this.host.sfx('ui_select'); sr.set = newSet(this.host.save.loadout, sr.mode === 'versus' ? sr.base.versus!.p2Loadout : r.loadout); this.runSetRound(); }, 'primary big'));
+        acts.push(btn('New Set', () => { this.host.sfx('ui_select'); sr.set = newSet(this.host.save.customLoadout, sr.mode === 'versus' ? sr.base.versus!.p2Loadout : r.loadout); this.runSetRound(); }, 'primary big'));
       } else if (res.outcome === 'draw') {
         acts.push(btn('Next Round', () => { this.host.sfx('ui_select'); this.runSetRound(); }, 'primary big'));
       } else {
@@ -1113,7 +1114,7 @@ export class Menus implements MenuLayer {
       const rp = res.replay;
       acts.push(btn('Watch Replay', () => { this.host.sfx('ui_select'); this.watchReplay(rp); }, 'big'));
     }
-    acts.push(btn('Photo Mode', () => this.openPhoto(), 'big'));
+    acts.push(btn('Photo Mode', () => this.openPhoto(res.config.playerLoadout), 'big'));
     const bar = h('div', 'ra-actions res-acts', ...acts);
     stagger([panel], 450);
     stagger([insEl], 600);
@@ -1148,7 +1149,7 @@ export class Menus implements MenuLayer {
 
   private startSet(mode: 'free' | 'versus', base: MatchConfig) {
     const p2 = mode === 'versus' ? base.versus!.p2Loadout : rivalById(base.rivalId).loadout;
-    this.series = { mode, set: newSet(this.host.save.loadout, p2), base, live: null };
+    this.series = { mode, set: newSet(this.host.save.customLoadout, p2), base, live: null };
     this.runSetRound();
   }
 
@@ -1168,7 +1169,7 @@ export class Menus implements MenuLayer {
     if (!sr) return;
     const s = this.host.save;
     const r = rivalById(res.config.rivalId);
-    const owned = (slot: Slot, id: string) => isUnlocked(s, slot, id);
+    const owned = (slot: Slot, id: string) => Object.hasOwn(ALL_PARTS[slot], id);
     const vs2 = sr.mode === 'versus';
     const ai: Picker = {
       kind: 'wait',
@@ -1291,10 +1292,10 @@ export class Menus implements MenuLayer {
     this.music('menu');
     const s = this.host.save;
     const fb = this.fb;
-    const setBd = () => this.backdrop('versus', { loadout: s.loadout, rivalId: fb.rival });
+    const setBd = () => this.backdrop('versus', { loadout: s.customLoadout, rivalId: fb.rival });
     setBd();
     const el = h('div', 'scr-free');
-    const hd = this.header('Exhibition', 'Free Battle', h('div', 'ra-sub', 'Pick a rival, an arena and the clock. Free battle wins don’t unlock parts.'));
+    const hd = this.header('Exhibition', 'Free Battle', h('div', 'ra-sub', 'Pick a rival, an arena and the clock. All parts are available here; your campaign build stays separate.'));
 
     const section = (n: string, label: string, ...kids: Kid[]) => h('div', 'fb-sec', h('div', 'fb-sec-h', h('b', '', n), label), ...kids);
 
@@ -1379,19 +1380,20 @@ export class Menus implements MenuLayer {
       this.host.sfx('ui_select');
       const r = rivalById(fb.rival);
       const a = ARENA_INFO[fb.arena as ArenaId];
-      const cfg: MatchConfig = { mode: 'free', playerLoadout: { ...s.loadout }, rivalId: r.id, arenaId: fb.arena, timeLimit: fb.time };
+      const cfg: MatchConfig = { mode: 'free', playerLoadout: { ...s.customLoadout }, rivalId: r.id, arenaId: fb.arena, timeLimit: fb.time };
       const isSet = fb.set;
       this.series = null;
       this.showVersus(r, {
         line: r.taunt,
         kicker: `Free Battle · ${isSet ? `Set, first to ${SET_TARGET} · ` : ''}${fb.time}s`,
+        loadout: s.customLoadout,
         info: [a?.name ?? fb.arena, a?.subtitle ?? ''],
         onFight: () => (isSet ? this.startSet('free', cfg) : this.runMatch(cfg)),
         onBack: () => this.showFree(),
-        onGarage: () => this.showGarage(() => this.showFree()),
+        onGarage: () => this.showGarage(() => this.showFree(), true),
       });
     }, 'primary big');
-    const garage = btn('Garage', () => { this.host.sfx('ui_select'); this.showGarage(() => this.showFree()); }, 'big');
+    const garage = btn('Garage', () => { this.host.sfx('ui_select'); this.showGarage(() => this.showFree(), true); }, 'big');
     const back = btn('Back', () => { this.host.sfx('ui_back'); this.showMain(); }, 'big');
 
     const s1 = section('01', 'Opponent', tiles, detail);
@@ -1512,7 +1514,7 @@ export class Menus implements MenuLayer {
       label.textContent = `P2: ${r.robotName}`;
       const L = resolveLoadout(r.loadout);
       sub.textContent = `${L.body.name} · ${L.legs.name} · ${L.gun.name} / ${L.bomb.name} / ${L.pod.name}`;
-      this.backdrop('versus', { loadout: s.loadout, rivalId: r.id });
+      this.backdrop('versus', { loadout: s.customLoadout, rivalId: r.id });
     };
     const robotBtn = this.cycler(() => `P2 Robot ${pick + 1} / ${pool.length}`, (d) => { pick = (pick + d + pool.length) % pool.length; refresh(); });
     const arenaBtn = this.cycler(() => `Arena: ${ARENA_INFO[arena as ArenaId].name}`, (d) => {
@@ -1528,7 +1530,7 @@ export class Menus implements MenuLayer {
       }
       this.host.sfx('ui_select');
       const r = pool[pick];
-      this.startSet('versus', { mode: 'versus', playerLoadout: { ...s.loadout }, rivalId: r.id, arenaId: arena, timeLimit: 120, versus: { p2Loadout: { ...r.loadout }, p2Paint: r.paint, p2Name: r.robotName } });
+      this.startSet('versus', { mode: 'versus', playerLoadout: { ...s.customLoadout }, rivalId: r.id, arenaId: arena, timeLimit: 120, versus: { p2Loadout: { ...r.loadout }, p2Paint: r.paint, p2Name: r.robotName } });
     }, 'primary big');
     const info = h('div', 'md-desc', `${pads >= 2 ? 'Two pads: Player 1 uses pad 1, Player 2 uses pad 2.' : 'Player 1: keyboard and mouse. Player 2: gamepad. Shared camera.'} First to ${SET_TARGET} rounds; the loser of each round counter-picks one part first.`);
     const panel = h('div', 'ra-panel fb-panel', h('div', 'md-col', label, sub, robotBtn, arenaBtn, info), h('div', 'ra-actions', start, btn('Back', () => { this.host.sfx('ui_back'); this.showModes(); }, 'big')));
@@ -1539,10 +1541,10 @@ export class Menus implements MenuLayer {
 
   /* ---------------- online: quick match, ranked, private rooms */
 
-  private onlineHello(ranked = false): PlayerHello {
+  private onlineHello(ranked = false, custom = false): PlayerHello {
     const ids = ARENA_IDS as readonly string[];
     return {
-      name: netName(), loadout: { ...this.host.save.loadout }, paint: this.host.save.paint,
+      name: netName(), loadout: { ...(custom ? this.host.save.customLoadout : this.host.save.loadout) }, paint: this.host.save.paint,
       arena: ids[Math.floor(Math.random() * ids.length)], ranked,
     };
   }
@@ -1586,8 +1588,8 @@ export class Menus implements MenuLayer {
       if (code.value.length !== 5) { this.host.sfx('ui_error'); stat.textContent = 'Room codes are 5 letters.'; return; }
       this.host.sfx('ui_select');
       stat.textContent = 'Joining…';
-      NetSession.join(code.value, this.onlineHello())
-        .then((ses) => this.showOnlineLobby(ses, {}))
+      NetSession.join(code.value, this.onlineHello(false, true))
+        .then((ses) => { this.privateRooms.add(ses); this.showOnlineLobby(ses, {}); })
         .catch((e: Error) => { stat.textContent = e.message === 'full' ? 'That room is full.' : 'Could not join that room.'; });
     };
     code.addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
@@ -1611,7 +1613,7 @@ export class Menus implements MenuLayer {
       btn('Create Private Room', () => {
         this.host.sfx('ui_select');
         stat.textContent = 'Creating room…';
-        NetSession.create(this.onlineHello()).then((ses) => this.showOnlineLobby(ses, {})).catch(() => { stat.textContent = 'Could not reach the online server.'; });
+        NetSession.create(this.onlineHello(false, true)).then((ses) => { this.privateRooms.add(ses); this.showOnlineLobby(ses, {}); }).catch(() => { stat.textContent = 'Could not reach the online server.'; });
       }, 'big'),
       h('div', 'net-row', code, btn('Join Room', join, 'big'), btn('Watch', () => watch(code.value), 'big')),
       liveList,
@@ -1692,7 +1694,7 @@ export class Menus implements MenuLayer {
     // listen for counter-picks from the first lobby on, so a fast opponent's pick is never missed
     if (!o.ranked) PickChannel.for(ses);
     const midSet = !o.ranked && (score[0] > 0 || score[1] > 0);
-    this.backdrop('versus', { loadout: s.loadout, rivalId: RIVALS[0].id });
+    this.backdrop('versus', { loadout: ses.last?.loadout ?? (this.privateRooms.has(ses) ? s.customLoadout : s.loadout), rivalId: RIVALS[0].id });
     const el = h('div', 'scr-free scr-modes');
     const hd = this.header(o.ranked ? 'Ranked' : ses.code ? `Room ${ses.code}` : 'Online', ses.peer ? `vs ${ses.peer.name}` : 'Waiting for an opponent');
     const peer = h('div', 'md-title', ...(ses.peer ? this.peerEls(ses.peer) : ['Waiting for an opponent…']));
@@ -1710,7 +1712,7 @@ export class Menus implements MenuLayer {
     }, 'primary big');
     const build = btn('Change Build', () => {
       this.host.sfx('ui_select');
-      this.showGarage(() => { ses.hello({ ...this.onlineHello(o.ranked), arena: ses.last?.arena }); this.showOnlineLobby(ses, o); });
+      this.showGarage(() => { ses.hello({ ...this.onlineHello(o.ranked, this.privateRooms.has(ses)), arena: ses.last?.arena }); this.showOnlineLobby(ses, o); }, this.privateRooms.has(ses));
     }, 'big', SLOT_ICON.body);
     ses.onPeer = (p) => { peer.replaceChildren(...this.peerEls(p)); hd.querySelector('.ra-title')?.replaceChildren(`vs ${p.name}`); if (o.auto) { ses.ready(); stat.textContent = 'Opponent found. Starting…'; } };
     ses.onLeft = () => { left = true; stat.textContent = 'Opponent left the room.'; };
@@ -1768,7 +1770,7 @@ export class Menus implements MenuLayer {
       return;
     }
     const lobby = { ranked, score: setDone ? [0, 0] as [number, number] : next, last: line, build: setDone ? undefined : build, cp };
-    if (setDone && build) ses.hello({ ...this.onlineHello(false), arena: ses.last?.arena });
+    if (setDone && build) ses.hello({ ...this.onlineHello(false, this.privateRooms.has(ses)), arena: ses.last?.arena });
     // casual sets: counter-pick between rounds (draws and desynced rounds go straight on)
     if (!ranked && !setDone && res.outcome !== 'draw' && res.netClean !== false) {
       this.onlineCounterPick(ses, st, me, next, res.outcome === 'lose' ? 0 : 1, lobby);
@@ -1810,7 +1812,7 @@ export class Menus implements MenuLayer {
       colors: [hex(st.players[me].paint.glow), hex(foe.paint.glow)],
       loadouts: [{ ...st.players[me].loadout }, { ...foe.loadout }],
       loser,
-      pickers: [{ kind: 'local', owned: (slot, id) => isUnlocked(s, slot, id) }, { kind: 'wait', wait: (step) => ch.wait(round, step), skipAfter: 35 }],
+      pickers: [{ kind: 'local', owned: (slot, id) => this.privateRooms.has(ses) || isUnlocked(s, slot, id) }, { kind: 'wait', wait: (step) => ch.wait(round, step), skipAfter: 35 }],
       onPick: (step, _side, pick) => ch.send(round, step, pick),
       onDone: async (los) => {
         if (left || ses.closed) { ses.close(); this.showOnline('Opponent left the set.'); return; }
@@ -1960,13 +1962,13 @@ export class Menus implements MenuLayer {
     this.toast(`Season reward: ${got.map((id) => COSMETICS[id].name).join(' + ')}`);
   }
 
-  private openPhoto() {
+  private openPhoto(loadout = this.host.save.loadout) {
     if (this.keyCapture) return;
     this.keyCapture = true;
     this.host.suspendBackdrop?.(true);
     const previousFocus = document.activeElement as HTMLElement | null;
     try {
-      new PhotoStudio(this.host.save.loadout, this.host.save.paint, () => {
+      new PhotoStudio(loadout, this.host.save.paint, () => {
         this.keyCapture = false; this.host.suspendBackdrop?.(false); previousFocus?.focus();
       });
     } catch (error) {
@@ -1978,11 +1980,15 @@ export class Menus implements MenuLayer {
 
   /* ---------------- garage */
 
-  private showGarage(onBack: () => void) {
+  private showGarage(onBack: () => void, custom = false) {
     this.music('garage');
-    const s = this.host.save;
+    const save = this.host.save;
+    const s = custom ? new Proxy(save, {
+      get: (target, key) => Reflect.get(target, key === 'loadout' ? 'customLoadout' : key === 'presets' ? 'customPresets' : key),
+      set: (target, key, value) => Reflect.set(target, key === 'loadout' ? 'customLoadout' : key === 'presets' ? 'customPresets' : key, value),
+    }) : save;
     const el = h('div', 'scr-garage');
-    const hd = this.header('Assembly bay / 03', 'Garage');
+    const hd = this.header(custom ? 'Custom build · all parts available' : 'Assembly bay', 'Garage');
     const thumbnails = new PartThumbnails();
 
     const preview = h('div', 'gar-preview', h('div', 'gar-ring'), h('div', 'gar-drag', svg('<svg viewBox="0 0 24 24"><path d="M12 5c-4 0-7.5 1.6-9 4l-2-1v5h5L4 11.5C5.2 9.5 8.3 8 12 8s6.8 1.5 8 3.5L18 13h5V8l-2 1c-1.5-2.4-5-4-9-4z"/></svg>'), h('span', 'k-kb', 'Drag to rotate'), h('span', 'k-pad', 'R-Stick to rotate')));
@@ -2038,7 +2044,7 @@ export class Menus implements MenuLayer {
     };
 
     const renderDetail = (p: AnyPart) => {
-      const owned = isUnlocked(s, p.slot, p.id);
+      const owned = (custom || isUnlocked(s, p.slot, p.id));
       const equipped = s.loadout[p.slot] === p.id;
       const eq = ALL_PARTS[p.slot][s.loadout[p.slot]];
       const extra: HTMLElement[] = [];
@@ -2051,7 +2057,7 @@ export class Menus implements MenuLayer {
       }
       detail.replaceChildren(
         h('div', 'gd-top', h('div', 'gd-ico', svg(SLOT_ICON[p.slot])), h('div', '', h('div', 'gd-slot', `${SLOT_LABEL[p.slot]} Part`), h('div', 'gd-name', owned ? p.name : p.name))),
-        equipped ? h('div', 'gd-tag eq', svg(CHECK_ICON), 'Equipped') : owned ? h('div', 'gd-tag', 'Owned · press to equip') : h('div', 'gd-tag lk', svg(LOCK_ICON), lockText(p.slot, p.id)),
+        equipped ? h('div', 'gd-tag eq', svg(CHECK_ICON), 'Equipped') : owned ? h('div', 'gd-tag', custom ? 'Available · press to equip' : 'Owned · press to equip') : h('div', 'gd-tag lk', svg(LOCK_ICON), lockText(p.slot, p.id)),
         h('div', 'gd-desc', p.desc),
         ...(p.slot === 'gun' && ['rail', 'beam'].includes(p.id) ? [h('div', 'gd-desc', p.id === 'rail' ? 'COMBO FINISHER · Hit an armed primer to detonate it.' : 'COMBO FINISHER · Charge to at least 75% and hit an armed primer.')] : p.slot === 'bomb' ? [h('div', 'gd-desc', 'SETUP · Hold the bomb mouse button to aim, release to throw. Clean blast hits prime a precision follow-up.')] : []),
         h('div', 'gd-ratings', ...Object.entries(p.ratings).map(([k, v]) => ratingBar(k, v, equipped ? undefined : eq?.ratings[k]))),
@@ -2068,7 +2074,7 @@ export class Menus implements MenuLayer {
     const renderList = (slot: Slot) => {
       const parts = Object.values(ALL_PARTS[slot]);
       partEls = parts.map((p, i) => {
-        const owned = isUnlocked(s, slot, p.id);
+        const owned = (custom || isUnlocked(s, slot, p.id));
         const equipped = s.loadout[slot] === p.id;
         const pips = h('div', 'gp-pips', ...Object.entries(p.ratings).map(([k, v]) => h('span', '', k.slice(0, 3), h('b', '', '■'.repeat(v)))));
         const el = nav(h('div', `gar-part ${owned ? '' : 'locked'} ${equipped ? 'equipped' : ''}`,
@@ -2093,7 +2099,7 @@ export class Menus implements MenuLayer {
         return el;
       });
       list.replaceChildren(...partEls);
-      count.textContent = `${parts.filter((p) => isUnlocked(s, slot, p.id)).length} / ${parts.length} owned`;
+      count.textContent = `${parts.filter((p) => (custom || isUnlocked(s, slot, p.id))).length} / ${parts.length} ${custom ? 'available' : 'owned'}`;
     };
 
     const selectSlot = (slot: Slot, sound: boolean) => {
@@ -2128,6 +2134,7 @@ export class Menus implements MenuLayer {
 
     const backBtn = btn('Back', () => { this.host.sfx('ui_back'); leave(); }, 'big');
     const shareBtn = btn('Build Code', () => { this.host.sfx('ui_select'); this.meta.openShareCode(() => { sendBackdrop(); renderList(this.gSlot); renderSummary(); redrawPaint(); wear.value = String(Math.round((s.paint.wear ?? 0) * 100)); wearLabel.textContent = `Wear ${wear.value}%`; }); }, 'big');
+    shareBtn.hidden = custom;
     const presetSelect = h('select', 'gar-preset-select'); presetSelect.setAttribute('aria-label', 'Saved build slot');
     const renderPresets = () => {
       const selected = presetSelect.value || '0';
@@ -2147,7 +2154,7 @@ export class Menus implements MenuLayer {
     }, 'gar-preset-action');
     renderPresets();
     const presetRow = h('div', 'gar-presets', presetSelect, savePreset, loadPreset);
-    const left = h('div', 'ra-panel gar-left', tabs, presetRow, h('div', 'gar-list-h', h('span', '', `Parts`), count), list, h('div', 'gar-left-foot', backBtn, shareBtn));
+    const left = h('div', 'ra-panel gar-left', tabs, presetRow, h('div', 'gar-list-h', h('span', '', `Parts`), count), list, h('div', 'gar-left-foot', backBtn, ...(custom ? [] : [shareBtn])));
     const paintShop = h('section', 'ra-panel paint-shop');
     const studioTitle = h('div', 'paint-title', 'Finish studio');
     let zone: 'primary' | 'secondary' | 'trim' | 'dark' | 'glow' | 'flame' | 'trail' = 'primary';
@@ -2183,7 +2190,7 @@ export class Menus implements MenuLayer {
     const paintTab = btn('Paint Studio', () => { detail.hidden = true; summary.hidden = true; paintShop.hidden = false; specsTab.classList.remove('selected'); paintTab.classList.add('selected'); }, '');
     const rightTabs = h('div', 'gar-right-tabs', specsTab, paintTab);
     const right = h('div', 'gar-right', rightTabs, detail, summary, paintShop);
-    const photo = btn('Photo Mode', () => this.openPhoto(), 'big', SLOT_ICON.body);
+    const photo = btn('Photo Mode', () => this.openPhoto(s.loadout), 'big', SLOT_ICON.body);
     photo.classList.add('gar-photo'); preview.append(photo);
     photo.addEventListener('pointerdown', e => e.stopPropagation());
     stagger([left], 80);
@@ -2330,6 +2337,9 @@ export class Menus implements MenuLayer {
         const d = defaultSave();
         s.unlocked = d.unlocked;
         s.loadout = d.loadout;
+        s.customLoadout = d.customLoadout;
+        s.customPresets = d.customPresets;
+        s.presets = d.presets;
         s.ladder = d.ladder;
         s.beaten = d.beaten;
         s.totals = d.totals;

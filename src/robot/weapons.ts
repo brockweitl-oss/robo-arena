@@ -34,7 +34,27 @@ export function buildGun(def: VisualGun, rig: Rig, b: PartBuilder, glowMat: THRE
   barrel.name = 'barrel';
   m.add(barrel);
   let chargeGlow: THREE.Mesh | null = null;
-  if (def.model === 'beam') {
+  if (def.model === 'needle') {
+    b.add(m, 'primary', chamferBox(0.14, 0.28, 0.16, 0.03));
+    b.add(m, 'secondary', xf(chamferBox(0.11, 0.17, 0.2, 0.02), [0.08, 0.02, 0]));
+    for (const x of [-0.045, 0.045]) {
+      b.add(barrel, 'chrome', xf(cyl(0.018, 0.025, 0.5, 10), [x, -0.34, 0.02]));
+      b.add(barrel, 'dark', xf(chamferBox(0.035, 0.28, 0.055, 0.01), [x, -0.24, 0.02]));
+      b.add(barrel, 'glow', xf(cyl(0.013, 0.013, 0.01, 8), [x, -0.595, 0.02]));
+    }
+    rig.muzzle.position.set(0, -0.61, 0.02);
+  } else if (def.model === 'nova') {
+    b.add(m, 'dark', chamferBox(0.2, 0.27, 0.22, 0.04));
+    b.add(barrel, 'secondary', xf(cyl(0.15, 0.1, 0.3, 12), [0, -0.26, 0]));
+    for (let i = 0; i < 3; i++) {
+      const a = i * Math.PI * 2 / 3;
+      b.add(barrel, 'primary', xf(chamferBox(0.07, 0.27, 0.07, 0.02), [Math.cos(a) * 0.15, -0.38, Math.sin(a) * 0.15]));
+    }
+    b.add(barrel, 'chrome', xf(torus(0.13, 0.025, 16, 6), [0, -0.43, 0], [Math.PI / 2, 0, 0]));
+    chargeGlow = new THREE.Mesh(sphere(0.1), glowMat);
+    chargeGlow.position.set(0, -0.44, 0); barrel.add(chargeGlow);
+    rig.muzzle.position.set(0, -0.55, 0);
+  } else if (def.model === 'beam') {
     b.add(m, 'dark', chamferBox(0.13, 0.29, 0.16, 0.035));
     b.add(m, 'secondary', xf(chamferBox(0.14, 0.09, 0.17, 0.025), [0, 0.09, 0]));
     b.add(barrel, 'dark', xf(cyl(0.044, 0.044, 0.48, 12), [0, -0.34, 0.02]));

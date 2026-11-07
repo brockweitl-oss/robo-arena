@@ -31,7 +31,7 @@ export interface PartBase {
 
 export interface GunDef extends PartBase {
   slot: 'gun';
-  model: 'blaster' | 'rail' | 'scatter' | 'beam' | 'homer';
+  model: 'blaster' | 'rail' | 'scatter' | 'beam' | 'homer' | 'needle' | 'nova';
   /** Shots per trigger pull. */
   burst: number;
   /** Seconds between shots in a burst. */
@@ -68,7 +68,7 @@ export interface GunDef extends PartBase {
   coreColor: number;
   /** Fighter slows to this fraction of speed while firing on the ground. */
   groundSlow: number;
-  sfx: 'gun_blaster' | 'gun_rail' | 'gun_scatter';
+  sfx: 'gun_blaster' | 'gun_rail' | 'gun_scatter' | 'gun_beam' | 'gun_homer';
   knockback: number;
 }
 
@@ -211,8 +211,8 @@ export const GUNS: Record<string, GunDef> = {
     desc: 'Three-round pressure burst. Mild tracking at mid-range; sustained chip rather than a finisher.',
     pro: 'Reliable mid-range pressure', con: 'Low impact; loses tracking at range',
     ratings: { Power: 2, Speed: 4, Tracking: 3, Reload: 4 },
-    burst: 3, burstInterval: 0.13, pellets: 1, spreadDeg: 0, cooldown: 0.75, windup: 0, recovery: 0.12,
-    damage: 23, down: 8, speed: 38, homing: 0.85, homingTime: 0.3, life: 0.9, radius: 0.2,
+    burst: 3, burstInterval: 0.13, pellets: 1, spreadDeg: 0, cooldown: 0.9, windup: 0.12, recovery: 0.18,
+    damage: 30, down: 10, speed: 38, homing: 0.85, homingTime: 0.3, life: 0.9, radius: 0.2,
     color: 0x2fd6ff, coreColor: 0xe8fdff, groundSlow: 0.45, sfx: 'gun_blaster', knockback: 2.5,
   },
   scatter: {
@@ -220,8 +220,8 @@ export const GUNS: Record<string, GunDef> = {
     desc: 'Fans five pellets. Brutal up close, weak at range. Hard to dodge.',
     pro: 'Huge close-range damage', con: 'Pellets fade out past ~10 m',
     ratings: { Power: 4, Speed: 3, Tracking: 1, Reload: 3 },
-    burst: 1, burstInterval: 0, pellets: 5, spreadDeg: 15, cooldown: 1.15, windup: 0.14, recovery: 0.3,
-    damage: 47, down: 13, speed: 34, homing: 0, homingTime: 0, life: 0.38, radius: 0.2,
+    burst: 1, burstInterval: 0, pellets: 5, spreadDeg: 15, cooldown: 1.4, windup: 0.28, recovery: 0.4,
+    damage: 58, down: 14, speed: 34, homing: 0, homingTime: 0, life: 0.38, radius: 0.2,
     color: 0xffb03a, coreColor: 0xfff3d0, groundSlow: 0.3, sfx: 'gun_scatter', knockback: 2,
   },
   rail: {
@@ -229,8 +229,8 @@ export const GUNS: Record<string, GunDef> = {
     desc: 'Brace, then fire a precise predictive slug. Punishes recovery and straight-line movement; cannot curve after firing.',
     pro: 'High-impact punish at long range', con: 'Committed wind-up and recovery; no homing',
     ratings: { Power: 5, Speed: 5, Tracking: 1, Reload: 1 },
-    burst: 1, burstInterval: 0, pellets: 1, spreadDeg: 0, cooldown: 2.05, windup: 0.5, recovery: 0.38,
-    damage: 185, down: 60, speed: 110, homing: 0, homingTime: 0, life: 0.5, radius: 0.3,
+    burst: 1, burstInterval: 0, pellets: 1, spreadDeg: 0, cooldown: 2.4, windup: 0.72, recovery: 0.5,
+    damage: 235, down: 65, speed: 110, homing: 0, homingTime: 0, life: 0.5, radius: 0.3,
     color: 0xc46bff, coreColor: 0xffffff, groundSlow: 0.1, sfx: 'gun_rail', knockback: 9,
   },
   beam: {
@@ -238,19 +238,38 @@ export const GUNS: Record<string, GunDef> = {
     desc: 'Hold to charge, release to fire a piercing beam bolt. Longer holds hit harder.',
     pro: 'You choose speed vs power each shot', con: 'Weak when tapped; charging is visible',
     ratings: { Power: 4, Speed: 4, Tracking: 2, Reload: 2 },
-    burst: 1, burstInterval: 0, pellets: 1, spreadDeg: 0, cooldown: 0.9, windup: 0, recovery: 0.32,
-    holdMin: 0.2, holdMax: 0.9, holdMinFrac: 0.4, pierce: true,
-    damage: 175, down: 60, speed: 80, homing: 0, homingTime: 0, life: 0.8, radius: 0.32,
-    color: 0x5dff9e, coreColor: 0xeafff2, groundSlow: 0.35, sfx: 'gun_rail', knockback: 6,
+    burst: 1, burstInterval: 0, pellets: 1, spreadDeg: 0, cooldown: 1.25, windup: 0, recovery: 0.4,
+    holdMin: 0.3, holdMax: 1.25, holdMinFrac: 0.4, pierce: true,
+    damage: 205, down: 65, speed: 80, homing: 0, homingTime: 0, life: 0.8, radius: 0.32,
+    color: 0x5dff9e, coreColor: 0xeafff2, groundSlow: 0.35, sfx: 'gun_beam', knockback: 8,
   },
   homer: {
     id: 'homer', slot: 'gun', name: 'Arc Homer', model: 'homer', family: 'strider', mass: 10,
     desc: 'Twin shots launch wide to the sides, then curve in on the target.',
     pro: 'Hits around cover and punishes strafing', con: 'Slow; a straight dash escapes the curve',
     ratings: { Power: 2, Speed: 2, Tracking: 5, Reload: 3 },
-    burst: 1, burstInterval: 0, pellets: 2, spreadDeg: 0, launchDeg: 35, cooldown: 1.25, windup: 0.16, recovery: 0.18,
-    damage: 47, down: 14, speed: 25, homing: 5.5, homingTime: 1.0, homingDelay: 0.1, life: 1.8, radius: 0.24,
-    color: 0xff7ae6, coreColor: 0xfff0fb, groundSlow: 0.5, sfx: 'gun_blaster', knockback: 2.5,
+    burst: 1, burstInterval: 0, pellets: 2, spreadDeg: 0, launchDeg: 35, cooldown: 1.55, windup: 0.32, recovery: 0.26,
+    damage: 65, down: 18, speed: 25, homing: 5.5, homingTime: 1.0, homingDelay: 0.1, life: 1.8, radius: 0.24,
+    color: 0xff7ae6, coreColor: 0xfff0fb, groundSlow: 0.5, sfx: 'gun_homer', knockback: 3.5,
+  },
+  needle: {
+    id: 'needle', slot: 'gun', name: 'Needle Volley', model: 'needle', family: 'strider', mass: 11,
+    desc: 'Brace, then send four narrow darts down a lane. Each dart aims separately; no homing after release.',
+    pro: 'Sustained precision lane pressure', con: 'Long burst commitment; weak against sudden direction changes',
+    ratings: { Power: 3, Speed: 5, Tracking: 1, Reload: 2 },
+    burst: 4, burstInterval: 0.16, pellets: 1, spreadDeg: 0, cooldown: 1.65, windup: 0.4, recovery: 0.3,
+    damage: 54, down: 12, speed: 70, homing: 0, homingTime: 0, life: 0.55, radius: 0.12,
+    color: 0xffe06b, coreColor: 0xffffff, groundSlow: 0.25, sfx: 'gun_blaster', knockback: 2,
+  },
+  nova: {
+    id: 'nova', slot: 'gun', name: 'Nova Cannon', model: 'nova', family: 'titan', mass: 17,
+    desc: 'Charge a large, slow plasma orb. Force a dodge, then punish the escape with another weapon.',
+    pro: 'Heavy space-control shot; enormous fully charged impact', con: 'Easy to see; can be intercepted or dodged',
+    ratings: { Power: 5, Speed: 1, Tracking: 1, Reload: 1 },
+    burst: 1, burstInterval: 0, pellets: 1, spreadDeg: 0, cooldown: 1.5, windup: 0, recovery: 0.45,
+    holdMin: 0.4, holdMax: 1.1, holdMinFrac: 0.4,
+    damage: 330, down: 80, speed: 20, homing: 0, homingTime: 0, life: 2, radius: 0.65,
+    color: 0xff6038, coreColor: 0xffedc2, groundSlow: 0.2, sfx: 'gun_beam', knockback: 12,
   },
 };
 

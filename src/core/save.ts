@@ -75,6 +75,9 @@ export interface SaveData {
   /** Owned parts as "slot:id". */
   unlocked: string[];
   loadout: Loadout;
+  /** Unrestricted exhibition/private-room build, independent of campaign ownership. */
+  customLoadout: Loadout;
+  customPresets: (BuildPreset | null)[];
   /** Index of the next ladder fight (0..RIVALS.length). RIVALS.length = champion beaten. */
   ladder: number;
   /** Rival ids the player has beaten at least once. */
@@ -136,6 +139,8 @@ export function defaultSave(): SaveData {
     version: 2,
     unlocked: [...NEW_PILOT_PARTS],
     loadout: { ...DEFAULT_LOADOUT },
+    customLoadout: { ...DEFAULT_LOADOUT },
+    customPresets: [null, null, null, null, null],
     ladder: 0,
     beaten: [],
     settings: { ...DEFAULT_SETTINGS, bindings: cloneBindings(DEFAULT_BINDINGS) },
@@ -223,6 +228,8 @@ export function migrateSave(raw: unknown): SaveData {
     version: 2,
     unlocked: fr.unlocked,
     loadout: { ...base.loadout, ...(obj(d.loadout) as Partial<Loadout>) },
+    customLoadout: { ...base.loadout },
+    customPresets: [null, null, null, null, null],
     ladder: num(d.ladder, 0, 0) | 0,
     beaten,
     settings,
@@ -264,6 +271,21 @@ export function migrateSave(raw: unknown): SaveData {
       if (typeof id === 'string' && Object.hasOwn(ALL_PARTS[slot], id) && merged.unlocked.includes(`${slot}:${id}`)) loadout[slot] = id;
     }
     return { name: typeof preset.name === 'string' ? preset.name.slice(0, 40) : `Build ${i + 1}`, loadout, paint: normalizePaint(preset.paint) };
+  });
+  const catalogBuild = (raw: unknown): Loadout => {
+    const data = obj(raw), build = { ...DEFAULT_LOADOUT };
+    for (const slot of Object.keys(build) as Slot[]) {
+      const id = data[slot];
+      if (typeof id === 'string' && Object.hasOwn(ALL_PARTS[slot], id)) build[slot] = id;
+    }
+    return build;
+  };
+  merged.customLoadout = catalogBuild(d.customLoadout ?? merged.loadout);
+  if (Array.isArray(d.customPresets)) merged.customPresets = Array.from({ length: 5 }, (_, i) => {
+    const raw = d.customPresets![i];
+    if (!raw || typeof raw !== 'object') return null;
+    const p = obj(raw);
+    return { name: typeof p.name === 'string' ? p.name.slice(0, 40) : `Build ${i + 1}`, loadout: catalogBuild(p.loadout), paint: normalizePaint(p.paint) };
   });
   return merged;
 }

@@ -23,6 +23,20 @@ function result(o: Partial<MatchResult> = {}, p: Partial<MatchStats> = {}): Matc
 }
 const NOV1 = new Date(2026, 10, 1, 12, 0, 0); // a Sunday
 
+describe('unrestricted custom inventory', () => {
+  it('persists catalog equipment and presets without granting campaign ownership', () => {
+    const save = defaultSave(), owned = [...save.unlocked];
+    save.customLoadout.gun = 'beam';
+    save.customPresets[0] = { name: 'Beam test', loadout: { ...save.customLoadout }, paint: { ...save.paint } };
+    const loaded = migrateSave(JSON.parse(JSON.stringify(save)));
+    expect(loaded.customLoadout.gun).toBe('beam');
+    expect(loaded.customPresets[0]?.loadout.gun).toBe('beam');
+    expect(loaded.loadout).toEqual(save.loadout);
+    expect(loaded.unlocked).toEqual(owned);
+    expect(migrateSave({ ...save, customLoadout: { gun: 'not-a-part' } }).customLoadout.gun).toBe(DEFAULT_LOADOUT.gun);
+  });
+});
+
 describe('credits', () => {
   it('pays win 120 / loss 40 in ladder', () => {
     expect(matchCredits(result()).total).toBe(120);
