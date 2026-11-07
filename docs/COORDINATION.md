@@ -54,6 +54,12 @@ Codex's `codex/unified-visual-replay` starts from the combined `main`, including
 
 ## Status board
 
+### Recorded soundtrack — issue #75
+
+`codex/recorded-soundtrack` integrates the exact owner-supplied menu recording with shared
+volume/ducking and crossfade handling. Five additional songs (two menu, three combat) remain
+pending a connected generator; see `RECORDED-SOUNDTRACK.md`. They are not claimed complete.
+
 ### Menu club-house follow-up — issue #73
 
 `codex/menu-club-house` replaces the menu's bright lead/arpeggio with a 126 BPM minor-key

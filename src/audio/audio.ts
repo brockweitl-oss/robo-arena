@@ -1,5 +1,5 @@
-// Robo Arena audio engine. Every sound and every note of music is synthesized at runtime with
-// the Web Audio API — no audio files. See synth.ts (primitives), inst.ts (instruments),
+// Robo Arena audio engine. Recorded menu music and procedural instruments share the
+// Web Audio mixer. See synth.ts (primitives), inst.ts (instruments),
 // sfx.ts (sound recipes), loops.ts (continuous loops/ambiences), music.ts (tracks + sequencer),
 // bus.ts (mixer: reverb sends, slow-mo filter, compressor, limiter).
 import type * as THREE from 'three';
@@ -98,7 +98,8 @@ class LoopHandleImpl implements LoopHandle {
 
 interface MusicPlayer {
   name: MusicTrack;
-  seq: Sequencer;
+  seq?: Sequencer;
+  source?: AudioBufferSourceNode;
   gain: GainNode;
   stopAt?: number;
 }
@@ -117,6 +118,7 @@ class AudioEngine {
   private timer?: ReturnType<typeof setInterval>;
   private timeScale = 1;
   private failed = false;
+  private menuRecording?: Promise<AudioBuffer>;
 
   /** True once an AudioContext exists. */
   get ready() { return !!this.ctx; }
@@ -343,10 +345,37 @@ class AudioEngine {
       send.gain.setValueAtTime(0, now);
       send.gain.linearRampToValueAtTime(1, now + XFADE);
       send.connect(bus.musicRevIn);
-      const seq = new Sequencer(ctx, gain, send, def, now + 0.06);
       (gain as any)._send = send;
-      this.music = { name: track, seq, gain };
-      seq.pump(now + LOOKAHEAD);
+      const player: MusicPlayer = { name: track, gain };
+      this.music = player;
+      if (track === 'menu') {
+        // Decode once, lazily after audio unlock; keep all recorded music on the normal
+        // volume/ducking bus. Identity checks prevent late loads reviving a left screen.
+        this.menuRecording ??= fetch(`${import.meta.env.BASE_URL}music/neon-guillotine-chrome-confession.m4a`)
+          .then(r => { if (!r.ok) throw new Error(`Music HTTP ${r.status}`); return r.arrayBuffer(); })
+          .then(bytes => ctx.decodeAudioData(bytes));
+        void this.menuRecording.then(buffer => {
+          if (this.music !== player) return;
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.loop = true;
+          source.connect(gain);
+          player.source = source;
+          const start = ctx.currentTime;
+          gain.gain.cancelScheduledValues(start);
+          gain.gain.setValueAtTime(0, start);
+          gain.gain.linearRampToValueAtTime(1, start + XFADE);
+          source.start(start);
+        }).catch(() => {
+          this.menuRecording = undefined;
+          if (this.music !== player) return;
+          // Offline/unsupported-codec fallback keeps the game usable; retry next visit.
+          player.seq = new Sequencer(ctx, gain, send, def, ctx.currentTime + 0.06);
+        });
+      } else {
+        player.seq = new Sequencer(ctx, gain, send, def, now + 0.06);
+        player.seq.pump(now + LOOKAHEAD);
+      }
     } catch (e) {
       try { console.warn('[audio] playMusic failed', e); } catch { /* */ }
     }
@@ -366,6 +395,7 @@ class AudioEngine {
       g.linearRampToValueAtTime(0, now + f);
     }
     m.stopAt = now + f;
+    m.source?.stop(m.stopAt);
     this.fading.push(m);
   }
 
@@ -412,14 +442,14 @@ class AudioEngine {
     try {
       const now = ctx.currentTime;
       const until = now + LOOKAHEAD;
-      this.music?.seq.pump(until, now);
+      this.music?.seq?.pump(until, now);
       for (let i = this.fading.length - 1; i >= 0; i--) {
         const m = this.fading[i];
         if (m.stopAt !== undefined && now > m.stopAt + 2.5) {
-          try { m.gain.disconnect(); ((m.gain as any)._send as GainNode | undefined)?.disconnect(); } catch { /* */ }
+          try { m.source?.disconnect(); m.gain.disconnect(); ((m.gain as any)._send as GainNode | undefined)?.disconnect(); } catch { /* */ }
           this.fading.splice(i, 1);
         } else if (m.stopAt !== undefined && now < m.stopAt) {
-          m.seq.pump(Math.min(until, m.stopAt), now);
+          m.seq?.pump(Math.min(until, m.stopAt), now);
         }
       }
       for (const h of this.loops) h.voice?.tick?.(now, now + 0.25);
