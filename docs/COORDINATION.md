@@ -54,6 +54,14 @@ Codex's `codex/unified-visual-replay` starts from the combined `main`, including
 
 ## Status board
 
+### Menu club-house follow-up — issue #73
+
+`codex/menu-club-house` replaces the menu's bright lead/arpeggio with a 126 BPM minor-key
+house groove: four-on-the-floor kick, offbeat sub, claps, dark filtered chords and a four-bar
+breakdown in a 32-bar loop. Arena/garage tracks and visuals are unchanged. Independent Codex
+review (Arendt) approved the audio code; no listening or Claude review is claimed.
+TypeScript, 274 tests, build and local browser smoke pass (60 fps, no browser warnings/errors).
+
 ### November 6 playtest feedback — issue #71
 
 Codex branch `codex/playtest-feedback` implements calmer menus, recorded tactical deployment,
