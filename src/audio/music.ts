@@ -107,52 +107,36 @@ function fill(c: Ctx, s: StepInfo, from = 8, toms = true) {
 }
 
 // ------------------------------------------------------------------ tracks
-const MENU_LEAD = mels([
-  'D5 - - A4 D5 - E5 - F#5 - - E5 D5 - A4 -',
-  'B4 - - . D5 - - B4 F#5 - - . E5 - D5 -',
-  'G5 - - F#5 E5 - D5 - B4 - D5 - E5 - - .',
-  'C#5 - - - E5 - - - A5 - - - G5 - F#5 E5',
-  'D5 - - A4 D5 - E5 - F#5 - - E5 D5 - A4 -',
-  'B4 - - . D5 - - B4 F#5 - - . E5 - D5 -',
-  'G5 - - A5 B5 - A5 - G5 - F#5 - E5 - D5 -',
-  'E5 - - - - - - . A4 - C#5 - E5 - A5 -',
-  'B5 - - - - - A5 - G5 - - - D5 - - .',
-  'C#6 - - - - - B5 - A5 - - - E5 - - .',
-  'A5 - - - F#5 - - - C#6 - - - A5 - - -',
-  'B5 - - - - - - - D6 - C#6 - B5 - A5 -',
-  'B5 - - - - - A5 - G5 - - - D5 - - .',
-  'C#6 - - - - - B5 - A5 - - - E5 - - .',
-  'F#5 - - - D5 - - - B4 - D5 - F#5 - B5 -',
-  'A5 - - - - - - - . . . . . . . .',
-]);
+// Dark club-house: a low minor vamp, offbeat sub and breathing chord stabs.
+// No lead melody or octave-doubled arpeggio; density changes carry the arrangement.
 const menu: TrackDef = {
-  gain: 0.73, bpm: 120, bars: 16,
-  prog: ['D', 'Bm', 'G', 'A', 'D', 'Bm', 'G', 'A', 'G', 'A', 'F#m', 'Bm', 'G', 'A', 'Bm', 'A'],
+  gain: 0.78, bpm: 126, bars: 32, swing: 0.06,
+  prog: ['Fm9', 'Fm9', 'Fm9', 'Fm9', 'Dbmaj7', 'Dbmaj7', 'Ebm9', 'Ebm9'],
   render(c, s) {
     const T = c.at(s.t);
-    const fillBar = s.bar === 7 || s.bar === 15;
-    if (pat('x...x...x...x...')[s.step]) I.kick(T, 1);
-    if (!(fillBar && fill(c, s, 10))) {
-      if (s.step === 4 || s.step === 12) { I.snare(T, 0.9); if (s.B) I.clap(T, 0.5); }
+    const breakdown = s.bar >= 24 && s.bar < 28;
+    const full = s.bar >= 8 && !breakdown;
+    if (!breakdown && s.step % 4 === 0) I.kick(T, 1.05);
+    if (!breakdown && (s.step === 4 || s.step === 12)) I.clap(T, 0.62);
+    // Offbeat air, with quiet swung sixteenths rather than constant bright fizz.
+    if (!breakdown && s.step % 4 === 2) I.hat(T, 0.48, true);
+    if (full && s.step % 4 === 3) I.hat(T, 0.13);
+    if (full && (s.step === 7 || s.step === 15)) I.rim(T, 0.17);
+    if (s.bar % 4 === 3 && s.step === 14) I.metal(T, 0.13, 360);
+    const root = tones(s.chord, 1)[0];
+    // Bass leaves each kick clear; restrained fifth pickup avoids an arcade octave bounce.
+    if (!breakdown && s.step % 4 === 2) {
+      I.bass(T, root, s.d16 * 1.35, 1.25, 'sub');
+      I.bass(T, root + 12, s.d16 * 1.1, 0.23, 'fm');
     }
-    const hp = s.B ? pat('oxoxoxoxoxoxoxox') : pat('o.x.o.x.o.x.o.x.');
-    if (hp[s.step]) I.hat(T, 0.5 * hp[s.step], s.B && s.step % 4 === 2);
-    if ((s.bar === 0 || s.bar === 8) && s.step === 0) I.crash(T, 0.6);
-    // bass
-    const root = tones(s.chord, 2)[0];
-    const bp = s.B ? pat('x.xx.x.xx.xx.x.x') : pat('x.x.x.x.x.x.x.x.');
-    if (bp[s.step]) I.bass(T, root + (s.step % 4 === 2 ? 12 : 0), s.d16 * 1.6, 0.9, 'saw');
-    // chords
-    const v = voicing(s.chord, 64);
-    if (!s.B) {
-      if (s.step === 0 || s.step === 6 || s.step === 10) for (const n of v) I.lead(T, n, s.d16 * 2, 0.45, 'pluck');
-    } else {
-      if (s.step === 0) I.pad(T, v, s.d16 * 16, 0.8, 'warm', 1800);
-      const arp = [0, 1, 2, 1];
-      const tt = tones(s.chord, 5);
-      I.lead(T, tt[arp[s.step % 4] % tt.length], s.d16, 0.35, 'pluck');
+    if (full && s.bar % 2 === 1 && s.step === 15) I.bass(T, root + 7, s.d16 * 0.65, 0.48, 'sub');
+    const chord = voicing(s.chord, 54);
+    // Short filtered chords swell after the kick: a house pumping feel without a lead.
+    if (s.step % 4 === 2) I.pad(T, chord, s.d16 * 1.2, breakdown ? 0.42 : 0.65, 'dark', full ? 1150 : 720);
+    if (s.step === 0 && s.bar % 2 === 0) {
+      I.pad(T, [chord[0] + 12, chord[2] + 12], s.d16 * 28, 0.18, 'dark', 620);
     }
-    playMel(c, MENU_LEAD[s.bar], s, s.B ? 'saw' : 'square', 1, s.loop % 2 === 1 && !s.B ? 12 : 0);
+    if (s.bar === 28 && s.step === 0) I.crash(T, 0.18, 1.2);
   },
 };
 
